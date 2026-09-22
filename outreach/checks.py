@@ -24,6 +24,15 @@ GENERIC_INBOXES = {
     "hr", "jobs", "careers", "dispatch", "mail", "team", "customerservice", "webmaster",
     "noreply", "no-reply", "general", "inquiries", "inquiry", "frontdesk", "reception",
 }
+# Added 2026-09-22 after the spot-check found employment@edwards-elec.com marked OK:
+# department and role mailboxes that do not reach the owner.
+ROLE_INBOXES = {
+    "employment", "hiring", "recruiting", "recruitment", "resumes", "resume", "apply",
+    "orders", "order", "quotes", "quote", "marketing", "warranty", "warranties", "parts",
+    "purchasing", "projects", "service.dept", "servicedept", "customer.service", "payroll",
+    "invoices", "invoice", "receivables", "payables", "safety", "scheduling", "schedule",
+}
+GENERIC_INBOXES |= ROLE_INBOXES
 
 # Personal and internet-provider mailboxes. A company may publish one of these as its real
 # address; that is only accepted when the address is actually found on the company's site.

@@ -65,6 +65,18 @@ def test_generic_inbox_and_404_site_are_risky():
     assert r == checks.RISKY and "generic inbox" in why and "HTTP 404" in why
 
 
+@pytest.mark.parametrize("local", ["employment", "hiring", "orders", "quotes", "marketing", "warranty",
+                                   "Employment", "resumes", "purchasing"])
+def test_role_inboxes_are_risky(local):
+    r, why = run(lead(email=f"{local}@airclaws.com"))
+    assert r == checks.RISKY and "generic inbox" in why
+
+
+@pytest.mark.parametrize("local", ["ray", "luke", "trevor", "orderly.bob", "quoteman"])
+def test_named_people_are_not_role_inboxes(local):
+    assert run(lead(email=f"{local}@airclaws.com"))[0] == checks.OK
+
+
 def test_personal_mailbox_found_on_site_is_ok():
     pub = {("john@yahoo.com", "https://airclaws.com/"): (True, "https://airclaws.com/contact")}
     r, why = run(lead(email="john@yahoo.com"), published=pub)

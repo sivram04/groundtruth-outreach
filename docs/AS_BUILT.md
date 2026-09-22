@@ -121,15 +121,23 @@ DNS is asked of Google Public DNS: the default resolvers on the founder's PC and
 Run timed out on `neo.rr.com`, which Google answers. A lookup that cannot be completed is
 RISKY ("could not check"), never INVALID.
 
-**Current results (after the review-fix recheck, 2026-09-22):**
+**Current results (after the role-inbox recheck, 2026-09-22):**
 
 | | A | B | Total |
 | --- | --- | --- | --- |
-| OK | 206 | 116 | 322 |
-| RISKY | 87 | 56 | 143 |
+| OK | 202 | 115 | 317 |
+| RISKY | 91 | 57 | 148 |
 | DUPLICATE | 10 | 2 | 12 |
 | SENT BY HAND | 14 | 0 | 14 |
 | INVALID | 1 | 0 | 1 |
+
+**Role-inbox recheck** (`tools/recheck_role_inboxes_2026_09_22.py`, Runs row
+`recheck-role-inboxes`): department and role mailboxes added to the generic-inbox rule
+(`checks.ROLE_INBOXES`: employment, hiring, recruiting, resumes, apply, orders, quotes,
+marketing, warranty, parts, purchasing, projects, customer.service, payroll, invoices,
+safety, scheduling and variants). Only OK/RISKY rows with such an address were re-checked:
+5 rows, all OK→RISKY — A-0147 `customer.service@`, A-0200 `employment@`, A-0224
+`employment@`, A-0275 `marketing@`, B-0062 `apply@`. No founder column written.
 
 **Review-fix recheck** (`tools/recheck_2026_09_22_fixes.py`, run locally, Runs row
 `recheck-fixes`): only OK/RISKY rows that are personal mailboxes or whose website is not a
@@ -181,8 +189,7 @@ and 492 recorded results have not been changed by this review.
 ## Known limits after the review fixes
 
 - A 403 to robots varies between runs on some sites; it changes only a note, never a result.
-- Generic-inbox list misses some role addresses: spot-check found `employment@edwards-elec.com`
-  (A-0200) marked OK. Not yet fixed — pending founder decision.
+- The role-inbox list is a fixed word list; a role mailbox using a word not on it is still OK.
 - OK is still not proof a mailbox exists; only a bounce after a real send proves that.
 
 ## Safety checks in code
@@ -201,6 +208,10 @@ and 492 recorded results have not been changed by this review.
   (proven to block a planted file).
 
 ## Change log
+
+- **2026-09-22** Role inboxes (employment@, hiring@, orders@, quotes@, marketing@,
+  warranty@ and others) added to the RISKY rule with tests; 5 matching rows rechecked, all
+  OK→RISKY. Totals now OK 317, RISKY 148.
 
 - **2026-09-22** Review fixes: HTTP 404/4xx no longer counts as a loaded site (homepage
   fallback, retries); write safeguard re-finds each lead by Lead ID or full founder
