@@ -44,9 +44,11 @@ def main(ids_file, apply):
                 reason += suffix.group(0)
             moved = [f'{q["category"]}->{k["category"]}: "{k["quote"][:70]}"'
                      for q, k in zip(quotes, kept) if q["category"] != k["category"]]
-            # Affected = the verdict changes, or a quote is re-categorised. A reason that differs
-            # only in wording is not an effect of the rule and is left as it is.
-            if (fit, mix) == (v["Fit"], v["Work mix"]) and not moved:
+            # Affected = Fit or Work mix changes (founder, 2026-09-22, batch-1 rule). A row whose
+            # verdict and label stay the same is left as it is, even if some of its evidence would
+            # now be labelled generic. (The two earlier sample re-evaluations also wrote rows
+            # whose quotes were re-categorised; AS_BUILT records which.)
+            if (fit, mix) == (v["Fit"], v["Work mix"]):
                 continue
             changes.append((v["Lead ID"], v["Company"], f'{v["Fit"]}/{v["Work mix"]}', f"{fit}/{mix}", reason, moved))
             updates[tab.name][row] = {"Fit": fit, "Work mix": mix, "Fit reason": reason,

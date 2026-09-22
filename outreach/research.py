@@ -68,12 +68,43 @@ def is_explicit(quote):
                 and not MENTIONS_RESIDENTIAL.search(quote))
 
 
+# Terms that only exist in commercial construction count on their own. Other construction words
+# ("construction", "design-build", "new build", "bid", "portfolio", "turn-key") need a commercial
+# setting in the same quote (founder, 2026-09-22, after batch 1: A-0040, a landscape design firm,
+# qualified on "from design and permits to construction" and "The Design/Build Approach").
+COMMERCIAL_CONSTRUCTION_ONLY = re.compile(
+    r"tenant|build-?outs?\b|fit-?outs?\b|general contractor|\bgcs?\b|plan[- ]?(and|&)[- ]?spec|"
+    r"prevailing wage|\bunion\b", re.I)
+
+# Narrow subcontracting evidence (founder, 2026-09-22, A-0059 Cinfab): the company says it works
+# as a subcontractor, or as a subcontractor or partner to a general contractor or construction
+# manager. Counts as the commercial setting only alongside verified construction or installation
+# work; never on its own.
+SUBCONTRACTING = re.compile(
+    r"\bsub-?contractor\b|(?:partner|subcontract\w*)[^.]{0,60}?"
+    r"(?:general contractor|construction manager|\bgcs?\b)", re.I)
+
+
 def is_specific(quote):
-    if CONSTRUCTION_ACTIVITY.search(quote):
+    if COMMERCIAL_CONSTRUCTION_ONLY.search(quote):
         return True
     if MENTIONS_RESIDENTIAL.search(quote):
-        return False
+        # Residential in the same breath: only a named commercial sector with construction counts.
+        return bool(COMMERCIAL_SECTOR.search(quote) and CONSTRUCTION_ACTIVITY.search(quote))
+    if COMMERCIAL_SETTING.search(quote) and CONSTRUCTION_ACTIVITY.search(quote):
+        return True
+    # Bare "commercial projects" is not enough: a named sector is needed with project work.
     return bool(COMMERCIAL_SECTOR.search(quote) and PROJECT_WORK.search(quote))
+
+
+def subcontracting_support(kept):
+    """A-0059 rule: one verified quote establishes commercial subcontracting and one (the same or
+    another) names construction or installation work. Residential and GC quotes do not count."""
+    usable = [k for k in kept if k["category"] in (COMMERCIAL_PROJECT, COMMERCIAL_GENERIC, COMMERCIAL_SERVICE)
+              and not MENTIONS_RESIDENTIAL.search(k["quote"])]
+    subs = [k for k in usable if SUBCONTRACTING.search(k["quote"])]
+    work = [k for k in usable if CONSTRUCTION_OR_INSTALLATION.search(k["quote"])]
+    return subs, work
 
 
 # A general-contractor quote must say so. On the sample the model called "design-build HVAC
@@ -251,6 +282,12 @@ def verdict(kept, pages_read, why_unreadable=""):
         if support:
             return QUALIFIED, "COMMERCIAL", ("1 quote shows specific commercial project work and "
                                              f"{len(support)} explicitly show commercial construction or "
+                                             "installation work; none show residential")
+        subs, work = subcontracting_support(kept)
+        if subs and work:
+            return QUALIFIED, "COMMERCIAL", ("1 quote shows specific commercial project work; the company states "
+                                             "it works as a subcontractor or partner to general contractors or "
+                                             "construction managers, and a verified quote names construction or "
                                              "installation work; none show residential")
         return REVIEW_NEEDED, "COMMERCIAL", ("only 1 quote shows commercial project work and no verified quote "
                                              "explicitly shows commercial construction or installation work"

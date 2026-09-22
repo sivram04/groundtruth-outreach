@@ -135,7 +135,9 @@ def test_a0250_langdon_bid_on_your_project_is_not_enough():
               "lengths for larger runs, ensuring easy shipping and installation."),
         (GEN, "Let us qualify for your next project!"),
     )
-    assert (f, mix) == (REVIEW_NEEDED, "COMMERCIAL") and "explicitly" in why
+    # Since the batch-1 rule "bid" needs a commercial setting, so Langdon has no specific project
+    # quote left; the verdict is still REVIEW_NEEDED.
+    assert f == REVIEW_NEEDED
 
 
 def test_b0100_heat_school_district_projects_is_not_enough():
@@ -170,6 +172,68 @@ def test_single_project_quote_supported_by_another_explicit_quote_qualifies():
 ])
 def test_is_explicit(quote, explicit):
     assert research.is_explicit(quote) is explicit
+
+
+# --- batch 1: construction words need a commercial setting; narrow subcontracting rule ----
+
+def test_a0040_pattie_landscape_design_build_is_review_needed():
+    f, _, _ = fit(
+        (CP, "Our team handles everything-from design and permits to construction-ensuring a seamless experience "
+             "and lasting results."),
+        (CP, "The Design/Build Approach All of our design, horticulture and installation experts are on the same "
+             "team assuring an enjoyable project that is completed on time and on budget"),
+        (RES, "We create beautiful outdoor living spaces for your home."),
+    )
+    assert f == REVIEW_NEEDED
+
+
+def test_a0021_halpin_construction_plumbing_is_review_needed():
+    assert fit(
+        (CP, "growing from a service-only company to service, excavation, and construction plumbing."),
+        (CP, "New Construction And Commercial The last thing you ever want to worry about in owning a property is "
+             "plumbing issues"),
+        (RES, "We handle drain cleaning and water heaters for homeowners."),
+    )[0] == REVIEW_NEEDED
+
+
+CINFAB = [
+    (CP, "We work as either a collaborative, cost-effective subcontractor to our mechanical contracting customers "
+         "or as the prime sheet metal partner to a construction manager, general contractor or building owner"),
+    (CP, "HVAC sheet metal design, fabrication and installation Design build and design assist capabilities"),
+]
+
+
+def test_a0059_cinfab_subcontractor_to_gcs_with_installation_stays_qualified():
+    f, mix, why = fit(*CINFAB)
+    assert (f, mix) == (QUALIFIED, "COMMERCIAL") and "subcontractor" in why
+
+
+def test_subcontracting_without_construction_or_installation_work_is_not_enough():
+    assert fit(
+        (CP, "We work as a trusted subcontractor to general contractors across Ohio."),
+        (CS, "Quality and safety are at the heart of everything we do."),
+    )[0] == REVIEW_NEEDED
+
+
+def test_subcontracting_statement_mentioning_homes_does_not_count():
+    subs, _ = research.subcontracting_support(research.downgrade_unsupported([
+        {"category": CP, "quote": "working with general contractors to bring new businesses or homes into the area",
+         "url": "u"}]))
+    assert subs == []
+
+
+@pytest.mark.parametrize("quote,specific", [
+    ("Our team handles everything-from design and permits to construction", False),
+    ("The Design/Build Approach", False),
+    ("commercial mechanical construction projects", True),
+    ("Built for design-build. Ready for plan & spec.", True),
+    ("Chase Bank GC: Rycon Construction", True),
+    ("For commercial projects, we serve the full state of Ohio.", False),
+    ("residential and commercial new construction", False),
+    ("new construction for hospitals and residential builders", True),
+])
+def test_construction_words_need_a_commercial_setting(quote, specific):
+    assert research.is_specific(quote) is specific
 
 
 def test_a0112_design_build_and_plan_and_spec_are_specific():

@@ -11,7 +11,8 @@ Last updated: 2026-09-22.
 | --- | --- | --- |
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
-| 2 Research | **Bulk run stopped after batch 1 on a rule gap** 2026-09-22 | Sample reviewed (9 QUALIFIED); batch 1 researched 39 more; 396 OK/RISKY leads still pending; no research schedule exists |
+| 2 Research | **Paused by founder after batch 1** 2026-09-22 | 69 leads researched (sample 30 + batch 1 39); batch-1 rule gap fixed (narrow subcontracting rule); 26 draft-eligible; 396 pending, not to be resumed for now; no research schedule exists |
+| 3 Drafts (pilot) | **Next — waiting for the founder's handbook** | Pilot from the 26 draft-eligible leads |
 | 3 Drafts | Not started | |
 | 4 Gmail sync | Not started | |
 | 5 Tracking | Not started | |
@@ -313,7 +314,47 @@ fit-out, general contractor/GC, plan-and-spec, prevailing wage, union) still cou
 Result: 3 changes — A-0021 and A-0040 to REVIEW_NEEDED as intended, and **A-0059 Cinfab** to
 REVIEW_NEEDED too, although it is a commercial sheet-metal subcontractor ("prime sheet metal
 partner to a construction manager, general contractor or building owner"); none of the 30
-reviewed rows changes. Awaiting founder decision; not implemented.
+reviewed rows changes.
+
+**Founder decision (option 2, narrow), implemented 2026-09-22:**
+
+- `research.is_specific`: commercial-construction-only terms (tenant, build-out, fit-out,
+  general contractor/GC, plan-and-spec, prevailing wage, union) count on their own; other
+  construction words (construction, design-build, new build, bid, builders, portfolio,
+  turn-key) count only with a commercial setting in the same quote; with a residential
+  mention, only a named sector plus construction counts; bare "commercial projects" never.
+- `research.subcontracting_support` (A-0059 rule): for a commercial-only firm with one
+  specific project quote, it also qualifies if a verified non-residential quote says it works
+  as a subcontractor, or as a subcontractor/partner to a general contractor or construction
+  manager, **and** a verified non-residential quote names construction or installation work.
+  Subcontracting alone never qualifies.
+- Dry run over all 69 researched leads: 2 Fit changes, 2 Work-mix-only changes, 23 rows whose
+  verdict and label stay the same but some quotes would now be labelled generic. **Only the 4
+  rows whose Fit or Work mix changes were written** (founder: update only affected rows):
+
+| Lead | Was | Now |
+| --- | --- | --- |
+| A-0021 Halpin Plumbing | QUALIFIED/MIXED | REVIEW_NEEDED/MIXED — "construction plumbing" names no commercial setting; one specific quote left against three residential |
+| A-0040 The Pattie Group | QUALIFIED/MIXED | REVIEW_NEEDED/MIXED — landscape design; no specific commercial project quote left |
+| A-0058 Cabling Concepts | REVIEW_NEEDED/COMMERCIAL | REVIEW_NEEDED/COMMERCIAL_SERVICE — label only |
+| A-0250 Langdon (reviewed) | REVIEW_NEEDED/COMMERCIAL | REVIEW_NEEDED/COMMERCIAL_SERVICE — label only; "bid on your project" is no longer specific |
+
+A-0059 Cinfab stays QUALIFIED under the subcontracting rule. The 23 unwritten rows keep their
+stored evidence labels, which predate this rule; their verdicts are what this rule gives.
+Worker redeployed as revision `outreach-worker-00013-6vx`.
+
+**Bulk research paused by the founder** (2026-09-22): the goal is a small set of useful Gmail
+drafts, not researching every lead. The 396 pending leads stay unresearched. Next: a draft
+pilot from the already-qualified leads once the founder's handbook is available.
+
+**Draft-eligible now (OK email and QUALIFIED fit): 26 leads** — A-0017 Gateway, A-0020 Graft,
+A-0022 Industrial Reliability and Repair, A-0025 Koch Refrigeration, A-0028 MJB, A-0030 Monroe,
+A-0031 Muetzel, A-0033 Perfection Group, A-0036 Reliant, A-0039 Geopfert, A-0043 Wuest,
+A-0045 Accurate Electric Construction, A-0047 All Phase, A-0049 Applied Mechanical, A-0051 Bay,
+A-0052 Bell & Blaire, A-0053 Blau, A-0055 BMWC, A-0056 Bonham, A-0059 Cinfab, A-0062 Conti,
+A-0078 Harrington, A-0112 Cincinnati Air, A-0173 Bromack, A-0188 Current Systems,
+A-0219 Guenther. 23 have a named owner, president or CEO; A-0173, A-0188 and A-0219 use a
+company or office mailbox. QUALIFIED with a RISKY address (no draft): 6.
 
 **How the rule got here.** The first sample run used "any project quote qualifies": 22
 QUALIFIED, and reading them showed the model labelling fixture lists, product lines, a dealer
@@ -361,12 +402,21 @@ checked against current Vertex AI pricing.
   Rapid, Waterworks, Efficient, Kouris, Enviro) never qualify; Monroe (mixed), Conti and Reddy
   still do. Single-quote cases: Current Systems qualifies; Langdon's and HEAT's full stored
   evidence does not; a single project quote backed by another explicit verified quote does.
-- All 118 tests run in a clean container with no network:
+- Batch-1 cases: A-0040 Pattie and A-0021 Halpin do not qualify; A-0059 Cinfab does; subcontracting
+  without construction or installation work, or mentioning homes, does not count.
+- All 131 tests run in a clean container with no network:
   `docker build -f deploy/test.Dockerfile -t outreach-tests . && docker run --rm --network none outreach-tests`
 - `.secrets/` and client/token JSON are git-ignored; a pre-commit hook refuses them
   (proven to block a planted file).
 
 ## Change log
+
+- **2026-09-22** Batch-1 fix (founder option 2, narrow): construction words need a commercial
+  setting; subcontracting to GCs/CMs plus verified installation work can support a single
+  project quote. 4 rows written (A-0021, A-0040 → REVIEW_NEEDED; A-0058, A-0250 label only);
+  A-0059 Cinfab stays QUALIFIED. 131 tests pass in a container. Revision 00013. Bulk research
+  paused by the founder; next is a draft pilot from the 26 draft-eligible leads once the
+  handbook arrives. Schedules off; no drafts; nothing sent.
 
 - **2026-09-22** Bulk research batch 1: 39 researched (25 QUALIFIED, 13 REVIEW_NEEDED,
   1 DISQUALIFIED), 1 Gemini timeout left blank; tokens 222,125 in / 16,005 out / 100,503
