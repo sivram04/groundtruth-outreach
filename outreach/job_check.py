@@ -10,9 +10,8 @@ import re
 from collections import Counter
 
 from outreach import checks
-from outreach.sheet import LEAD_TABS, Tab, _api, append_run, now_utc
+from outreach.sheet import CHECK_COLUMNS, LEAD_TABS, SYSTEM_COLUMNS, Tab, _api, append_run, now_utc
 
-SYSTEM_COLUMNS = ["Lead ID", "Email check", "Reason", "Checked at"]
 ID_RE = re.compile(r"^([A-Z])-(\d{4,})$")
 
 
@@ -21,7 +20,7 @@ def read_leads(api):
     Returns (tabs, pending, first_seen); pending holds (tab, sheet_row, lead, row_values)."""
     tabs = [Tab(api, name, SYSTEM_COLUMNS) for name in LEAD_TABS]
     for tab in tabs:
-        tab.ensure_columns(SYSTEM_COLUMNS)
+        tab.ensure_columns(CHECK_COLUMNS)
 
     pending, first_seen = [], {}
     for tab in tabs:

@@ -12,6 +12,8 @@ The founder's own cold-email funnel. `docs/ARCHITECTURE.md` is authoritative;
   Apollo only supplied the email addresses.
 - **Never overwrite the founder's columns** in the Sheet; identify rows by the system's Lead ID.
 - **Never invent** a company fact; every company-specific statement traces to a stored quote.
+- **A draft needs an OK email check and a QUALIFIED fit** (`outreach/eligibility.py`). Email
+  risk and company fit are separate columns; a RISKY address never gets a draft.
 - **Secrets live in `.secrets/` (git-ignored) or Secret Manager**, never in a commit.
 - Commit locally. Push only when the founder asks.
 

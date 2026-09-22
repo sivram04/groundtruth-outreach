@@ -18,6 +18,12 @@ HEADER_ROW = 2
 RUNS_TAB = "Runs"
 RUNS_HEADER = ["Run at (UTC)", "Job", "Where", "Result", "Detail"]
 
+# Columns this code owns, added to the right of the founder's columns. Everything else in a
+# lead tab is the founder's and is never written.
+CHECK_COLUMNS = ["Lead ID", "Email check", "Reason", "Checked at"]
+RESEARCH_COLUMNS = ["Fit", "Work mix", "Fit reason", "Fit evidence", "Researched at"]
+SYSTEM_COLUMNS = CHECK_COLUMNS + RESEARCH_COLUMNS
+
 
 def _api():
     return build("sheets", "v4", credentials=founder_credentials(), cache_discovery=False).spreadsheets()

@@ -11,7 +11,7 @@ Last updated: 2026-09-22.
 | --- | --- | --- |
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
-| 2 Research | Not started | |
+| 2 Research | **Built, sample awaiting founder review** 2026-09-22 | 30-lead sample researched from Cloud Run; 88 tests pass in a container; no research schedule exists |
 | 3 Drafts | Not started | |
 | 4 Gmail sync | Not started | |
 | 5 Tracking | Not started | |
@@ -25,6 +25,7 @@ flowchart LR
   SM[Secret Manager<br/>google-signin-token] -->|mounted as env var| W
   W <-->|Sheets API as admin@lakshyaa.ai| S[(Leads Sheet)]
   W -->|DNS via 8.8.8.8 / 8.8.4.4<br/>HTTP GET company sites, robots.txt honoured| NET[Public internet]
+  W -->|gemini-2.5-flash, JSON only| V[Vertex AI]
 ```
 
 **Nothing touches Gmail yet.** The sign-in includes Gmail permissions for later stages; no
@@ -37,7 +38,7 @@ Org `lakshyaa.ai` (787760867942). Billing: "My Billing Account" `01A2E0-CC6FD1-A
 | Resource | Setting |
 | --- | --- |
 | Cloud Run `outreach-worker` | `https://outreach-worker-30387157876.us-central1.run.app`; `--no-allow-unauthenticated` (unsigned call → 403, tested); max instances 1, concurrency 1, timeout 600 s; runs as `outreach-worker@` |
-| Service account `outreach-worker@` | `secretAccessor` on `google-signin-token` only |
+| Service account `outreach-worker@` | `secretAccessor` on `google-signin-token`; `aiplatform.user` on the project (Gemini, added for stage 2) |
 | Service account `outreach-scheduler@` | `run.invoker` on `outreach-worker` only |
 | Cloud Scheduler `outreach-check` | `*/30 * * * *` America/New_York → `POST /jobs/check`; **paused** |
 | Secret `google-signin-token` | JSON: account, OAuth client id/secret, refresh token, scopes |
@@ -53,6 +54,7 @@ Deploy: `sh deploy/deploy_worker.sh`.
 | --- | --- |
 | `POST /jobs/ping` | Counts leads in A and B, writes a Runs row |
 | `POST /jobs/check` | Stage 1 email check (below) |
+| `POST /jobs/research?limit=40` or `?ids=A-0001,B-0002` | Stage 2 company research (below). **Not scheduled.** |
 
 ## The Sheet
 
@@ -65,9 +67,13 @@ Deploy: `sh deploy/deploy_worker.sh`.
 | B_Contact_Now | 174 | Read; system columns added at right |
 | C_Phone_Only | 242 | Not touched (no emails) |
 | Runs | 1 per job run | Written by the system |
+| Research | 1 per verified quote per research run | Written by the system; append-only history, so re-researched leads have older rows too — the lead row's `Researched at` names the current run |
 
 Row 1 of A and B is a description; **headers are in row 2**. Columns are found by header
 name, never by position — A and B have different layouts.
+
+**Stage 2 columns** (added 2026-09-22, right of the stage 1 columns): `Fit`, `Work mix`,
+`Fit reason`, `Fit evidence` (up to three verified quotes with page URLs), `Researched at`.
 
 **System columns** (added 2026-09-22, right of the founder's columns): `Lead ID`,
 `Email check`, `Reason`, `Checked at`.
@@ -186,11 +192,78 @@ Two implementation limits surfaced in review: the website probe currently treats
 These should be corrected before relying on recurring checks. The current deployed service
 and 492 recorded results have not been changed by this review.
 
+## Stage 2 — company research
+
+Code: `outreach/research.py` (reading, verification, verdict), `outreach/job_research.py`
+(job), `outreach/gemini.py` (Vertex AI), `outreach/eligibility.py` (who may get a draft).
+
+**Company fit is separate from email risk.** Research runs for OK and RISKY leads alike and
+never looks at the address. Stage 3 may draft only when `Email check` is OK **and** `Fit` is
+QUALIFIED (`eligibility.draft_eligible`, tested): a RISKY address never gets a draft, however
+good the company.
+
+1. **Read the company's own site** — the listed page, the homepage and same-site pages whose
+   links suggest about/services/projects/markets, up to 8 pages, 8,000 characters each;
+   robots.txt honoured; scripts and styles stripped.
+2. **Gemini proposes quotes** (`gemini-2.5-flash`, temperature 0, JSON schema), each tagged
+   COMMERCIAL_PROJECT, COMMERCIAL_SERVICE, RESIDENTIAL or GENERAL_CONTRACTOR.
+3. **The code keeps a quote only if it is on the page it names**, word for word (case, spacing
+   and curly quotes ignored), and stores the page's own text, not the model's copy.
+4. **Categories must be supported by the quote's own words.** A project quote with no project
+   signal (construction, build-out, tenant, bid, general contractor, school, hospital,
+   industrial, project…) counts as service; a general-contractor quote with no
+   general-contracting signal counts as project work.
+5. **The verdict is computed in code:**
+
+| Fit | Work mix | When |
+| --- | --- | --- |
+| QUALIFIED | COMMERCIAL | ≥1 project quote, no residential |
+| QUALIFIED | MIXED | ≥2 project quotes and residential quotes |
+| REVIEW_NEEDED | MIXED | 1 project quote against residential, or service plus residential |
+| REVIEW_NEEDED | COMMERCIAL_SERVICE | service/repair for businesses, no project work |
+| REVIEW_NEEDED | GENERAL_CONTRACTOR | presents itself as a GC, construction manager or developer |
+| REVIEW_NEEDED | UNCLEAR | site read, nothing says who they work for |
+| REVIEW_NEEDED | UNREADABLE | no website, blocked (403 or robots.txt), no answer, or no readable text |
+| DISQUALIFIED | RESIDENTIAL | residential quotes only |
+
+A model or network failure leaves the row blank for the next run (Runs row PARTIAL). Clear
+`Fit` to research a lead again.
+
+**Sample, 2026-09-22 — 30 leads, every 15th OK/RISKY lead across A and B, run from Cloud Run:**
+
+| | Count |
+| --- | --- |
+| QUALIFIED — COMMERCIAL | 9 |
+| QUALIFIED — MIXED | 8 |
+| REVIEW_NEEDED — MIXED | 9 |
+| REVIEW_NEEDED — UNREADABLE | 3 (A-0046 HTTP 403; A-0265, B-0130 no readable text, likely script-built sites) |
+| REVIEW_NEEDED — GENERAL_CONTRACTOR | 1 (A-0095 Pleasant Valley) |
+| DISQUALIFIED | 0 |
+
+By email check: OK+QUALIFIED 13 (the only draft-eligible ones), RISKY+QUALIFIED 4, OK+REVIEW 9,
+RISKY+REVIEW 4.
+
+**How the rule got here.** The first sample run used "any project quote qualifies": 22
+QUALIFIED, and reading them showed the model labelling fixture lists, product lines, a dealer
+statement and a customer testimonial as project work (A-0295, B-0039, A-0127, A-0204). Adding
+the project-signal check and the two-quote bar for mixed firms gave 15/15; the model then
+called two trades (A-0112 design-build HVAC, B-0115 electrical) general contractors, fixed by
+the general-contracting signal check. Each fix has a test from the case that caused it.
+
+**Cost, measured:** the 30-lead sample used 164,522 input, 10,303 output and 81,206 thinking
+tokens — about 5,500 / 340 / 2,700 per company. No price is stated here; it has not been
+checked against current Vertex AI pricing.
+
 ## Known limits after the review fixes
 
 - A 403 to robots varies between runs on some sites; it changes only a note, never a result.
 - The role-inbox list is a fixed word list; a role mailbox using a word not on it is still OK.
 - OK is still not proof a mailbox exists; only a bounce after a real send proves that.
+- Research: script-built sites with no server-rendered text read as UNREADABLE.
+- Research: generic "residential and commercial projects" wording still counts as a project
+  quote, so some MIXED firms qualify on thin evidence (B-0039, B-0145 in the sample).
+- Research: the model is not fully repeatable at temperature 0; re-running a lead can change
+  which quotes it proposes, and so occasionally its verdict.
 
 ## Safety checks in code
 
@@ -202,12 +275,24 @@ and 492 recorded results have not been changed by this review.
 - `tests/test_sheet_write.py` drives the write safeguard against a fake Sheet: sort, swap of
   two rows sharing an email, insert, delete, founder edit, copied Lead ID, identical new rows,
   and a system cell filled by someone else.
-- All 45 tests run in a clean container with no network:
+- `tests/test_research.py` runs research against fake sites and a fake model: commercial,
+  residential, mixed (two and one project quotes), service-only, unclear, four unreadable
+  cases (no answer, HTTP 500, robots.txt, script-only), paraphrased and misattributed quotes
+  discarded, script text ignored, fixture-list downgrade, GC and mislabelled-GC cases, and
+  draft eligibility (RISKY never eligible, even when QUALIFIED).
+- All 88 tests run in a clean container with no network:
   `docker build -f deploy/test.Dockerfile -t outreach-tests . && docker run --rm --network none outreach-tests`
 - `.secrets/` and client/token JSON are git-ignored; a pre-commit hook refuses them
   (proven to block a planted file).
 
 ## Change log
+
+- **2026-09-22** Stage 2 built: research of OK and RISKY leads from the company's own site,
+  verbatim quotes with URLs in the lead row and a Research tab, verdict computed in code,
+  REVIEW_NEEDED for unclear or unreadable sites; draft eligibility needs OK email and
+  QUALIFIED fit. 30-lead sample researched from Cloud Run (17 QUALIFIED, 13 REVIEW_NEEDED)
+  after two rule tightenings found by reading the sample. Worker has `aiplatform.user`;
+  revision 00010. No research schedule; check schedule still paused; nothing sent.
 
 - **2026-09-22** Role inboxes (employment@, hiring@, orders@, quotes@, marketing@,
   warranty@ and others) added to the RISKY rule with tests; 5 matching rows rechecked, all

@@ -2,9 +2,9 @@
 
 import os
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 
-from outreach import job_check, sheet
+from outreach import job_check, job_research, sheet
 
 app = Flask(__name__)
 
@@ -18,6 +18,13 @@ def ping():
 @app.post("/jobs/check")
 def check():
     return jsonify(ok=True, **job_check.run(where="cloud-run"))
+
+
+@app.post("/jobs/research")
+def research():
+    limit = int(request.args.get("limit", job_research.DEFAULT_LIMIT))
+    ids = set(request.args["ids"].split(",")) if request.args.get("ids") else None
+    return jsonify(ok=True, **job_research.run(where="cloud-run", limit=limit, ids=ids))
 
 
 if __name__ == "__main__":
