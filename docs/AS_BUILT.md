@@ -113,9 +113,27 @@ RISKY ("could not check"), never INVALID.
 | SENT BY HAND | 14 | 0 | 14 |
 | INVALID | 1 | 0 | 1 |
 
-RISKY reasons: generic inbox 105, Apollo warning 21, domain differs 1. Every website loaded.
+RISKY reasons: generic inbox 105, Apollo warning 21, domain differs 1. The Stage 1 probe
+reported every website as loading; its current status threshold also accepts HTTP 404.
 INVALID: `A-0313` `tom@wrmechanical.com` — the domain publishes a null MX (accepts no mail);
 the company's site is `wrmech.com`.
+
+### Independent review, 2026-09-22
+
+A read-only check of the live Sheet confirmed all five totals above. Nineteen selected rows
+covered OK, RISKY, DUPLICATE, SENT BY HAND and INVALID; their labels agreed with the source
+fields and reasons in the Sheet. The 13 local tests also passed in an isolated container.
+Of four sampled personal-mailbox OK rows labelled "read from their website", three addresses
+were visible on the company homepage. The fourth was not found on the homepage or its one
+linked contact/about page; its source claim remains unconfirmed and needs a human check.
+This sample does not validate every row or prove mailbox activity. The founder spot-check gate
+remains open, and the 30-minute schedule remains paused.
+
+Two implementation limits surfaced in review: the website probe currently treats HTTP 404 as
+"loads" because it accepts any status below 500, and the pre-write row guard compares only
+`BEST EMAIL`, so a sort or edit involving rows with the same email may escape detection.
+These should be corrected before relying on recurring checks. The current deployed service
+and 492 recorded results have not been changed by this review.
 
 ## Safety checks in code
 
@@ -127,6 +145,9 @@ the company's site is `wrmech.com`.
 
 ## Change log
 
+- **2026-09-22** Independent read-only Stage 1 review: live totals confirmed, 19 rows sampled,
+  one personal-mailbox website source unconfirmed; identified the 404 website probe and
+  same-email row-guard limits. Scheduler remains paused.
 - **2026-09-22** Stage 1 built and run from Cloud Run. Two rule fixes found on real data:
   personal mailboxes (Gmail, Yahoo, ISP) that the company publishes on its own website were
   wrongly RISKY (92 rows) — now OK with a note; a DNS timeout was wrongly INVALID — now
