@@ -113,6 +113,65 @@ def test_a0280_reddy_stays_qualified():
     )[0] == QUALIFIED
 
 
+# --- a single project quote must explicitly establish the work (founder, 2026-09-22) -------
+
+def test_a0188_current_systems_single_explicit_quote_stays_qualified():
+    assert fit(
+        (CP, "Commercial and industrial installation of electrical power equipment."),
+        (CS, "We provide service and maintenance of existing power and lighting systems."),
+        (CS, "Installation of fire alarm systems"),
+    )[:2] == (QUALIFIED, "COMMERCIAL")
+
+
+def test_a0250_langdon_bid_on_your_project_is_not_enough():
+    f, mix, why = fit(
+        (GEN, "Our experienced engineering and estimating departments are equipped to handle projects of any size."),
+        (CP, "We look forward to the opportunity to bid on your project and demonstrate why Langdon, Inc. is a "
+             "trusted name in sheet metal fabrication."),
+        (GEN, "Industrial Solutions: Specialized ductwork for HVAC, Clean Room, Exhaust, Dust Collection, "
+              "Air Pollution Control Systems and Welded Ductwork Systems."),
+        (GEN, "providing a comprehensive range of solutions for both commercial and industrial applications."),
+        (GEN, "Our spiral ductwork is available in convenient 5-foot lengths for smaller projects and 10-foot "
+              "lengths for larger runs, ensuring easy shipping and installation."),
+        (GEN, "Let us qualify for your next project!"),
+    )
+    assert (f, mix) == (REVIEW_NEEDED, "COMMERCIAL") and "explicitly" in why
+
+
+def test_b0100_heat_school_district_projects_is_not_enough():
+    assert fit(
+        (CP, "Over 75 School District Projects Completed"),
+        (GEN, "helping businesses and schools districts in Ohio take control of their energy consumption and "
+              "maintenance costs"),
+        (GEN, "Our customers include: School Districts Colleges and Universities Commercial and Industrial Companies "
+              "Government Entities Healthcare Organizations"),
+        (CS, "Replacing interior/exterior lighting with energy efficient LED lamps and fixtures."),
+        (CS, "Installing occupancy sensors to help manage temperature, lighting, humidity and CO2."),
+        (CS, "Mechaincal retrofits including upgrades to Boilers, Pumps, Chillers, A/C Units and VFD Drives."),
+    )[0] == REVIEW_NEEDED
+
+
+def test_single_project_quote_supported_by_another_explicit_quote_qualifies():
+    # "unless other verified evidence establishes the missing work"
+    assert fit(
+        (CP, "Over 75 School District Projects Completed"),
+        (CS, "We install HVAC systems in commercial office buildings and hospitals."),
+    )[0] == QUALIFIED
+
+
+@pytest.mark.parametrize("quote,explicit", [
+    ("Commercial and industrial installation of electrical power equipment.", True),
+    ("Office and retail wiring, lighting maintenance, and tenant build-outs.", True),
+    ("new construction for hospitals and schools", True),
+    ("We look forward to the opportunity to bid on your project", False),
+    ("Over 75 School District Projects Completed", False),
+    ("Installing occupancy sensors to help manage temperature", False),
+    ("residential and commercial installation", False),
+])
+def test_is_explicit(quote, explicit):
+    assert research.is_explicit(quote) is explicit
+
+
 def test_a0112_design_build_and_plan_and_spec_are_specific():
     assert research.is_specific("Built for design-build. Ready for plan & spec.")
 

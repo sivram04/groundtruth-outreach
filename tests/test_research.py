@@ -116,7 +116,7 @@ def test_trade_firm_labelled_general_contractor_is_treated_as_project_work(web):
               "solutions for hospitals and schools from planning through installation.</p>")
     r = research.research("https://co.com/", model_returning(
         (1, "Cincinnati's original design-build HVAC contractor", research.GENERAL_CONTRACTOR),
-        (1, "complete mechanical solutions for hospitals and schools", CP)))
+        (1, "complete mechanical solutions for hospitals and schools from planning through installation", CP)))
     assert (r["fit"], r["work_mix"]) == (QUALIFIED, "COMMERCIAL")
 
 

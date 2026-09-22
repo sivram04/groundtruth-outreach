@@ -1,4 +1,5 @@
-"""One-off: re-evaluate the 30-lead research sample under the specific-evidence rule, from the
+"""Re-evaluate the 30-lead research sample under the current fit rule (specific-evidence rule
+2026-09-22, single-quote explicit-work rule 2026-09-22), from the
 quotes already stored for each lead's current run. No site is read and no model is called, so
 the result depends only on the rule. Unreadable leads have no quotes and cannot change.
 
@@ -71,7 +72,7 @@ def main(ids_file, apply):
         ensure_tab(api, RESEARCH_TAB, RESEARCH_HEADER)
         api.values().append(spreadsheetId=SHEET_ID, range=f"'{RESEARCH_TAB}'!A1", valueInputOption="RAW",
                             insertDataOption="INSERT_ROWS", body={"values": research_rows}).execute()
-    detail = f"specific-evidence re-evaluation of the sample: {written} rows updated, {verdicts} Fit changes"
+    detail = f"fit-rule re-evaluation of the sample: {written} rows updated, {verdicts} Fit changes"
     if skipped:
         detail += f"; skipped {len(skipped)}: " + "; ".join(skipped[:5])
     append_run(api, "refit-sample", "local", "OK" if not skipped else "PARTIAL", detail)

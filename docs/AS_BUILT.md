@@ -11,7 +11,7 @@ Last updated: 2026-09-22.
 | --- | --- | --- |
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
-| 2 Research | **Built, revised sample awaiting founder review** 2026-09-22 | 30-lead sample: 11 QUALIFIED, 19 REVIEW_NEEDED under the specific-evidence rule; 107 tests pass in a container; no research schedule exists; remaining 435 leads not researched |
+| 2 Research | **Built, final sample awaiting founder review** 2026-09-22 | 30-lead sample: 9 QUALIFIED (7 draft-eligible), 21 REVIEW_NEEDED; 118 tests pass in a container; no research schedule exists; remaining 435 leads not researched |
 | 3 Drafts | Not started | |
 | 4 Gmail sync | Not started | |
 | 5 Tracking | Not started | |
@@ -224,7 +224,8 @@ good the company.
 
 | Fit | Work mix | When |
 | --- | --- | --- |
-| QUALIFIED | COMMERCIAL | ≥1 specific project quote, no residential |
+| QUALIFIED | COMMERCIAL | ≥2 specific project quotes, no residential; or exactly 1, **and** a verified non-residential quote (that one or another) explicitly shows commercial construction or installation work |
+| REVIEW_NEEDED | COMMERCIAL | exactly 1 specific project quote and nothing explicit (founder rule 2026-09-22: `research.is_explicit` needs a commercial setting — commercial, industrial, office, school, hospital, facility… — **and** construction or installation work — construct, install, build-out, fit-out, design-build, new build, wiring, renovat — with no residential mention) |
 | QUALIFIED | MIXED | ≥2 specific project quotes and residential quotes |
 | REVIEW_NEEDED | MIXED | 1 specific project quote against residential, or only generic/service plus residential |
 | REVIEW_NEEDED | COMMERCIAL_SERVICE | generic or service/repair wording for businesses, no specific project work |
@@ -237,21 +238,35 @@ A model or network failure leaves the row blank for the next run (Runs row PARTI
 `Fit` to research a lead again.
 
 **Final sample, 2026-09-22 — 30 leads, every 15th OK/RISKY lead across A and B.** Researched
-from Cloud Run; then re-evaluated under the specific-evidence rule from the stored, verified
-quotes (`tools/refit_sample_2026_09_22.py`, Runs row `refit-sample`; no site re-read, no model
-call, so the change is the rule alone).
+from Cloud Run; then re-evaluated twice from the stored, verified quotes
+(`tools/refit_sample_2026_09_22.py`, Runs rows `refit-sample`; no site re-read, no model call,
+so each change is the rule alone): the specific-evidence rule, then the single-quote
+explicit-work rule.
 
 | | Count | Leads |
 | --- | --- | --- |
-| QUALIFIED — COMMERCIAL | 9 | A-0062 Conti, A-0078 Harrington, A-0112 Cincinnati Air, A-0188 Current Systems, A-0219 Guenther, A-0234 ICS, A-0250 Langdon, A-0280 Reddy, B-0100 HEAT |
+| QUALIFIED — COMMERCIAL | 7 | A-0062 Conti, A-0078 Harrington, A-0112 Cincinnati Air, A-0188 Current Systems, A-0219 Guenther, A-0234 ICS, A-0280 Reddy |
 | QUALIFIED — MIXED | 2 | A-0030 Monroe, A-0173 Bromack |
-| REVIEW_NEEDED — MIXED | 15 | incl. the six below |
+| REVIEW_NEEDED — COMMERCIAL | 2 | A-0250 Langdon, B-0100 HEAT |
+| REVIEW_NEEDED — MIXED | 15 | A-0015, A-0127, A-0143, A-0158, A-0204, A-0295, A-0310, B-0009, B-0024, B-0039, B-0055, B-0070, B-0085, B-0115, B-0145 |
 | REVIEW_NEEDED — UNREADABLE | 3 | A-0046 (HTTP 403); A-0265, B-0130 (no readable text, likely script-built) |
 | REVIEW_NEEDED — GENERAL_CONTRACTOR | 1 | A-0095 Pleasant Valley |
 | DISQUALIFIED | 0 | |
 
-By email check: **OK+QUALIFIED 9 — the only draft-eligible leads**; RISKY+QUALIFIED 2 (A-0234,
-A-0280); OK+REVIEW 13; RISKY+REVIEW 6.
+By email check: **OK+QUALIFIED 7 — the only draft-eligible leads** (A-0030, A-0062, A-0078,
+A-0112, A-0173, A-0188, A-0219); RISKY+QUALIFIED 2 (A-0234, A-0280); OK+REVIEW 15;
+RISKY+REVIEW 6.
+
+**Single-quote rule changes** (dry run: exactly these 2 rows; 2 written):
+
+| Lead | Was | Now | Evidence |
+| --- | --- | --- | --- |
+| A-0188 Current Systems | QUALIFIED/COMMERCIAL | unchanged | its one project quote is explicit: "Commercial and industrial installation of electrical power equipment." |
+| A-0250 Langdon | QUALIFIED/COMMERCIAL | REVIEW_NEEDED/COMMERCIAL | one project quote, "the opportunity to bid on your project… sheet metal fabrication", names no commercial setting or installation work; its other quotes are generic or product ("spiral ductwork… ensuring easy shipping and installation" has no commercial setting) |
+| B-0100 HEAT | QUALIFIED/COMMERCIAL | REVIEW_NEEDED/COMMERCIAL | one project quote, "Over 75 School District Projects Completed", names no construction or installation work; its installation quotes ("Installing occupancy sensors…") name no commercial setting |
+
+Current Systems' row was not rewritten: its verdict did not change, and only the wording of
+its reason would have.
 
 **Verdict changes from the re-evaluation** (dry run shown to the founder before applying;
 14 rows written — these 6 plus 8 QUALIFIED leads whose generic quotes were re-labelled; 12
@@ -266,10 +281,8 @@ rows whose reason would differ only in wording were left as they were):
 | B-0115 Kouris Electric | QUALIFIED/MIXED | REVIEW_NEEDED/MIXED | "150 + Commercial Projects Done" and "estimating and project management" are generic; four residential quotes |
 | B-0145 Rapid Electric | QUALIFIED/MIXED | REVIEW_NEEDED/MIXED | "all sizes of residential and commercial projects" (twice in different words) is generic; the rest is service |
 
-Still QUALIFIED on a single specific quote, commercial-only: A-0188 Current Systems
-("Commercial and industrial installation of electrical power equipment"), A-0250 Langdon
-("the opportunity to bid on your project"), B-0100 HEAT ("Over 75 School District Projects
-Completed"). The rule is conservative in the other direction too: Harrington's "performed work
+(At this point A-0188, A-0250 and B-0100 still qualified on a single specific quote; the
+single-quote rule above then moved Langdon and HEAT to review.) The rule is conservative in the other direction too: Harrington's "performed work
 at manufacturing plants… wastewater treatment plants" is labelled generic (no project word),
 though Harrington qualifies on four other quotes.
 
@@ -280,7 +293,7 @@ the project-signal check and the two-quote bar for mixed firms gave 15/15; the m
 called two trades (A-0112 design-build HVAC, B-0115 electrical) general contractors, fixed by
 the general-contracting signal check. Founder review then found generic wording still
 qualifying mixed firms (B-0039, B-0145, A-0143): the specific-evidence rule took the sample
-from 17 to 11 QUALIFIED. Each fix has a test from the case that caused it
+from 17 to 11 QUALIFIED; the single-quote explicit-work rule took it to 9. Each fix has a test from the case that caused it
 (`tests/test_research_specific.py` uses the sample's own quotes).
 
 **Cost, measured:** the 30-lead sample used 164,522 input, 10,303 output and 81,206 thinking
@@ -294,8 +307,9 @@ checked against current Vertex AI pricing.
 - OK is still not proof a mailbox exists; only a bounce after a real send proves that.
 - Research: script-built sites with no server-rendered text read as UNREADABLE.
 - Research: "specific" is a word test. It can miss specific work phrased without its words
-  (Harrington's plant list) and would accept a construction word used loosely; three sample
-  leads qualify on one specific quote.
+  (Harrington's plant list) and would accept a construction word used loosely. "Explicit"
+  is a word test too; A-0188 Current Systems is the one sample lead qualifying on a single
+  project quote.
 - Research: the model is not fully repeatable at temperature 0; re-running a lead can change
   which quotes it proposes, and so occasionally its verdict.
 
@@ -316,13 +330,21 @@ checked against current Vertex AI pricing.
   draft eligibility (RISKY never eligible, even when QUALIFIED).
 - `tests/test_research_specific.py` replays the sample's own quotes: generic phrases (Alpine,
   Rapid, Waterworks, Efficient, Kouris, Enviro) never qualify; Monroe (mixed), Conti and Reddy
-  still do.
-- All 107 tests run in a clean container with no network:
+  still do. Single-quote cases: Current Systems qualifies; Langdon's and HEAT's full stored
+  evidence does not; a single project quote backed by another explicit verified quote does.
+- All 118 tests run in a clean container with no network:
   `docker build -f deploy/test.Dockerfile -t outreach-tests . && docker run --rm --network none outreach-tests`
 - `.secrets/` and client/token JSON are git-ignored; a pre-commit hook refuses them
   (proven to block a planted file).
 
 ## Change log
+
+- **2026-09-22** Single-quote rule: a commercial-only firm with one specific project quote
+  qualifies only if a verified non-residential quote explicitly shows commercial construction
+  or installation work. Sample re-evaluated from stored quotes: A-0250 Langdon and B-0100 HEAT
+  QUALIFIED→REVIEW_NEEDED; A-0188 Current Systems stays QUALIFIED; 2 rows written. Sample now
+  9 QUALIFIED (7 draft-eligible), 21 REVIEW_NEEDED. 118 tests pass in a container. Worker
+  revision 00012. Schedules off; no drafts; nothing sent.
 
 - **2026-09-22** Specific-evidence rule: a generic phrase ("residential and commercial
   projects", project counts, customer-type lists) can no longer establish commercial project

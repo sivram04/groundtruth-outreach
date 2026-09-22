@@ -51,6 +51,23 @@ PROJECT_WORK = re.compile(r"project|renovat|install", re.I)
 MENTIONS_RESIDENTIAL = re.compile(r"residential|\bhomes?\b|homeowner", re.I)
 
 
+# A single quote can qualify a commercial-only firm only if it explicitly establishes commercial
+# trade construction or installation work (founder, 2026-09-22): it names a commercial setting
+# AND construction or installation work. "bid on your project" and "School District Projects
+# Completed" name neither the work nor, respectively, the setting.
+COMMERCIAL_SETTING = re.compile(
+    r"commercial|industrial|institutional|tenant|office|retail|business|hospital|school|universit|"
+    r"college|campus|warehouse|\bplants?\b|facilit|municipal|government|healthcare|manufactur|"
+    r"data cent|church", re.I)
+CONSTRUCTION_OR_INSTALLATION = re.compile(
+    r"construct|install|build-?outs?\b|fit-?outs?\b|design[- /]?build|new build|wiring|renovat", re.I)
+
+
+def is_explicit(quote):
+    return bool(COMMERCIAL_SETTING.search(quote) and CONSTRUCTION_OR_INSTALLATION.search(quote)
+                and not MENTIONS_RESIDENTIAL.search(quote))
+
+
 def is_specific(quote):
     if CONSTRUCTION_ACTIVITY.search(quote):
         return True
@@ -223,9 +240,21 @@ def verdict(kept, pages_read, why_unreadable=""):
     if gc:
         return REVIEW_NEEDED, "GENERAL_CONTRACTOR", (f"{gc} quote(s) suggest a general contractor or "
                                                      f"construction manager, not a trade subcontractor")
-    if cp and not res:
+    if cp >= 2 and not res:
         return QUALIFIED, "COMMERCIAL", (f"{cp} quote(s) show specific commercial project work; "
                                          f"none show residential")
+    if cp == 1 and not res:
+        # One project quote is enough only with explicit commercial construction or installation
+        # work - in that quote or in another verified, non-residential quote.
+        support = [k for k in kept if k["category"] in (COMMERCIAL_PROJECT, COMMERCIAL_GENERIC, COMMERCIAL_SERVICE)
+                   and is_explicit(k["quote"])]
+        if support:
+            return QUALIFIED, "COMMERCIAL", ("1 quote shows specific commercial project work and "
+                                             f"{len(support)} explicitly show commercial construction or "
+                                             "installation work; none show residential")
+        return REVIEW_NEEDED, "COMMERCIAL", ("only 1 quote shows commercial project work and no verified quote "
+                                             "explicitly shows commercial construction or installation work"
+                                             f"{generic_note}; needs a person to judge")
     if cp >= MIXED_MIN_PROJECT_QUOTES and res:
         return QUALIFIED, "MIXED", (f"{cp} quote(s) show specific commercial project work; "
                                     f"{res} show residential work too")
