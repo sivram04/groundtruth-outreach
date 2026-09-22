@@ -12,7 +12,7 @@ Last updated: 2026-09-22.
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
 | 2 Research | **Bulk fit research paused; four company profiles piloted** 2026-09-22 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible; 396 pending, not to be resumed for now; four verified offerings/markets profiles saved; no research schedule exists |
-| 3 Drafts (pilot) | **Next — waiting for the founder's three email templates** | Use verified company offerings and markets from the profile pilot; no draft-generation code yet |
+| 3 Drafts (pilot) | **Template draft under founder review** | `docs/OUTREACH_HANDBOOK_DRAFT.md` has three placeholder-only emails; MVP facts, trial action and postal address remain unfilled; no draft-generation code yet |
 | 4 Gmail sync | Not started | Founder chose two follow-ups, each at least three days after the preceding email is actually sent; all emails are sent by hand |
 | 5 Tracking | Not started | |
 | 6 Calls | Not started | |
@@ -428,6 +428,13 @@ checked against current Vertex AI pricing.
   (proven to block a planted file).
 
 ## Change log
+
+- **2026-09-22** Reviewed the founder's pasted handbook and prepared a placeholder-only
+  revision in `docs/OUTREACH_HANDBOOK_DRAFT.md`. Removed unverified pay-app product examples,
+  false select-group scarcity, ambiguous company-name fields, and the drift to business-day
+  follow-ups. Follow-ups remain at least three calendar days after each actual send and stop
+  for replies, bounces, opt-outs or holds. The handbook is awaiting founder review and real
+  MVP/trial/footer facts; no Gmail drafts or sends were created.
 
 - **2026-09-22** Founder chose a three-email sequence: initial email, follow-up 1 at least
   three days after the initial is sent, and follow-up 2 at least three days after follow-up 1
