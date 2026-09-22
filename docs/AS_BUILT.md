@@ -12,8 +12,8 @@ Last updated: 2026-09-22.
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
 | 2 Research | **Bulk fit research paused; four company profiles piloted** 2026-09-22 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible; 396 pending, not to be resumed for now; four verified offerings/markets profiles saved; no research schedule exists |
-| 3 Drafts (pilot) | **Next — waiting for the founder's handbook** | Use verified company offerings and markets from the profile pilot; no draft-generation code yet |
-| 4 Gmail sync | Not started | |
+| 3 Drafts (pilot) | **Next — waiting for the founder's three email templates** | Use verified company offerings and markets from the profile pilot; no draft-generation code yet |
+| 4 Gmail sync | Not started | Founder chose two follow-ups, each at least three days after the preceding email is actually sent; all emails are sent by hand |
 | 5 Tracking | Not started | |
 | 6 Calls | Not started | |
 
@@ -428,6 +428,11 @@ checked against current Vertex AI pricing.
   (proven to block a planted file).
 
 ## Change log
+
+- **2026-09-22** Founder chose a three-email sequence: initial email, follow-up 1 at least
+  three days after the initial is sent, and follow-up 2 at least three days after follow-up 1
+  is sent. Templates are forthcoming. This is a plan only; no follow-up job, draft or send
+  exists yet.
 
 - **2026-09-22** Company-profile pilot added in response to the founder's clarification:
   research what each company offers and which markets it serves so verified details can inform
