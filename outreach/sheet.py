@@ -22,7 +22,8 @@ RUNS_HEADER = ["Run at (UTC)", "Job", "Where", "Result", "Detail"]
 # lead tab is the founder's and is never written.
 CHECK_COLUMNS = ["Lead ID", "Email check", "Reason", "Checked at"]
 RESEARCH_COLUMNS = ["Fit", "Work mix", "Fit reason", "Fit evidence", "Researched at"]
-SYSTEM_COLUMNS = CHECK_COLUMNS + RESEARCH_COLUMNS
+PROFILE_COLUMNS = ["Profile status", "Offerings evidence", "Markets evidence", "Profile reason", "Profiled at"]
+SYSTEM_COLUMNS = CHECK_COLUMNS + RESEARCH_COLUMNS + PROFILE_COLUMNS
 
 
 def _api():

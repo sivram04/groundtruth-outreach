@@ -11,8 +11,8 @@ Last updated: 2026-09-22.
 | --- | --- | --- |
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
-| 2 Research | **Paused by founder after batch 1** 2026-09-22 | 69 leads researched (sample 30 + batch 1 39); batch-1 rule gap fixed (narrow subcontracting rule); 26 draft-eligible; 396 pending, not to be resumed for now; no research schedule exists |
-| 3 Drafts (pilot) | **Next — waiting for the founder's handbook** | Pilot from the 26 draft-eligible leads; nothing built yet |
+| 2 Research | **Bulk fit research paused; four company profiles piloted** 2026-09-22 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible; 396 pending, not to be resumed for now; four verified offerings/markets profiles saved; no research schedule exists |
+| 3 Drafts (pilot) | **Next — waiting for the founder's handbook** | Use verified company offerings and markets from the profile pilot; no draft-generation code yet |
 | 4 Gmail sync | Not started | |
 | 5 Tracking | Not started | |
 | 6 Calls | Not started | |
@@ -55,6 +55,7 @@ Deploy: `sh deploy/deploy_worker.sh`.
 | `POST /jobs/ping` | Counts leads in A and B, writes a Runs row |
 | `POST /jobs/check` | Stage 1 email check (below) |
 | `POST /jobs/research?limit=40` or `?ids=A-0001,B-0002` | Stage 2 company research (below). **Not scheduled.** |
+| `POST /jobs/profile?limit=5&ids=A-0001,...` (optional `dry_run=1`) | Pilot extraction of company offerings and markets for later drafts. Available on the private `profile-review` tag only; serving revision remains 00013. No schedule. |
 
 ## The Sheet
 
@@ -74,6 +75,12 @@ name, never by position — A and B have different layouts.
 
 **Stage 2 columns** (added 2026-09-22, right of the stage 1 columns): `Fit`, `Work mix`,
 `Fit reason`, `Fit evidence` (up to three verified quotes with page URLs), `Researched at`.
+
+**Company-profile pilot columns** (added 2026-09-22 to A and B): `Profile status`,
+`Offerings evidence`, `Markets evidence`, `Profile reason`, `Profiled at`. Offerings and markets
+are separate from the fit verdict. The Research tab also holds append-only `OFFERING` and
+`MARKET` quote rows with their source URLs. These are source material for a later draft, not
+email copy.
 
 **System columns** (added 2026-09-22, right of the founder's columns): `Lead ID`,
 `Email check`, `Reason`, `Checked at`.
@@ -371,6 +378,16 @@ checked against current Vertex AI pricing.
 
 ## Known limits after the review fixes
 
+- Company-profile extraction selects exact 5–50-word quotes from the company's own site,
+  verifies each quote against its named page, and marks a profile READY only when it has an
+  offering quote. A READY result still needs human review before its facts enter a draft:
+  Gateway Electric's dry-run quotes described project coordination, not a concrete electrical
+  offering, so that lead was not written. Monroe's profile includes a residential-service
+  quote; a commercial draft should select its separately verified commercial offerings.
+- The profile job selects only unsent leads with OK email and QUALIFIED fit, and does not
+  change fit or research the contact's private life. `dry_run=1` makes no Sheet changes.
+  There is no profile schedule, draft generator, or sending code.
+
 - A 403 to robots varies between runs on some sites; it changes only a note, never a result.
 - The role-inbox list is a fixed word list; a role mailbox using a word not on it is still OK.
 - OK is still not proof a mailbox exists; only a bounce after a real send proves that.
@@ -403,12 +420,24 @@ checked against current Vertex AI pricing.
   evidence does not; a single project quote backed by another explicit verified quote does.
 - Batch-1 cases: A-0040 Pattie and A-0021 Halpin do not qualify; A-0059 Cinfab does; subcontracting
   without construction or installation work, or mentioning homes, does not count.
-- All 131 tests run in a clean container with no network:
+- `tests/test_company_profile.py` covers quote verification, off-domain redirects, unreadable
+  sites, long navigation text, pilot selection, and dry-run write isolation.
+- All 138 tests run in a clean container with no network:
   `docker build -f deploy/test.Dockerfile -t outreach-tests . && docker run --rm --network none outreach-tests`
 - `.secrets/` and client/token JSON are git-ignored; a pre-commit hook refuses them
   (proven to block a planted file).
 
 ## Change log
+
+- **2026-09-22** Company-profile pilot added in response to the founder's clarification:
+  research what each company offers and which markets it serves so verified details can inform
+  later email drafts. The five-lead tagged-revision dry run returned profiles for Gateway,
+  Monroe, Conti, Harrington and Cincinnati Air; Gateway's generic project-coordination quotes
+  were held back. Four profiles (A-0030, A-0062, A-0078, A-0112) were written with exact
+  offerings/markets quotes and URLs. A repeat dry run selected none of those four. 138 tests
+  pass in a network-isolated container. Private review revision `outreach-worker-00016-rop`
+  has tag `profile-review` and 0% traffic; serving revision 00013 retains 100%. Check schedule
+  PAUSED, no research/profile schedule, no drafts or sends. Bulk 396 remain paused.
 
 - **2026-09-22** Batch-1 fix (founder option 2, narrow): construction words need a commercial
   setting; subcontracting to GCs/CMs plus verified installation work can support a single

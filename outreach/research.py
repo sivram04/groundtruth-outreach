@@ -200,15 +200,19 @@ def read_site(website):
         except Exception as e:
             errors.append(type(e).__name__)
             continue
+        final_url = getattr(r, "url", url)
+        if checks.base_domain(checks.site_domain(final_url)) != host:
+            errors.append("redirected outside the company website")
+            continue
         if r.status_code >= 400:
             errors.append(f"HTTP {r.status_code}")
             continue
         text = page_text(r.text)[:PAGE_CHARS]
         if len(text) >= 80:
-            pages.append((url, text))
+            pages.append((final_url, text))
         links = []
         for href in re.findall(r'href=["\']([^"\'#]+)', r.text):
-            link = urljoin(url, href)
+            link = urljoin(final_url, href)
             if (checks.base_domain(checks.site_domain(link)) == host and USEFUL_LINK.search(link)
                     and not re.search(r"\.(pdf|jpe?g|png|gif|webp|zip|docx?)$", link, re.I)):
                 links.append(link)
@@ -220,13 +224,14 @@ def read_site(website):
     return [], f"could not read the website ({', '.join(sorted(set(errors))) or 'no readable text'})"
 
 
-def verify(evidence, pages):
+def verify(evidence, pages, allowed_categories=None):
     """Keep only quotes found word for word (ignoring case, spacing and curly quotes) in the page
     they name. The stored quote is the page's own text, not the model's copy."""
     kept, rejected, seen = [], 0, set()
+    allowed_categories = CATEGORIES if allowed_categories is None else allowed_categories
     for item in evidence:
         n, quote, cat = item.get("page"), _norm(item.get("quote", "")), item.get("category")
-        if cat not in CATEGORIES or not isinstance(n, int) or not (1 <= n <= len(pages)) or len(quote) < 12:
+        if cat not in allowed_categories or not isinstance(n, int) or not (1 <= n <= len(pages)) or len(quote) < 12:
             rejected += 1
             continue
         url, text = pages[n - 1]

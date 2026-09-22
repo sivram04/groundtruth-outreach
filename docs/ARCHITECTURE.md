@@ -8,7 +8,8 @@ Prepared 2026-09-22. Status: **plan, nothing built.** Where this conflicts with
 The founder keeps tiered leads in a Google Sheet. The system:
 
 1. checks each email address as far as possible without sending,
-2. researches the company from its own website and decides fit,
+2. researches the company from its own website: what it sells or does, who it serves,
+   relevant projects, and whether it fits the commercial trade-subcontractor campaign,
 3. writes an email from the founder's handbook and puts it in **Gmail Drafts**,
 4. — the founder opens the draft, edits if needed, and presses **Send** —
 5. watches Gmail and the tracking address, and writes sends, bounces, replies, opt-outs,
@@ -62,7 +63,7 @@ columns to the right and its own tabs.
 | Tab | Who writes | Contents |
 | --- | --- | --- |
 | **Leads** (founder's) | Founder: existing columns, plus Call outcome / Notes / HOLD. System: its added columns | Added: Lead ID, Email check, Email check reason, Fit, Fit reason, Status, Draft link, Sent at, Replied at, Opens (est.), Clicks, Follow-ups sent, Last event, Next action |
-| **Research** | System | One row per lead per research run: pages read, quotes with URLs, trade, commercial/residential evidence, fit verdict and why |
+| **Research** | System | One row per verified quote with its company, lead, category, page URL and time. Fit evidence and factual product/service and market evidence remain separate so writing can select a supported detail. |
 | **Events** | System, append-only | Every observed thing: DRAFTED, SENT, BOUNCED, REPLIED, AUTO_REPLY, OPT_OUT, OPEN, CLICK, FOLLOWUP_DRAFTED — with lead, time, message, detail |
 | **Suppression** | System and founder | Addresses and domains never to draft to, with reason and date |
 | **Dashboard** | Sheet formulas only | By tier: drafted, confirmed sent, observed bounces and replies, positive replies, opt-outs, observed open and click rates, and tracking coverage. A sent message is not proof of delivery. |
@@ -85,7 +86,7 @@ the Runs tab and make retries safe before enabling a recurring job.
 | Job | Every | Does |
 | --- | --- | --- |
 | **check** | 30 min | New rows get a Lead ID. Email checked: format, duplicate, on Suppression, generic inbox (`info@`, `office@`), domain has mail servers (DNS), company website loads, Apollo's own status column if present. Result: OK / RISKY / INVALID with the reason. |
-| **research** | 30 min | For CHECKED leads: read the company's own site (home plus a few linked pages like About, Services, Projects; respects robots.txt, page cap per company). Gemini turns the text into structured findings; the worker keeps only quotes that appear verbatim in what was fetched. Fit: QUALIFIED / REVIEW_NEEDED / DISQUALIFIED with reasons. |
+| **research** | 30 min | For CHECKED leads: read the company's own site (home plus a few linked pages like About, Services, Projects; respects robots.txt, page cap per company). Gemini proposes structured quotes; the worker keeps only quotes that appear on the named page. Fit: QUALIFIED / REVIEW_NEEDED / DISQUALIFIED with reasons. For a small draft pilot, a separate profile pass also records verified products/services and markets without changing fit. |
 | **draft** | weekdays, morning | For QUALIFIED leads in tier order, up to the daily cap: Gemini writes from the handbook and the stored quotes. Validator checks approved factual fields, length, postal address and opt-out line. Passing drafts go to Gmail Drafts; stage 3 drafts are untracked, and stage 5 may add tracking to new drafts. The row gets the draft link. Failing drafts go to REVIEW_NEEDED with why. |
 | **sync** | 10 min | Reads Gmail changes since the last check. Confidently associates a new sent message with the intended action using recipient, thread, time and content evidence; ambiguous matches go to review and do not start follow-up timers. Messages from the recipient → REPLIED (auto-replies flagged separately). Detected bounce notices → BOUNCED, address to Suppression, follow-ups cancelled. Replies asking to stop → OPTED_OUT, to Suppression. |
 | **followup** | weekdays, morning | SENT leads with no reply after the spacing in Settings get a follow-up draft in the same Gmail thread. At most two. |
@@ -195,7 +196,7 @@ Each stage is usable on its own and must pass before the next starts.
 | --- | --- | --- | --- |
 | 0 Setup | Project, APIs, Internal sign-in app, founder signs in, worker reads the Sheet and writes to Runs | A Runs row appears from GCP | No |
 | 1 Check | Lead IDs, `check` job | Every lead has a check result and reason; founder spot-checks 20 | No |
-| 2 Research | `research` job, Research tab | Founder agrees with the fit verdict on a sample; every quote is verbatim | No |
+| 2 Research | `research` job, Research tab, company profile facts for drafting | Founder agrees with fit on a sample and can inspect verified products/services and markets with their URLs | No |
 | 3 Drafts | Handbook loader, validator, `draft` job, **no tracking yet** | **Decision point:** how many drafts the founder would send with no or light edits | Drafts only |
 | 4 Sync | `sync` and `followup` jobs, Suppression, auto opt-out | Founder sends a few real drafts; SENT, REPLIED and a bounce all land correctly | Founder sends |
 | 5 Tracking | Tracker service, `t.lakshyaa.ai`, Pub/Sub, Dashboard | A test email to the founder's own other inbox shows open and click | Founder sends |
