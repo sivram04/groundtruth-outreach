@@ -17,6 +17,10 @@ QUALIFIED, REVIEW_NEEDED, DISQUALIFIED = "QUALIFIED", "REVIEW_NEEDED", "DISQUALI
 COMMERCIAL_PROJECT, COMMERCIAL_SERVICE, RESIDENTIAL = "COMMERCIAL_PROJECT", "COMMERCIAL_SERVICE", "RESIDENTIAL"
 GENERAL_CONTRACTOR = "GENERAL_CONTRACTOR"
 CATEGORIES = [COMMERCIAL_PROJECT, COMMERCIAL_SERVICE, RESIDENTIAL, GENERAL_CONTRACTOR]
+# Never offered to the model: set by the code when a project quote only speaks in general
+# terms ("residential and commercial projects"). Counts like service; cannot qualify.
+COMMERCIAL_GENERIC = "COMMERCIAL_GENERIC"
+ALL_CATEGORIES = CATEGORIES + [COMMERCIAL_GENERIC]
 
 # A quote only counts as project work if it says so in words, not because the model labelled
 # it. Found necessary on the 2026-09-22 sample: fixture lists ("Toilet Installation and Repair"),
@@ -29,6 +33,32 @@ PROJECT_SIGNAL = re.compile(
     r"warehouse|distribution cent|office building|municipal|government|public work|church|"
     r"healthcare|data cent|facilit", re.I)
 MIXED_MIN_PROJECT_QUOTES = 2
+
+# Specific project evidence (founder review of the sample, 2026-09-22): a repeated generic phrase
+# such as "residential and commercial projects" must not by itself establish commercial trade
+# project work. A project quote is specific only if it names construction activity, or names a
+# commercial sector together with project or installation work. A quote that also mentions
+# homes or residential work must name construction activity.
+CONSTRUCTION_ACTIVITY = re.compile(
+    r"construct|build-?outs?\b|fit-?outs?\b|tenant|design[- /]?build|new build|\bbid|"
+    r"general contractor|\bgcs?\b|\bbuilders?\b|prevailing wage|\bunion\b|plan[- ]?(and|&)[- ]?spec|"
+    r"portfolio|turn-?key", re.I)
+COMMERCIAL_SECTOR = re.compile(
+    r"hospital|school|universit|college|campus|industrial|institutional|manufactur|\bplants?\b|"
+    r"warehouse|distribution cent|office building|municipal|government|public work|church|"
+    r"healthcare|data cent|facilit", re.I)
+PROJECT_WORK = re.compile(r"project|renovat|install", re.I)
+MENTIONS_RESIDENTIAL = re.compile(r"residential|\bhomes?\b|homeowner", re.I)
+
+
+def is_specific(quote):
+    if CONSTRUCTION_ACTIVITY.search(quote):
+        return True
+    if MENTIONS_RESIDENTIAL.search(quote):
+        return False
+    return bool(COMMERCIAL_SECTOR.search(quote) and PROJECT_WORK.search(quote))
+
+
 # A general-contractor quote must say so. On the sample the model called "design-build HVAC
 # contractor" and "electrical contracting ... project management" general contractors.
 GC_SIGNAL = re.compile(r"general contract|construction manag|\bdeveloper|real estate develop|"
@@ -166,8 +196,9 @@ def verify(evidence, pages):
 
 def downgrade_unsupported(kept):
     """Categories must be supported by the quote's own words. A GENERAL_CONTRACTOR quote with no
-    general-contracting signal is project work (or service); a COMMERCIAL_PROJECT quote with no
-    project signal is COMMERCIAL_SERVICE."""
+    general-contracting signal is project work; a COMMERCIAL_PROJECT quote with no project signal
+    at all is COMMERCIAL_SERVICE, and one that is not specific is COMMERCIAL_GENERIC.
+    Idempotent, so it can re-evaluate stored quotes."""
     out = []
     for k in kept:
         cat = k["category"]
@@ -175,6 +206,8 @@ def downgrade_unsupported(kept):
             cat = COMMERCIAL_PROJECT
         if cat == COMMERCIAL_PROJECT and not PROJECT_SIGNAL.search(k["quote"]):
             cat = COMMERCIAL_SERVICE
+        elif cat == COMMERCIAL_PROJECT and not is_specific(k["quote"]):
+            cat = COMMERCIAL_GENERIC
         out.append({**k, "category": cat})
     return out
 
@@ -183,22 +216,31 @@ def verdict(kept, pages_read, why_unreadable=""):
     """Fit from verified quotes only. Returns (fit, work_mix, reason)."""
     if not pages_read:
         return REVIEW_NEEDED, "UNREADABLE", why_unreadable or "could not read the website"
-    n = {c: sum(1 for k in kept if k["category"] == c) for c in CATEGORIES}
+    n = {c: sum(1 for k in kept if k["category"] == c) for c in ALL_CATEGORIES}
     cp, cs, res, gc = n[COMMERCIAL_PROJECT], n[COMMERCIAL_SERVICE], n[RESIDENTIAL], n[GENERAL_CONTRACTOR]
+    gen = n[COMMERCIAL_GENERIC]
+    generic_note = f"; {gen} mention commercial work only in general terms" if gen else ""
     if gc:
         return REVIEW_NEEDED, "GENERAL_CONTRACTOR", (f"{gc} quote(s) suggest a general contractor or "
                                                      f"construction manager, not a trade subcontractor")
     if cp and not res:
-        return QUALIFIED, "COMMERCIAL", f"{cp} quote(s) show commercial project work; none show residential"
+        return QUALIFIED, "COMMERCIAL", (f"{cp} quote(s) show specific commercial project work; "
+                                         f"none show residential")
     if cp >= MIXED_MIN_PROJECT_QUOTES and res:
-        return QUALIFIED, "MIXED", f"{cp} quote(s) show commercial project work; {res} show residential work too"
+        return QUALIFIED, "MIXED", (f"{cp} quote(s) show specific commercial project work; "
+                                    f"{res} show residential work too")
     if cp and res:
-        return REVIEW_NEEDED, "MIXED", (f"only {cp} quote shows commercial project work against {res} "
-                                        f"residential; needs a person to judge")
-    if cs:
+        return REVIEW_NEEDED, "MIXED", (f"only {cp} quote shows specific commercial project work against {res} "
+                                        f"residential{generic_note}; needs a person to judge")
+    if cs or gen:
         mix = "MIXED" if res else "COMMERCIAL_SERVICE"
-        return REVIEW_NEEDED, mix, (f"{cs} quote(s) show commercial service or repair, none show construction "
-                                    f"project work" + (f"; {res} show residential" if res else ""))
+        parts = []
+        if gen:
+            parts.append(f"{gen} mention commercial work only in general terms")
+        if cs:
+            parts.append(f"{cs} show commercial service or repair")
+        return REVIEW_NEEDED, mix, ("no specific commercial project work: " + ", ".join(parts)
+                                    + (f"; {res} show residential" if res else ""))
     if res:
         return DISQUALIFIED, "RESIDENTIAL", f"{res} quote(s) show residential work; none show commercial work"
     return REVIEW_NEEDED, "UNCLEAR", f"read {pages_read} page(s); none says clearly who the company works for"
@@ -227,6 +269,7 @@ def research(website, model):
 
 
 def evidence_cell(kept, limit=3):
-    order = {GENERAL_CONTRACTOR: 0, COMMERCIAL_PROJECT: 1, RESIDENTIAL: 2, COMMERCIAL_SERVICE: 3}
+    order = {GENERAL_CONTRACTOR: 0, COMMERCIAL_PROJECT: 1, RESIDENTIAL: 2, COMMERCIAL_GENERIC: 3,
+             COMMERCIAL_SERVICE: 4}
     top = sorted(kept, key=lambda k: order[k["category"]])[:limit]
     return "\n".join(f'[{k["category"]}] "{k["quote"]}" ({k["url"]})' for k in top)

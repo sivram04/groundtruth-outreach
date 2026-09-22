@@ -11,7 +11,7 @@ Last updated: 2026-09-22.
 | --- | --- | --- |
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
-| 2 Research | **Built, sample awaiting founder review** 2026-09-22 | 30-lead sample researched from Cloud Run; 88 tests pass in a container; no research schedule exists |
+| 2 Research | **Built, revised sample awaiting founder review** 2026-09-22 | 30-lead sample: 11 QUALIFIED, 19 REVIEW_NEEDED under the specific-evidence rule; 107 tests pass in a container; no research schedule exists; remaining 435 leads not researched |
 | 3 Drafts | Not started | |
 | 4 Gmail sync | Not started | |
 | 5 Tracking | Not started | |
@@ -209,18 +209,25 @@ good the company.
    COMMERCIAL_PROJECT, COMMERCIAL_SERVICE, RESIDENTIAL or GENERAL_CONTRACTOR.
 3. **The code keeps a quote only if it is on the page it names**, word for word (case, spacing
    and curly quotes ignored), and stores the page's own text, not the model's copy.
-4. **Categories must be supported by the quote's own words.** A project quote with no project
-   signal (construction, build-out, tenant, bid, general contractor, school, hospital,
-   industrial, project…) counts as service; a general-contractor quote with no
-   general-contracting signal counts as project work.
-5. **The verdict is computed in code:**
+4. **Categories must be supported by the quote's own words.** A general-contractor quote with
+   no general-contracting signal counts as project work. A project quote with no project
+   signal at all counts as service. **A project quote counts only if it is specific**
+   (`research.is_specific`, founder review 2026-09-22): it names construction activity
+   (construction, build-out, fit-out, tenant, design-build, new build, bid, general
+   contractor/GC, builders, prevailing wage, union, plan-and-spec, portfolio, turn-key), or
+   names a commercial sector (school, hospital, industrial, facility, municipal…) together
+   with project or installation work. A quote that also mentions homes or residential work
+   must name construction activity. Otherwise it is **COMMERCIAL_GENERIC** — shown as
+   evidence, counted like service, never qualifying. So "residential and commercial projects",
+   "150+ Commercial Projects Done" and a list of customer types cannot qualify a company.
+5. **The verdict is computed in code** ("project quote" below means a specific one):
 
 | Fit | Work mix | When |
 | --- | --- | --- |
-| QUALIFIED | COMMERCIAL | ≥1 project quote, no residential |
-| QUALIFIED | MIXED | ≥2 project quotes and residential quotes |
-| REVIEW_NEEDED | MIXED | 1 project quote against residential, or service plus residential |
-| REVIEW_NEEDED | COMMERCIAL_SERVICE | service/repair for businesses, no project work |
+| QUALIFIED | COMMERCIAL | ≥1 specific project quote, no residential |
+| QUALIFIED | MIXED | ≥2 specific project quotes and residential quotes |
+| REVIEW_NEEDED | MIXED | 1 specific project quote against residential, or only generic/service plus residential |
+| REVIEW_NEEDED | COMMERCIAL_SERVICE | generic or service/repair wording for businesses, no specific project work |
 | REVIEW_NEEDED | GENERAL_CONTRACTOR | presents itself as a GC, construction manager or developer |
 | REVIEW_NEEDED | UNCLEAR | site read, nothing says who they work for |
 | REVIEW_NEEDED | UNREADABLE | no website, blocked (403 or robots.txt), no answer, or no readable text |
@@ -229,26 +236,52 @@ good the company.
 A model or network failure leaves the row blank for the next run (Runs row PARTIAL). Clear
 `Fit` to research a lead again.
 
-**Sample, 2026-09-22 — 30 leads, every 15th OK/RISKY lead across A and B, run from Cloud Run:**
+**Final sample, 2026-09-22 — 30 leads, every 15th OK/RISKY lead across A and B.** Researched
+from Cloud Run; then re-evaluated under the specific-evidence rule from the stored, verified
+quotes (`tools/refit_sample_2026_09_22.py`, Runs row `refit-sample`; no site re-read, no model
+call, so the change is the rule alone).
 
-| | Count |
-| --- | --- |
-| QUALIFIED — COMMERCIAL | 9 |
-| QUALIFIED — MIXED | 8 |
-| REVIEW_NEEDED — MIXED | 9 |
-| REVIEW_NEEDED — UNREADABLE | 3 (A-0046 HTTP 403; A-0265, B-0130 no readable text, likely script-built sites) |
-| REVIEW_NEEDED — GENERAL_CONTRACTOR | 1 (A-0095 Pleasant Valley) |
-| DISQUALIFIED | 0 |
+| | Count | Leads |
+| --- | --- | --- |
+| QUALIFIED — COMMERCIAL | 9 | A-0062 Conti, A-0078 Harrington, A-0112 Cincinnati Air, A-0188 Current Systems, A-0219 Guenther, A-0234 ICS, A-0250 Langdon, A-0280 Reddy, B-0100 HEAT |
+| QUALIFIED — MIXED | 2 | A-0030 Monroe, A-0173 Bromack |
+| REVIEW_NEEDED — MIXED | 15 | incl. the six below |
+| REVIEW_NEEDED — UNREADABLE | 3 | A-0046 (HTTP 403); A-0265, B-0130 (no readable text, likely script-built) |
+| REVIEW_NEEDED — GENERAL_CONTRACTOR | 1 | A-0095 Pleasant Valley |
+| DISQUALIFIED | 0 | |
 
-By email check: OK+QUALIFIED 13 (the only draft-eligible ones), RISKY+QUALIFIED 4, OK+REVIEW 9,
-RISKY+REVIEW 4.
+By email check: **OK+QUALIFIED 9 — the only draft-eligible leads**; RISKY+QUALIFIED 2 (A-0234,
+A-0280); OK+REVIEW 13; RISKY+REVIEW 6.
+
+**Verdict changes from the re-evaluation** (dry run shown to the founder before applying;
+14 rows written — these 6 plus 8 QUALIFIED leads whose generic quotes were re-labelled; 12
+rows whose reason would differ only in wording were left as they were):
+
+| Lead | Was | Now | Why — the quotes it had |
+| --- | --- | --- | --- |
+| A-0015 Efficient Electric | QUALIFIED/MIXED | REVIEW_NEEDED/MIXED | one specific quote ("…and tenant build-outs") against three residential; "services for residential, commercial, and industrial projects" is generic |
+| A-0143 Waterworks | QUALIFIED/MIXED | REVIEW_NEEDED/MIXED | only a list of customer types ("restaurants… hospitals… warehouses") and "we serve many municipalities" — no construction work named |
+| A-0204 Enviro Flow | QUALIFIED/MIXED | REVIEW_NEEDED/MIXED | one specific quote (conduit lining with "the GC" at the White House); "For commercial projects, we serve the full state of Ohio" is generic |
+| B-0039 Alpine Electric | QUALIFIED/MIXED | REVIEW_NEEDED/MIXED | the banner "ALL YOUR RESIDENTIAL, COMMERCIAL, OR INDUSTRIAL ELECTRICAL PROJECTS" is generic; only the heading "New Construction" is specific |
+| B-0115 Kouris Electric | QUALIFIED/MIXED | REVIEW_NEEDED/MIXED | "150 + Commercial Projects Done" and "estimating and project management" are generic; four residential quotes |
+| B-0145 Rapid Electric | QUALIFIED/MIXED | REVIEW_NEEDED/MIXED | "all sizes of residential and commercial projects" (twice in different words) is generic; the rest is service |
+
+Still QUALIFIED on a single specific quote, commercial-only: A-0188 Current Systems
+("Commercial and industrial installation of electrical power equipment"), A-0250 Langdon
+("the opportunity to bid on your project"), B-0100 HEAT ("Over 75 School District Projects
+Completed"). The rule is conservative in the other direction too: Harrington's "performed work
+at manufacturing plants… wastewater treatment plants" is labelled generic (no project word),
+though Harrington qualifies on four other quotes.
 
 **How the rule got here.** The first sample run used "any project quote qualifies": 22
 QUALIFIED, and reading them showed the model labelling fixture lists, product lines, a dealer
 statement and a customer testimonial as project work (A-0295, B-0039, A-0127, A-0204). Adding
 the project-signal check and the two-quote bar for mixed firms gave 15/15; the model then
 called two trades (A-0112 design-build HVAC, B-0115 electrical) general contractors, fixed by
-the general-contracting signal check. Each fix has a test from the case that caused it.
+the general-contracting signal check. Founder review then found generic wording still
+qualifying mixed firms (B-0039, B-0145, A-0143): the specific-evidence rule took the sample
+from 17 to 11 QUALIFIED. Each fix has a test from the case that caused it
+(`tests/test_research_specific.py` uses the sample's own quotes).
 
 **Cost, measured:** the 30-lead sample used 164,522 input, 10,303 output and 81,206 thinking
 tokens — about 5,500 / 340 / 2,700 per company. No price is stated here; it has not been
@@ -260,8 +293,9 @@ checked against current Vertex AI pricing.
 - The role-inbox list is a fixed word list; a role mailbox using a word not on it is still OK.
 - OK is still not proof a mailbox exists; only a bounce after a real send proves that.
 - Research: script-built sites with no server-rendered text read as UNREADABLE.
-- Research: generic "residential and commercial projects" wording still counts as a project
-  quote, so some MIXED firms qualify on thin evidence (B-0039, B-0145 in the sample).
+- Research: "specific" is a word test. It can miss specific work phrased without its words
+  (Harrington's plant list) and would accept a construction word used loosely; three sample
+  leads qualify on one specific quote.
 - Research: the model is not fully repeatable at temperature 0; re-running a lead can change
   which quotes it proposes, and so occasionally its verdict.
 
@@ -280,12 +314,22 @@ checked against current Vertex AI pricing.
   cases (no answer, HTTP 500, robots.txt, script-only), paraphrased and misattributed quotes
   discarded, script text ignored, fixture-list downgrade, GC and mislabelled-GC cases, and
   draft eligibility (RISKY never eligible, even when QUALIFIED).
-- All 88 tests run in a clean container with no network:
+- `tests/test_research_specific.py` replays the sample's own quotes: generic phrases (Alpine,
+  Rapid, Waterworks, Efficient, Kouris, Enviro) never qualify; Monroe (mixed), Conti and Reddy
+  still do.
+- All 107 tests run in a clean container with no network:
   `docker build -f deploy/test.Dockerfile -t outreach-tests . && docker run --rm --network none outreach-tests`
 - `.secrets/` and client/token JSON are git-ignored; a pre-commit hook refuses them
   (proven to block a planted file).
 
 ## Change log
+
+- **2026-09-22** Specific-evidence rule: a generic phrase ("residential and commercial
+  projects", project counts, customer-type lists) can no longer establish commercial project
+  work; mixed firms still qualify on two specific quotes. Sample re-evaluated from stored
+  quotes (no model calls): 6 QUALIFIED→REVIEW_NEEDED (A-0015, A-0143, A-0204, B-0039, B-0115,
+  B-0145), 14 rows written, BEST EMAIL and founder columns untouched. 107 tests pass in a
+  container. Worker revision 00011. Schedules off; no drafts; nothing sent.
 
 - **2026-09-22** Stage 2 built: research of OK and RISKY leads from the company's own site,
   verbatim quotes with URLs in the lead row and a Research tab, verdict computed in code,
