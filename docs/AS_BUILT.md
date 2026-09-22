@@ -13,7 +13,7 @@ Last updated: 2026-09-22.
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
 | 2 Research | **Bulk fit research paused; four company profiles piloted** 2026-09-22 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible; 396 pending, not to be resumed for now; four verified offerings/markets profiles saved; no research schedule exists |
 | 3 Drafts (pilot) | **Template draft under founder review** | `docs/OUTREACH_HANDBOOK_DRAFT.md` has three placeholder-only emails; MVP facts, trial action and postal address remain unfilled; no draft-generation code yet |
-| 4 Gmail sync | Not started | Founder chose two follow-ups, each at least three days after the preceding email is actually sent; all emails are sent by hand |
+| 4 Gmail sync | Not started | Founder chose two follow-up drafts, each due on the third business day after the preceding email is actually sent; all emails are sent by hand |
 | 5 Tracking | Not started | |
 | 6 Calls | Not started | |
 
@@ -428,6 +428,12 @@ checked against current Vertex AI pricing.
   (proven to block a planted file).
 
 ## Change log
+
+- **2026-09-22** Founder corrected the cadence: **three business days**, superseding the
+  calendar-day wording below. Count Monday–Friday in America/New_York; the next business
+  date after an actual send is day 1. A September 22 send is due September 25; a September
+  23 send is due Monday, September 28. Holiday exclusions are not decided yet. Updated the
+  architecture and template draft. No follow-up job or Gmail drafts exist yet.
 
 - **2026-09-22** Reviewed the founder's pasted handbook and prepared a placeholder-only
   revision in `docs/OUTREACH_HANDBOOK_DRAFT.md`. Removed unverified pay-app product examples,

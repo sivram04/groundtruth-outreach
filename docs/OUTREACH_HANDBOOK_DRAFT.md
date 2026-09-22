@@ -12,10 +12,12 @@ particular product capability or customer outcome exists.
    invitation. Do not promise faster payment, savings, or an integration unless verified.
 3. Offer an early look and ask for candid feedback. Interest should come from the concrete
    experience, not invented scarcity or a claim that the prospect needs help.
-4. Give each email one clear next step. Send follow-ups in the same Gmail thread only after the
-   previous email was actually sent and at least three calendar days have passed without a
-   reply. Stop for a reply, bounce, opt-out, or hold. At most two follow-ups; the founder
-   reviews and sends every email manually.
+4. Give each email one clear next step. Prepare follow-ups in the same Gmail thread on the
+   third business day after the previous email was actually sent, if there is no reply.
+   Count Monday–Friday dates in America/New_York, with the next business date as day 1;
+   weekends do not count. Holiday exclusions still need a calendar decision. Stop for a
+   reply, bounce, opt-out, or hold. At most two follow-ups; the founder reviews and sends
+   every email manually.
 5. Keep the subject truthful. Include the sender's valid postal address and a clear way to
    opt out in every commercial email. See the [FTC's CAN-SPAM guide](https://www.ftc.gov/business-guidance/resources/can-spam-act-compliance-guide-business).
 
@@ -60,7 +62,7 @@ If you don't want further outreach from me, reply "no thanks" and I'll stop.
 
 ## Follow-up 1
 
-Draft no earlier than three calendar days after the founder sends the initial email, if
+Draft on the third business day after the founder sends the initial email, if
 there has been no reply. Keep it in the same thread; do not create a separate `Re:` subject.
 
 Hi [FIRST_NAME],
@@ -79,7 +81,7 @@ If you don't want further outreach from me, reply "no thanks" and I'll stop.
 
 ## Follow-up 2
 
-Draft no earlier than three calendar days after the founder sends follow-up 1, if there
+Draft on the third business day after the founder sends follow-up 1, if there
 has been no reply. Keep it in the same thread. This is the last follow-up.
 
 Hi [FIRST_NAME],
