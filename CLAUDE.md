@@ -19,4 +19,4 @@ The founder's own cold-email funnel. `docs/ARCHITECTURE.md` is authoritative;
 
 - GCP project: `lakshyaa-outreach` (org `lakshyaa.ai`), signed in as `admin@lakshyaa.ai`.
 - Leads Sheet: https://docs.google.com/spreadsheets/d/1eEVkxc0gJMFptYSr_u9prQ5O850TOX28AEq17CKaFiA/edit
-- Build order: `docs/ARCHITECTURE.md` §11. Current stage: 0 (setup).
+- Build order: `docs/ARCHITECTURE.md` §11. Stage 0 passed 2026-09-22: the Cloud Run worker read 318 A + 174 B leads and wrote a Runs row. Next: stage 1 (email checks).
