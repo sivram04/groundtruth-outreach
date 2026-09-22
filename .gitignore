@@ -1,0 +1,11 @@
+# Secrets never leave this machine's .secrets folder
+.secrets/
+*.json.key
+client_secret*.json
+token*.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
