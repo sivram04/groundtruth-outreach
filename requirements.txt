@@ -3,3 +3,5 @@ google-auth-oauthlib==1.*
 google-api-python-client==2.*
 flask==3.*
 gunicorn==23.*
+dnspython==2.*
+requests==2.*

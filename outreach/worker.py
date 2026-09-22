@@ -4,7 +4,7 @@ import os
 
 from flask import Flask, jsonify
 
-from outreach import sheet
+from outreach import job_check, sheet
 
 app = Flask(__name__)
 
@@ -13,6 +13,12 @@ app = Flask(__name__)
 def ping():
     counts = sheet.ping(where="cloud-run")
     return jsonify(ok=True, leads=counts)
+
+
+@app.post("/jobs/check")
+def check():
+    counts = job_check.run(where="cloud-run")
+    return jsonify(ok=True, checked=counts)
 
 
 if __name__ == "__main__":

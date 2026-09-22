@@ -3,6 +3,7 @@
 #   - project lakshyaa-outreach, billing linked, APIs enabled
 #   - service account outreach-worker@ with secretAccessor on google-signin-token
 #   - default compute account granted roles/cloudbuild.builds.builder (builds from source)
+#   - service account outreach-scheduler@ with run.invoker; Scheduler job outreach-check (paused)
 set -e
 cd "$(dirname "$0")/.."
 gcloud run deploy outreach-worker --source=. --region=us-central1 --project=lakshyaa-outreach \
