@@ -11,7 +11,7 @@ Last updated: 2026-09-22.
 | --- | --- | --- |
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
-| 2 Research | **Built, final sample awaiting founder review** 2026-09-22 | 30-lead sample: 9 QUALIFIED (7 draft-eligible), 21 REVIEW_NEEDED; 118 tests pass in a container; no research schedule exists; remaining 435 leads not researched |
+| 2 Research | **Bulk run stopped after batch 1 on a rule gap** 2026-09-22 | Sample reviewed (9 QUALIFIED); batch 1 researched 39 more; 396 OK/RISKY leads still pending; no research schedule exists |
 | 3 Drafts | Not started | |
 | 4 Gmail sync | Not started | |
 | 5 Tracking | Not started | |
@@ -286,6 +286,35 @@ single-quote rule above then moved Langdon and HEAT to review.) The rule is cons
 at manufacturing plants… wastewater treatment plants" is labelled generic (no project word),
 though Harrington qualifies on four other quotes.
 
+**Bulk research of the remaining 435 leads** (founder-approved 2026-09-22; batches of at most 40
+through the private worker, `POST /jobs/research?limit=40`, revision `outreach-worker-00012-fmn`,
+confirmed serving 100% and matching commit `1a0045e` before the first batch; pending count
+confirmed 435 = A 186 OK + 87 RISKY, B 109 OK + 53 RISKY; the 30 reviewed rows are never
+selected because their `Fit` is filled).
+
+| Batch | Researched | QUALIFIED | REVIEW_NEEDED | DISQUALIFIED | Failed (left blank) | Tokens in / out / thinking |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 39 of 40 | 25 (18 commercial, 7 mixed) | 13 | 1 | 1 — A-0026, Gemini read timeout after 120 s | 222,125 / 16,005 / 100,503 |
+
+No reviewed row changed; nothing skipped.
+
+**Stopped after batch 1** (founder instruction: stop if generic wording starts qualifying
+firms). Every new QUALIFIED verdict was read against its stored project quotes. Most are
+clearly right (e.g. A-0041 Warner's contract list, A-0017 Gateway's projects with named GCs,
+A-0035 Regal's middle school). But **A-0040 The Pattie Group**, a landscape design firm,
+qualified as MIXED on "from design and permits to construction" and "The Design/Build
+Approach… horticulture and installation experts" — no commercial setting named — and
+**A-0021 Halpin Plumbing** on "service, excavation, and construction plumbing". Cause: the
+words "construction" and "design-build" make a quote specific on their own.
+
+Candidate fix, simulated read-only over all 69 researched leads (no writes): those words count
+only with a commercial setting in the same quote; commercial-only terms (tenant, build-out,
+fit-out, general contractor/GC, plan-and-spec, prevailing wage, union) still count alone.
+Result: 3 changes — A-0021 and A-0040 to REVIEW_NEEDED as intended, and **A-0059 Cinfab** to
+REVIEW_NEEDED too, although it is a commercial sheet-metal subcontractor ("prime sheet metal
+partner to a construction manager, general contractor or building owner"); none of the 30
+reviewed rows changes. Awaiting founder decision; not implemented.
+
 **How the rule got here.** The first sample run used "any project quote qualifies": 22
 QUALIFIED, and reading them showed the model labelling fixture lists, product lines, a dealer
 statement and a customer testimonial as project work (A-0295, B-0039, A-0127, A-0204). Adding
@@ -338,6 +367,11 @@ checked against current Vertex AI pricing.
   (proven to block a planted file).
 
 ## Change log
+
+- **2026-09-22** Bulk research batch 1: 39 researched (25 QUALIFIED, 13 REVIEW_NEEDED,
+  1 DISQUALIFIED), 1 Gemini timeout left blank; tokens 222,125 in / 16,005 out / 100,503
+  thinking. Stopped: construction/design-build wording without a commercial setting qualified
+  A-0040 and A-0021. Candidate fix simulated only. 396 pending. Schedules off; nothing sent.
 
 - **2026-09-22** Single-quote rule: a commercial-only firm with one specific project quote
   qualifies only if a verified non-residential quote explicitly shows commercial construction
