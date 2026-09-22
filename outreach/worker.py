@@ -17,8 +17,7 @@ def ping():
 
 @app.post("/jobs/check")
 def check():
-    counts = job_check.run(where="cloud-run")
-    return jsonify(ok=True, checked=counts)
+    return jsonify(ok=True, **job_check.run(where="cloud-run"))
 
 
 if __name__ == "__main__":

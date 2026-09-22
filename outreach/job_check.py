@@ -16,15 +16,14 @@ SYSTEM_COLUMNS = ["Lead ID", "Email check", "Reason", "Checked at"]
 ID_RE = re.compile(r"^([A-Z])-(\d{4,})$")
 
 
-def run(where):
-    api = _api()
-    tabs = [Tab(api, name) for name in LEAD_TABS]
+def read_leads(api):
+    """Read A and B, add missing system columns, and describe every lead.
+    Returns (tabs, pending, first_seen); pending holds (tab, sheet_row, lead, row_values)."""
+    tabs = [Tab(api, name, SYSTEM_COLUMNS) for name in LEAD_TABS]
     for tab in tabs:
         tab.ensure_columns(SYSTEM_COLUMNS)
 
-    # Lead IDs: keep existing ones, number new rows after the highest in each tab.
-    pending = []  # (tab, sheet_row, lead)
-    first_seen = {}
+    pending, first_seen = [], {}
     for tab in tabs:
         prefix = LEAD_TABS[tab.name]
         used = [int(m.group(2)) for _, v in tab.rows if (m := ID_RE.match(v.get("Lead ID", "")))]
@@ -40,15 +39,30 @@ def run(where):
                 "website": v.get("Website", ""),
                 "warning": v.get("Warning", ""),
                 "sent_by_hand": v.get("Sent by hand", ""),
-                "source": v.get("Where it came from", ""),
             }
             key = lead["email"].lower()
             if key and key not in first_seen:
                 first_seen[key] = lead_id
             pending.append((tab, sheet_row, lead, v))
+    return tabs, pending, first_seen
+
+
+def write_all(tabs, updates):
+    """updates: {tab_name: {sheet_row: cells}}. Returns total written and skipped reasons."""
+    written, skipped = 0, []
+    for tab in tabs:
+        r = tab.write(updates.get(tab.name, {}))
+        written += r["written"]
+        skipped += [f"{tab.name} row {row}: {why}" for row, why in r["skipped"]]
+    return written, skipped
+
+
+def run(where):
+    api = _api()
+    tabs, pending, first_seen = read_leads(api)
 
     to_check = [(t, r, l, v) for t, r, l, v in pending if not v.get("Email check")]
-    mx, live = checks.lookups([l for _, _, l, _ in to_check])
+    mx, live, published = checks.lookups([l for _, _, l, _ in to_check])
 
     counts = Counter()
     updates = {tab.name: {} for tab in tabs}
@@ -58,19 +72,19 @@ def run(where):
         if not v.get("Lead ID"):
             cells["Lead ID"] = lead["id"]
         if not v.get("Email check"):
-            result, reason = checks.check(lead, first_seen, mx, live)
+            result, reason = checks.check(lead, first_seen, mx, live, published)
             cells.update({"Email check": result, "Reason": reason, "Checked at": stamp})
             counts[result] += 1
         if cells:
             updates[tab.name][sheet_row] = cells
 
-    for tab in tabs:
-        tab.write(updates[tab.name], guard_column="BEST EMAIL")
-
+    written, skipped = write_all(tabs, updates)
     detail = (f"checked {sum(counts.values())}: " + ", ".join(f"{k} {n}" for k, n in sorted(counts.items()))
               if counts else "no new rows to check")
-    append_run(api, "check", where, "OK", detail)
-    return dict(counts)
+    if skipped:
+        detail += f"; skipped {len(skipped)} rows that changed during the run: " + "; ".join(skipped[:5])
+    append_run(api, "check", where, "OK" if not skipped else "PARTIAL", detail)
+    return {"results": dict(counts), "written": written, "skipped": skipped}
 
 
 if __name__ == "__main__":
