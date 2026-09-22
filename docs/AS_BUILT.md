@@ -12,8 +12,7 @@ Last updated: 2026-09-22.
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
 | 2 Research | **Paused by founder after batch 1** 2026-09-22 | 69 leads researched (sample 30 + batch 1 39); batch-1 rule gap fixed (narrow subcontracting rule); 26 draft-eligible; 396 pending, not to be resumed for now; no research schedule exists |
-| 3 Drafts (pilot) | **Next — waiting for the founder's handbook** | Pilot from the 26 draft-eligible leads |
-| 3 Drafts | Not started | |
+| 3 Drafts (pilot) | **Next — waiting for the founder's handbook** | Pilot from the 26 draft-eligible leads; nothing built yet |
 | 4 Gmail sync | Not started | |
 | 5 Tracking | Not started | |
 | 6 Calls | Not started | |
