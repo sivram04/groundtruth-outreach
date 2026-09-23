@@ -52,6 +52,13 @@
 
 ## [DISCOVERIES]
 
+- 2026-09-23T03:00Z [TOOL] Read-only status check: 492 leads have email-check
+  outcomes; 69 have fit verdicts, 5 company profiles are READY, 26 are
+  OK/QUALIFIED, and no Sheet row has a draft action. Suppression exists with
+  only its header. Cloud Run still routes 100% to worker revision 00013 and
+  the check schedule is PAUSED. `docs/AS_BUILT.md` summary corrected; the
+  planned Drive/Gemini writer remains unbuilt.
+
 - 2026-09-22T20:48:00-04:00 [TOOL] Read-only previews of four READY leads after
   the selection fix choose commercial gas-line work for Monroe, a project
   portfolio for Conti, and the prior Harrington sentence. Cincinnati Air has

@@ -14,8 +14,8 @@ draft-to-send-to-follow-up pipeline has not been built.
 | --- | --- | --- |
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
-| 2 Research | **Bulk fit research paused; four company profiles piloted** 2026-09-22 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible; 396 pending, not to be resumed for now; four verified offerings/markets profiles saved; no research schedule exists |
-| 3 Drafts (pilot) | **Local code built; disabled and not deployed** | Read-only live previews for four READY leads remain blocked as intended (handbook fields unfilled, offer not approved, no Suppression tab), with no hash or write. Quote selection now shows all verified options and chooses a complete commercial sentence by default. **Pilot four: A-0030 Monroe, A-0062 Conti, A-0078 Harrington (defaults) and A-0049 Applied Mechanical (explicit quote `83f3b598a4a1d94f`, its complete "regional mechanical contractor… for commercial, industrial, and institutional clients" sentence).** A-0112 Cincinnati Air was replaced because it has no clean opening. Named greetings require `Their email` to match `BEST EMAIL`. Gmail draft creation remains unexercised. |
+| 2 Research | **Bulk fit research paused; five company profiles READY** 2026-09-22 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible; 396 pending, not to be resumed for now. Five verified offerings/markets profiles are saved; four are in the pilot and Cincinnati Air remains READY but out of it. No research schedule exists. |
+| 3 Drafts (pilot) | **Fixed-template prototype only; planned Drive/Gemini writer not built or deployed** | Read-only previews for four pilot leads have been rendered, but the founder's final handbook is not in Drive, no offer or exact email is approved, and no preview has an approval hash. The Suppression tab now exists with only its header. No draft action exists in the Sheet, Gmail drafting has not been exercised, and the draft endpoints are not deployed. |
 | 4 Gmail sync | Not started | Founder chose two follow-up drafts, each due on the third business day after the preceding email is actually sent; all emails are sent by hand |
 | 5 Tracking | Not started | |
 | 6 Calls | Not started | |
@@ -80,6 +80,7 @@ a replacement. These endpoints have no Scheduler job.
 | C_Phone_Only | 242 | Not touched (no emails) |
 | Runs | 1 per job run | Written by the system |
 | Research | 1 per verified quote per research run | Written by the system; append-only history, so re-researched leads have older rows too — the lead row's `Researched at` names the current run |
+| Suppression | Header only; 0 entries | Created for future opt-outs and bounces; the 14 hand-sent threads had no matches at the recorded audit time |
 
 Row 1 of A and B is a description; **headers are in row 2**. Columns are found by header
 name, never by position — A and B have different layouts.
@@ -570,6 +571,12 @@ result adds no fact the quote does not contain. Not built.
 Recorded in Runs as `suppression-tab`.
 
 ## Change log
+
+- **2026-09-22** Read-only status audit reconciled the summary with the live Sheet:
+  492 checked leads, 69 with fit verdicts, 5 READY profiles, 26 OK/QUALIFIED
+  leads, no draft actions, and a header-only Suppression tab. Cloud Run still
+  serves worker revision 00013; the check schedule remains paused. Corrected
+  stale stage and tab summaries; no operational change.
 
 - **2026-09-22** Founder clarified the final stage-3 architecture: the final
   handbook **will be** placed in Google Drive; it is **not there yet**. The
