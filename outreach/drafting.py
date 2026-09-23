@@ -17,7 +17,24 @@ from outreach import checks, eligibility
 HANDBOOK = Path(__file__).resolve().parent / "handbook" / "prelaunch_initial.txt"
 FIELDS = ("PRODUCT_NAME", "INTENDED_USE", "NEXT_WEEK_ACTION", "CTA_QUESTION",
           "SENDER_NAME", "FOUNDER_TITLE", "SENDER_WEBSITE", "POSTAL_ADDRESS")
+# The Drive handbook supplies the offer wording, so a written draft needs only the identity
+# fields that must never come from a model.
+SIGNATURE_FIELDS = ("PRODUCT_NAME", "SENDER_NAME", "FOUNDER_TITLE", "SENDER_WEBSITE",
+                    "POSTAL_ADDRESS")
+OPT_OUT = 'If you don\'t want further outreach from me, reply "no thanks" and I\'ll stop.'
 TOKEN = re.compile(r"\[[^\]\n]+\]")
+
+
+def assemble(written, values):
+    """Build the body around the model's sentences. Greeting, signature, postal address and
+    opt-out line are written here, never by the model."""
+    signature = [f'{values["SENDER_NAME"]}', f'{values["FOUNDER_TITLE"]}, {values["PRODUCT_NAME"]}',
+                 values["SENDER_WEBSITE"]]
+    if values.get("SENDER_PHONE"):
+        signature.append(values["SENDER_PHONE"])
+    signature.append(values["POSTAL_ADDRESS"])
+    return "\n\n".join([f'Hi {values["FIRST_NAME"]},', written["company"], written["product"],
+                        written["ask"], "Best,\n" + "\n".join(signature) + "\n" + OPT_OUT])
 
 
 def initial_template(path=HANDBOOK):
@@ -140,14 +157,58 @@ def verified_first_name(lead):
     return parts[0]
 
 
+def _finish(lead, settings, sender_email, subject, body, evidence, chosen, options, blockers,
+            *, handbook=None, written=None):
+    """Last checks shared by both paths, then the approval hash over everything that matters."""
+    if TOKEN.search(subject + "\n" + body):
+        blockers.append("unresolved template placeholder")
+    if "\n" in subject or "\r" in subject or len(subject) > 100:
+        blockers.append("subject is invalid")
+    if not body.endswith(OPT_OUT):
+        blockers.append("opt-out footer is missing")
+    if len(body) > 2500:
+        blockers.append("body exceeds the pilot length limit")
+
+    recipient = lead.get("BEST EMAIL", "").strip().lower()
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", recipient):
+        blockers.append("recipient email is invalid")
+    if not lead.get("Company", "").strip():
+        blockers.append("company name is missing")
+    if not settings.get("version"):
+        blockers.append("handbook version is missing")
+
+    preview_date = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    digest = None
+    if not blockers:
+        material = {"lead_id": lead["Lead ID"], "to": recipient, "subject": subject,
+                    "from": sender_email.lower(), "body": body, "evidence": evidence,
+                    "quote_id": chosen["quote_id"], "version": settings["version"],
+                    "preview_date": preview_date,
+                    "handbook": (handbook or {}).get("content_hash", ""),
+                    "handbook_doc": (handbook or {}).get("document_id", "")}
+        digest = hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()
+    return {"lead_id": lead.get("Lead ID", ""), "company": lead.get("Company", ""),
+            "to": recipient, "subject": subject, "body": body, "evidence": evidence,
+            "evidence_options": options, "selected_quote_id": chosen["quote_id"] if chosen else None,
+            "handbook_hash": (handbook or {}).get("content_hash", ""),
+            "written": {k: v for k, v in (written or {}).items() if k != "usage"} or None,
+            "preview_date": preview_date, "blockers": blockers, "preview_hash": digest}
+
+
 def preview(lead, research_rows, settings, *, suppressed=None, subject_template=None,
-            selected_quote_id=None):
+            selected_quote_id=None, handbook=None, written=None):
     """Return reviewable copy and blockers. A hash exists only for send-ready copy.
 
     `suppressed=None` means the suppression list was unavailable; this blocks a write.
     Approval of the exact hash is still required before Gmail draft creation.
+
+    With `handbook` and `written` (from `writer.compose`), the copy is the model's grounded
+    sentences inside a signature this code controls, and the handbook's content hash is bound
+    into the approval hash: edit the Drive document and the approval dies with it.
     """
     blockers = []
+    if written is not None and not handbook:
+        blockers.append("a written draft needs its handbook identity")
     ok, why = eligibility.draft_eligible(lead)
     if not ok:
         blockers.append(why)
@@ -161,6 +222,10 @@ def preview(lead, research_rows, settings, *, suppressed=None, subject_template=
         blockers.append("address or domain is suppressed")
 
     options = opening_options(supported_quotes(lead, research_rows), lead.get("Company", ""))
+    if written is not None:
+        # The writer must have cited a quote that is still verified for this lead right now.
+        cited = (written.get("evidence") or {}).get("quote_id", "")
+        selected_quote_id = cited if cited else "missing"
     if selected_quote_id:
         selected = [f for f in options if f["quote_id"] == selected_quote_id]
         chosen = selected[0] if len(selected) == 1 else None
@@ -176,8 +241,9 @@ def preview(lead, research_rows, settings, *, suppressed=None, subject_template=
                         else "no strong default opening quote; select a verified option")
     evidence = ({key: chosen[key] for key in ("category", "quote", "url")} if chosen else None)
 
+    required = SIGNATURE_FIELDS if written is not None else FIELDS
     values = {key: str(settings.get(key.lower(), "")).strip() or f"[{key}]" for key in FIELDS}
-    for key in FIELDS:
+    for key in required:
         if not values[key] or TOKEN.search(values[key]):
             blockers.append(f"handbook field {key} is missing")
     if settings.get("offer_approved") is not True:
@@ -193,7 +259,7 @@ def preview(lead, research_rows, settings, *, suppressed=None, subject_template=
         blockers.append("daily cap must be between 1 and 30")
     if not _host(values["SENDER_WEBSITE"]):
         blockers.append("sender website is invalid")
-    if values["CTA_QUESTION"] and not values["CTA_QUESTION"].endswith("?"):
+    if written is None and values["CTA_QUESTION"] and not values["CTA_QUESTION"].endswith("?"):
         blockers.append("CTA must be a question")
     if values["POSTAL_ADDRESS"] and len(values["POSTAL_ADDRESS"]) < 10:
         blockers.append("postal address is too short")
@@ -216,34 +282,12 @@ def preview(lead, research_rows, settings, *, suppressed=None, subject_template=
     else:
         body_source = body_source.replace("[SENDER_PHONE]\n", "")
     values["COMPANY"] = lead.get("Company", "").strip()
+    if written is not None:
+        subject = written["subject"]
+        body = assemble(written, values) if not blockers else "[draft withheld]"
+        return _finish(lead, settings, sender_email, subject, body, evidence, chosen, options,
+                       blockers, handbook=handbook, written=written)
     subject = _fill(subject_source, values)
     body = _fill(body_source, values)
-    if TOKEN.search(subject + "\n" + body):
-        blockers.append("unresolved template placeholder")
-    if "\n" in subject or "\r" in subject or len(subject) > 100:
-        blockers.append("subject is invalid")
-    if not body.endswith('reply "no thanks" and I\'ll stop.'):
-        blockers.append("opt-out footer is missing")
-    if len(body) > 2500:
-        blockers.append("body exceeds the pilot length limit")
-
-    recipient = lead.get("BEST EMAIL", "").strip().lower()
-    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", recipient):
-        blockers.append("recipient email is invalid")
-    if not values["COMPANY"]:
-        blockers.append("company name is missing")
-    if not settings.get("version"):
-        blockers.append("handbook version is missing")
-
-    preview_date = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
-    digest = None
-    if not blockers:
-        material = {"lead_id": lead["Lead ID"], "to": recipient, "subject": subject,
-                    "from": sender_email.lower(), "body": body, "evidence": evidence,
-                    "quote_id": chosen["quote_id"], "version": settings["version"],
-                    "preview_date": preview_date}
-        digest = hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()
-    return {"lead_id": lead.get("Lead ID", ""), "company": lead.get("Company", ""),
-            "to": recipient, "subject": subject, "body": body, "evidence": evidence,
-            "evidence_options": options, "selected_quote_id": chosen["quote_id"] if chosen else None,
-            "preview_date": preview_date, "blockers": blockers, "preview_hash": digest}
+    return _finish(lead, settings, sender_email, subject, body, evidence, chosen, options,
+                   blockers, handbook=handbook)

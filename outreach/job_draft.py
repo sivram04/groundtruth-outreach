@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from outreach import drafting, gmail_drafts
+from outreach import drafting, gemini, gmail_drafts, handbook_drive, writer
 from outreach.sheet import DRAFT_COLUMNS, LEAD_TABS, SHEET_ID, SYSTEM_COLUMNS, Tab, _api
 
 MAX_PILOT = 4
@@ -70,7 +70,44 @@ def _read(api, ids):
     return tabs, matches, facts
 
 
-def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None):
+def _handbook(settings, handbook=None, drive=None):
+    """The Drive document, or the reason there is none. Never a local substitute."""
+    if handbook is not None:
+        return handbook, None
+    try:
+        return handbook_drive.load(settings, drive=drive), None
+    except handbook_drive.HandbookUnavailable as exc:
+        return None, f"handbook unavailable: {exc}"
+
+
+def _blocked(lead, options, blockers, handbook=None):
+    """A preview shaped like any other, with no hash, when writing could not even start."""
+    return {"lead_id": lead.get("Lead ID", ""), "company": lead.get("Company", ""),
+            "to": lead.get("BEST EMAIL", "").strip().lower(), "subject": "", "body": "",
+            "evidence": None, "evidence_options": options, "selected_quote_id": None,
+            "handbook_hash": (handbook or {}).get("content_hash", ""),
+            "preview_date": datetime.now(ZoneInfo("America/New_York")).date().isoformat(),
+            "blockers": blockers, "preview_hash": None}
+
+
+def written_preview(lead, facts, settings, handbook, *, suppressed, model):
+    """Gemini writes; `drafting` decides whether the result may ever become a draft."""
+    options = drafting.opening_options(drafting.supported_quotes(lead, facts), lead.get("Company", ""))
+    usable = [o for o in options if o["usable"]]
+    if not usable:
+        return _blocked(lead, options, ["no verified company quote to write from"], handbook)
+    try:
+        draft, problems = writer.compose(handbook["text"], lead.get("Company", ""), usable, model)
+    except Exception as exc:  # a model or network failure must not produce a draft
+        return _blocked(lead, options, [f"the writer failed: {type(exc).__name__}"], handbook)
+    if draft is None:
+        return _blocked(lead, options, problems, handbook)
+    return drafting.preview(lead, facts, settings, suppressed=suppressed,
+                            handbook=handbook, written=draft)
+
+
+def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
+             write=False, model=None, drive=None, handbook=None):
     settings = load_settings() if settings is None else settings
     quote_choices = quote_choices or {}
     if fixture is not None:
@@ -79,6 +116,13 @@ def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None):
         leads = {lead["Lead ID"]: lead for lead in fixture["leads"]}
         if not set(ids) <= leads.keys():
             raise DraftBlocked("fixture is missing a requested Lead ID")
+        if write:
+            book, why = _handbook(settings, handbook, drive)
+            return [(written_preview(leads[i], fixture["research"], settings, book,
+                                     suppressed=fixture.get("suppressed", {}).get(i, None),
+                                     model=model or gemini.generate_json)
+                     if book else _blocked(leads[i], [], [why]))
+                    for i in ids]
         return [drafting.preview(leads[lead_id], fixture["research"], settings,
                                 suppressed=fixture.get("suppressed", {}).get(lead_id, None),
                                 subject_template=settings.get("subject_template"),
@@ -87,6 +131,13 @@ def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None):
     api = api or _api()
     _, matches, facts = _read(api, ids)
     by_id = {lead["Lead ID"]: lead for _, _, lead in matches}
+    if write:
+        book, why = _handbook(settings, handbook, drive)
+        return [(written_preview(by_id[i], facts, settings, book,
+                                 suppressed=_suppressed(api, by_id[i].get("BEST EMAIL", "")),
+                                 model=model or gemini.generate_json)
+                 if book else _blocked(by_id[i], [], [why]))
+                for i in ids]
     return [drafting.preview(by_id[lead_id], facts, settings,
                             suppressed=_suppressed(api, by_id[lead_id].get("BEST EMAIL", "")),
                             subject_template=settings.get("subject_template"),
@@ -109,7 +160,23 @@ def _actions_today(tabs):
     return count
 
 
-def create(lead_id, approved_hash, *, quote_id=None, settings=None, api=None, gmail=None):
+def _revalidated(lead, facts, written, settings, handbook=None, drive=None):
+    """Re-judge an approved written draft against the live handbook and quotes. No model call."""
+    book, why = _handbook(settings, handbook, drive)
+    if not book:
+        raise DraftBlocked(why)
+    options = drafting.opening_options(drafting.supported_quotes(lead, facts), lead.get("Company", ""))
+    rebuilt, problems = writer.revalidate(book["text"], lead.get("Company", ""),
+                                          [o for o in options if o["usable"]], written)
+    if rebuilt is None:
+        raise DraftBlocked("; ".join(problems))
+    if any(rebuilt[k] != written.get(k) for k in ("subject", "company", "product", "ask")):
+        raise DraftBlocked("the approved wording no longer passes its own checks")
+    return book, rebuilt
+
+
+def create(lead_id, approved_hash, *, quote_id=None, written=None, settings=None, api=None,
+           gmail=None, drive=None, handbook=None):
     """Reserve in Sheets, create one Gmail draft, then finalize the Sheet row.
 
     A failed/uncertain create leaves RESERVED. No second create is attempted for that
@@ -123,10 +190,16 @@ def create(lead_id, approved_hash, *, quote_id=None, settings=None, api=None, gm
     api = api or _api()
     tabs, matches, facts = _read(api, [lead_id])
     tab, row, lead = matches[0]
-    result = drafting.preview(lead, facts, settings,
-                             suppressed=_suppressed(api, lead.get("BEST EMAIL", "")),
-                             subject_template=settings.get("subject_template"),
-                             selected_quote_id=quote_id)
+    if written is not None:
+        book, rebuilt = _revalidated(lead, facts, written, settings, handbook, drive)
+        result = drafting.preview(lead, facts, settings,
+                                 suppressed=_suppressed(api, lead.get("BEST EMAIL", "")),
+                                 handbook=book, written=rebuilt)
+    else:
+        result = drafting.preview(lead, facts, settings,
+                                 suppressed=_suppressed(api, lead.get("BEST EMAIL", "")),
+                                 subject_template=settings.get("subject_template"),
+                                 selected_quote_id=quote_id)
     if result["blockers"]:
         raise DraftBlocked("; ".join(result["blockers"]))
     if result["preview_hash"] != approved_hash:
@@ -199,6 +272,10 @@ def main():
     parser.add_argument("--settings", type=Path, help="local handbook settings JSON")
     parser.add_argument("--quote-choice", action="append", default=[],
                         help="select verified opening: LEAD_ID=QUOTE_ID; repeat per lead")
+    parser.add_argument("--write", action="store_true",
+                        help="Gemini writes from the Drive handbook instead of the fixed template")
+    parser.add_argument("--handbook", type=Path,
+                        help="offline handbook text for a synthetic run; never used in production")
     args = parser.parse_args()
     settings = (json.loads(args.settings.read_text(encoding="utf-8")) if args.settings
                 else load_settings())
@@ -209,8 +286,15 @@ def main():
         if not sep or not lead_id or not quote_id or lead_id in choices:
             parser.error("each --quote-choice must be a unique LEAD_ID=QUOTE_ID")
         choices[lead_id] = quote_id
+    book = None
+    if args.handbook:
+        if not args.fixture:
+            parser.error("--handbook is for synthetic runs only; use it with --fixture")
+        text = args.handbook.read_text(encoding="utf-8")
+        book = {"text": text, "document_id": f"local:{args.handbook.name}", "source": "local",
+                "content_hash": hashlib.sha256(text.encode()).hexdigest(), "version": "local"}
     print(json.dumps(previews(args.ids.split(","), settings=settings, fixture=fixture,
-                              quote_choices=choices), indent=2))
+                              quote_choices=choices, write=args.write, handbook=book), indent=2))
 
 
 if __name__ == "__main__":

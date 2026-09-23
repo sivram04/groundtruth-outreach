@@ -46,8 +46,11 @@ def draft_preview():
     if not isinstance(ids.get("quote_choices", {}), dict):
         return jsonify(ok=False, error="quote_choices must be a mapping"), 400
     try:
+        # write=true asks Gemini to compose from the Drive handbook; without it the preview
+        # uses the older fixed template. Neither can create anything in Gmail.
         return jsonify(ok=True, previews=job_draft.previews(
-            ids.get("ids", []), quote_choices=ids.get("quote_choices")))
+            ids.get("ids", []), quote_choices=ids.get("quote_choices"),
+            write=bool(ids.get("write"))))
     except job_draft.DraftBlocked as exc:
         return jsonify(ok=False, error=str(exc)), 400
 
@@ -60,7 +63,7 @@ def draft_create():
     body = request.get_json(silent=True) or {}
     try:
         result = job_draft.create(body.get("lead_id", ""), body.get("approved_hash", ""),
-                                  quote_id=body.get("quote_id"))
+                                  quote_id=body.get("quote_id"), written=body.get("written"))
         return jsonify(ok=True, **result)
     except job_draft.DraftBlocked as exc:
         return jsonify(ok=False, error=str(exc)), 400

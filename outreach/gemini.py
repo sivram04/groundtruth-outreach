@@ -22,6 +22,8 @@ def _token():
     except Exception:
         # Local runs without application-default credentials use the gcloud sign-in.
         exe = shutil.which("gcloud") or shutil.which("gcloud.cmd")
+        if not exe:
+            raise RuntimeError("no Google credentials: neither application-default nor gcloud")
         return subprocess.run([exe, "auth", "print-access-token"], capture_output=True,
                               text=True, check=True).stdout.strip()
 

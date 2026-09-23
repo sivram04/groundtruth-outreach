@@ -1,0 +1,18 @@
+SYNTHETIC HANDBOOK — test fixture only. Not the founder's handbook and not production copy.
+
+What Example Product is
+Example Product is a cash-flow decision tool for construction subcontractors. It is designed
+to use bank balances, open invoices and bills, payroll dates, fixed costs and upcoming job
+billings to compare scenarios and explain recommended next steps.
+
+What to say about its state
+Say plainly that the MVP is still being finished. Never say it is ready, never promise a
+result, a saving or a faster payment, and never claim other contractors already use it.
+
+What to say about the company
+Open with one sentence about what the company does, resting on a quote from its own site.
+Never mention their money, payment timing, problems or software.
+
+What to ask for
+Ask whether they would be open to a twenty minute conversation next week about the early
+preview. Ask it as a question. Ask for nothing else.
