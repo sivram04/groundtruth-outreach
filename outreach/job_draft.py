@@ -70,8 +70,9 @@ def _read(api, ids):
     return tabs, matches, facts
 
 
-def previews(ids, *, settings=None, api=None, fixture=None):
+def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None):
     settings = load_settings() if settings is None else settings
+    quote_choices = quote_choices or {}
     if fixture is not None:
         if not 1 <= len(ids) <= MAX_PILOT or len(set(ids)) != len(ids):
             raise DraftBlocked("supply one to four distinct Lead IDs")
@@ -80,14 +81,16 @@ def previews(ids, *, settings=None, api=None, fixture=None):
             raise DraftBlocked("fixture is missing a requested Lead ID")
         return [drafting.preview(leads[lead_id], fixture["research"], settings,
                                 suppressed=fixture.get("suppressed", {}).get(lead_id, None),
-                                subject_template=settings.get("subject_template"))
+                                subject_template=settings.get("subject_template"),
+                                selected_quote_id=quote_choices.get(lead_id))
                 for lead_id in ids]
     api = api or _api()
     _, matches, facts = _read(api, ids)
     by_id = {lead["Lead ID"]: lead for _, _, lead in matches}
     return [drafting.preview(by_id[lead_id], facts, settings,
                             suppressed=_suppressed(api, by_id[lead_id].get("BEST EMAIL", "")),
-                            subject_template=settings.get("subject_template"))
+                            subject_template=settings.get("subject_template"),
+                            selected_quote_id=quote_choices.get(lead_id))
             for lead_id in ids]
 
 
@@ -106,7 +109,7 @@ def _actions_today(tabs):
     return count
 
 
-def create(lead_id, approved_hash, *, settings=None, api=None, gmail=None):
+def create(lead_id, approved_hash, *, quote_id=None, settings=None, api=None, gmail=None):
     """Reserve in Sheets, create one Gmail draft, then finalize the Sheet row.
 
     A failed/uncertain create leaves RESERVED. No second create is attempted for that
@@ -122,7 +125,8 @@ def create(lead_id, approved_hash, *, settings=None, api=None, gmail=None):
     tab, row, lead = matches[0]
     result = drafting.preview(lead, facts, settings,
                              suppressed=_suppressed(api, lead.get("BEST EMAIL", "")),
-                             subject_template=settings.get("subject_template"))
+                             subject_template=settings.get("subject_template"),
+                             selected_quote_id=quote_id)
     if result["blockers"]:
         raise DraftBlocked("; ".join(result["blockers"]))
     if result["preview_hash"] != approved_hash:
@@ -143,7 +147,8 @@ def create(lead_id, approved_hash, *, settings=None, api=None, gmail=None):
     tab.ensure_columns(DRAFT_COLUMNS)
     reserved = tab.write({row: {"Draft action": action_id,
                                 "Draft action at": datetime.now(timezone.utc).isoformat(),
-                                "Draft status": "RESERVED", "Draft hash": approved_hash}})
+                                "Draft status": "RESERVED", "Draft hash": approved_hash,
+                                "Draft quote ID": result["selected_quote_id"]}})
     if reserved["written"] != 1 or reserved["skipped"]:
         raise DraftBlocked("lead changed before reservation; no Gmail write attempted")
 
@@ -192,11 +197,20 @@ def main():
     parser.add_argument("--ids", required=True, help="one to four comma-separated Lead IDs")
     parser.add_argument("--fixture", type=Path, help="offline fixture; no Google access")
     parser.add_argument("--settings", type=Path, help="local handbook settings JSON")
+    parser.add_argument("--quote-choice", action="append", default=[],
+                        help="select verified opening: LEAD_ID=QUOTE_ID; repeat per lead")
     args = parser.parse_args()
     settings = (json.loads(args.settings.read_text(encoding="utf-8")) if args.settings
                 else load_settings())
     fixture = json.loads(args.fixture.read_text(encoding="utf-8")) if args.fixture else None
-    print(json.dumps(previews(args.ids.split(","), settings=settings, fixture=fixture), indent=2))
+    choices = {}
+    for item in args.quote_choice:
+        lead_id, sep, quote_id = item.partition("=")
+        if not sep or not lead_id or not quote_id or lead_id in choices:
+            parser.error("each --quote-choice must be a unique LEAD_ID=QUOTE_ID")
+        choices[lead_id] = quote_id
+    print(json.dumps(previews(args.ids.split(","), settings=settings, fixture=fixture,
+                              quote_choices=choices), indent=2))
 
 
 if __name__ == "__main__":

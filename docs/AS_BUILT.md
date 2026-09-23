@@ -15,7 +15,7 @@ draft-to-send-to-follow-up pipeline has not been built.
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
 | 2 Research | **Bulk fit research paused; four company profiles piloted** 2026-09-22 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible; 396 pending, not to be resumed for now; four verified offerings/markets profiles saved; no research schedule exists |
-| 3 Drafts (pilot) | **Local code built; disabled and not deployed** | Offline preview renders a verified company quote and customizable subject from the pre-launch handbook; Gmail draft creation requires an exact approved preview hash and is disabled by default. The copy is template-rendered from earlier Gemini research, not a free-form AI-written email. **Read-only live previews run 2026-09-22 for the four READY leads** (A-0030, A-0062, A-0078, A-0112): all blocked as intended (handbook fields unfilled, offer not approved, no Suppression tab), no hash, nothing written. Copy review: 1 of 4 openings reads well; see "Stage 3 live preview review". Gmail draft creation remains unexercised. |
+| 3 Drafts (pilot) | **Local code built; disabled and not deployed** | Read-only live previews for four READY leads remain blocked as intended (handbook fields unfilled, offer not approved, no Suppression tab), with no hash or write. Quote selection now shows all verified options and chooses a complete commercial sentence by default; three leads get a default, Cincinnati Air requires an explicit reviewed choice. Named greetings require `Their email` to match `BEST EMAIL`. Gmail draft creation remains unexercised. |
 | 4 Gmail sync | Not started | Founder chose two follow-up drafts, each due on the third business day after the preceding email is actually sent; all emails are sent by hand |
 | 5 Tracking | Not started | |
 | 6 Calls | Not started | |
@@ -62,7 +62,8 @@ Deploy: `sh deploy/deploy_worker.sh`.
 | `POST /jobs/profile?limit=5&ids=A-0001,...` (optional `dry_run=1`) | Pilot extraction of company offerings and markets for later drafts. Available on the private `profile-review` tag only; serving revision remains 00013. No schedule. |
 
 **Local code only, not deployed:** `POST /jobs/draft/preview` accepts 1–4 explicit Lead
-IDs. `POST /jobs/draft/create` requires one Lead ID, its exact approved preview hash,
+IDs and optional `quote_choices` by Lead ID. `POST /jobs/draft/create` requires one Lead ID,
+its selected `quote_id` when chosen explicitly, its exact approved preview hash,
 complete handbook settings, and `ENABLE_GMAIL_DRAFTS=true`; default is disabled.
 `POST /jobs/draft/reconcile` looks for an existing reserved Gmail draft and never creates
 a replacement. These endpoints have no Scheduler job.
@@ -93,14 +94,16 @@ are separate from the fit verdict. The Research tab also holds append-only `OFFE
 email copy.
 
 **Stage 3 columns in local code only, not added to the live Sheet:** `Draft action`,
-`Draft action at`, `Draft status`, `Draft hash`, `Draft ID`, `Draft link`, `Drafted at`.
+`Draft action at`, `Draft status`, `Draft hash`, `Draft quote ID`, `Draft ID`,
+`Draft link`, `Drafted at`.
 They are created only by an enabled draft write. A `RESERVED` action counts toward the
 daily cap and prevents automatic retry after an uncertain Gmail result.
 
 **System columns** (added 2026-09-22, right of the founder's columns): `Lead ID`,
 `Email check`, `Reason`, `Checked at`.
 
-**Founder columns the system reads:** `BEST EMAIL`, `Website`, `Warning`, `Sent by hand`.
+**Founder columns the system reads:** `BEST EMAIL`, `Their email`, `Decision maker`,
+`Website`, `Warning`, `Sent by hand`.
 `Where it came from` is no longer used by any rule: it was wrong for A-0155 (see below).
 
 **Column changes made with founder approval, 2026-09-22** (`tools/tidy_columns_2026_09_22.py`):
@@ -473,7 +476,28 @@ Sheet does not have. For all four leads `Decision maker` is the person at `BEST 
 **Local Windows runs** need `tzdata` in the venv (`zoneinfo` has no system time-zone data on
 Windows); installed locally only. The container resolves `America/New_York` without it.
 
+**Superseding copy check after the local selection fix, 2026-09-22:** a read-only
+rerun of the same four leads now selects Monroe's commercial gas-line installation
+sentence, Conti's schools/hospitals portfolio sentence, and Harrington's original
+company sentence. Cincinnati Air has no clean complete-sentence default among
+its four stored quotes (three headings run into lists and one is a sector list),
+so its preview is held for an explicit reviewed quote or better source evidence.
+Greetings now say Hi Brian, Hi John, Hi Tom and Hi Mark respectively because
+`Their email` matches `BEST EMAIL`; a mismatch or role inbox falls back to
+“Hi there.” The previews remain blocked by founder fields, approval and the
+missing Suppression tab; no draft or send occurred.
+
 ## Change log
+
+- **2026-09-22** Local Stage 3 copy fix: replaced first-OFFERING selection with a
+  list of verified OFFERING/MARKET quotes and quote IDs. Defaults avoid
+  residential text/pages, run-in headings, fragments and lists; explicit choice
+  is bound to the approved hash and recorded in `Draft quote ID` on a future
+  reservation. First-name greetings use `Decision maker` only when `Their email`
+  matches `BEST EMAIL` and is not a role inbox. Read-only preview of the four
+  current leads yielded three complete default observations and held Cincinnati
+  Air. Container build, `compileall`, Ruff E4/E7/E9/F checks and 169/169 offline
+  tests passed. No live Sheet/Gmail write, deployment or schedule change.
 
 - **2026-09-22** Read-only live previews for the four READY leads: all correctly blocked; 1 of
   4 openings reads well. Weakness traced to first-quote selection and a missing first-name

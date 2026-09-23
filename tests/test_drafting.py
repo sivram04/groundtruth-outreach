@@ -58,7 +58,7 @@ def test_preview_uses_only_current_matching_company_quote():
 ])
 def test_mismatched_evidence_cannot_become_send_ready(change):
     out = drafting.preview(lead(), facts(**change), settings(), suppressed=False)
-    assert out["preview_hash"] is None and "no current, verified offering quote" in out["blockers"]
+    assert out["preview_hash"] is None and "no current, verified company quote" in out["blockers"]
 
 
 @pytest.mark.parametrize("row_change,suppressed,config_change", [
@@ -92,6 +92,111 @@ def test_sender_identity_is_part_of_approved_hash():
     second = drafting.preview(lead(), facts(), settings(sender_email="other@lakshyaa.ai"),
                               suppressed=False)
     assert first["preview_hash"] != second["preview_hash"]
+
+
+def test_default_opening_skips_residential_and_run_in_headings_for_verified_market_quote():
+    residential = "New Construction Plumbing Plumbing layout and rough-in for homes."
+    heading = "Commercial HVAC Comfort cooling, chillers, DX systems, and boilers."
+    market = "Our portfolio includes schools, hospitals, and industrial facilities across Ohio."
+    rows = [
+        {"Lead ID": "A-0001", "Researched at": "2026-09-22 12:00:00", "Category": "OFFERING",
+         "Quote": residential, "Page URL": "https://example.test/residential"},
+        {"Lead ID": "A-0001", "Researched at": "2026-09-22 12:00:00", "Category": "OFFERING",
+         "Quote": heading, "Page URL": "https://example.test/commercial"},
+        {"Lead ID": "A-0001", "Researched at": "2026-09-22 12:00:00", "Category": "MARKET",
+         "Quote": market, "Page URL": "https://example.test/projects"},
+    ]
+    row = lead(**{
+        "Offerings evidence": (f'"{residential}" (https://example.test/residential)\n'
+                               f'"{heading}" (https://example.test/commercial)'),
+        "Markets evidence": f'"{market}" (https://example.test/projects)',
+    })
+    out = drafting.preview(row, rows, settings(), suppressed=False)
+    assert out["evidence"]["quote"] == market
+    assert len(out["evidence_options"]) == 3
+    assert out["preview_hash"]
+
+
+def test_decision_maker_first_name_only_when_their_email_matches_recipient():
+    named = lead(**{"BEST EMAIL": "brian@example.test", "Decision maker": "Brian Monroe, Owner",
+                    "Their email": "brian@example.test"})
+    matching = drafting.preview(named, facts(), settings(), suppressed=False)
+    assert matching["body"].startswith("Hi Brian,")
+
+    named["Their email"] = "other@example.test"
+    mismatched = drafting.preview(named, facts(), settings(), suppressed=False)
+    assert mismatched["body"].startswith("Hi there,")
+
+    named["Their email"] = "brian@example.test"
+    named["BEST EMAIL"] = "owner@example.test"
+    role_inbox = drafting.preview(named, facts(), settings(), suppressed=False)
+    assert role_inbox["body"].startswith("Hi there,")
+
+
+def test_selected_verified_market_quote_changes_copy_and_hash():
+    market = "Our portfolio includes schools, hospitals, and industrial facilities across Ohio."
+    market_url = "https://example.test/projects"
+    row = lead(**{"Markets evidence": f'"{market}" ({market_url})'})
+    rows = facts() + [{"Lead ID": "A-0001", "Researched at": "2026-09-22 12:00:00",
+                      "Category": "MARKET", "Quote": market, "Page URL": market_url}]
+    default = drafting.preview(row, rows, settings(), suppressed=False)
+    choice = next(o["quote_id"] for o in default["evidence_options"] if o["category"] == "MARKET")
+    selected = drafting.preview(row, rows, settings(), suppressed=False, selected_quote_id=choice)
+    assert selected["evidence"]["quote"] == market
+    assert selected["preview_hash"] != default["preview_hash"]
+    assert selected["selected_quote_id"] == choice
+
+
+def test_unverified_or_residential_selected_quote_cannot_be_approved():
+    residential = "We provide residential plumbing repairs and service for local homes."
+    url = "https://example.test/residential"
+    row = lead(**{"Offerings evidence": f'"{residential}" ({url})'})
+    rows = facts(Quote=residential, **{"Page URL": url})
+    option = drafting.preview(row, rows, settings(), suppressed=False)["evidence_options"][0]
+    assert not option["usable"]
+    blocked = drafting.preview(row, rows, settings(), suppressed=False,
+                               selected_quote_id=option["quote_id"])
+    assert blocked["preview_hash"] is None
+    missing = drafting.preview(row, rows, settings(), suppressed=False,
+                               selected_quote_id="not-a-current-quote")
+    assert missing["preview_hash"] is None
+
+    generic_page = "https://example.test/about"
+    row["Offerings evidence"] = f'"{residential}" ({generic_page})'
+    rows[0]["Page URL"] = generic_page
+    residential_words = drafting.preview(row, rows, settings(), suppressed=False)
+    assert not residential_words["evidence_options"][0]["usable"]
+
+
+def test_quote_choice_flows_through_preview_job():
+    market = "Our portfolio includes schools, hospitals, and industrial facilities across Ohio."
+    market_url = "https://example.test/projects"
+    row = lead(**{"Markets evidence": f'"{market}" ({market_url})'})
+    rows = facts() + [{"Lead ID": "A-0001", "Researched at": "2026-09-22 12:00:00",
+                      "Category": "MARKET", "Quote": market, "Page URL": market_url}]
+    option = drafting.preview(row, rows, settings(), suppressed=False)["evidence_options"][1]
+    result = job_draft.previews(["A-0001"], settings=settings(),
+                                fixture={"leads": [row], "research": rows,
+                                         "suppressed": {"A-0001": False}},
+                                quote_choices={"A-0001": option["quote_id"]})[0]
+    assert result["evidence"]["quote"] == market
+
+
+def test_default_quality_screen_accepts_company_sentence_and_rejects_fragments():
+    facts_for_opening = [
+        {"category": "OFFERING", "quote": (
+            "Monroe Plumbing installs and modifies commercial gas lines for equipment upgrades "
+            "and renovations with safety in mind."), "url": "https://example.test/commercial"},
+        {"category": "MARKET", "quote": "for commercial, industrial, and institutional projects.",
+         "url": "https://example.test/projects"},
+        {"category": "MARKET", "quote": (
+            "Healthcare, workplace, retail, hospitality, industrial, automotive, "
+            "and specialty medical environments."), "url": "https://example.test/markets"},
+    ]
+    options = drafting.opening_options(facts_for_opening, "Monroe Plumbing LLC")
+    assert options[0]["default_eligible"]
+    assert not options[1]["default_eligible"] and "starts mid-sentence" in options[1]["warnings"]
+    assert not options[2]["default_eligible"] and "not a complete sentence" in options[2]["warnings"]
 
 
 class FakeTab:
@@ -157,6 +262,33 @@ def test_changed_approval_hash_never_reaches_gmail(monkeypatch):
     with pytest.raises(job_draft.DraftBlocked, match="approved hash"):
         job_draft.create("A-0001", "stale", settings=settings(), api=object(), gmail=object())
     assert tab.writes == []
+
+
+def test_create_requires_same_explicit_quote_choice_and_records_it(monkeypatch):
+    monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
+    market = "Our portfolio includes schools, hospitals, and industrial facilities across Ohio."
+    url = "https://example.test/projects"
+    row = lead(**{"Markets evidence": f'"{market}" ({url})'})
+    rows = facts() + [{"Lead ID": "A-0001", "Researched at": "2026-09-22 12:00:00",
+                      "Category": "MARKET", "Quote": market, "Page URL": url}]
+    tab = FakeTab(row)
+    monkeypatch.setattr(job_draft, "_read", lambda api, ids: ([tab], [(tab, 3, row)], rows))
+    monkeypatch.setattr(job_draft, "_suppressed", lambda api, email: False)
+    choice = drafting.preview(row, rows, settings(), suppressed=False)["evidence_options"][1]["quote_id"]
+    approved = drafting.preview(row, rows, settings(), suppressed=False,
+                                selected_quote_id=choice)["preview_hash"]
+    with pytest.raises(job_draft.DraftBlocked, match="approved hash"):
+        job_draft.create("A-0001", approved, settings=settings(), api=object(), gmail=Mailbox())
+    assert tab.writes == []
+
+    monkeypatch.setattr(gmail_drafts, "prior_sends", lambda gmail, recipient: False)
+    monkeypatch.setattr(gmail_drafts, "existing_drafts", lambda gmail, recipient: [])
+    monkeypatch.setattr(gmail_drafts, "create", lambda *args, **kwargs: (_ for _ in ()).throw(
+        TimeoutError("unknown Gmail outcome")))
+    with pytest.raises(TimeoutError):
+        job_draft.create("A-0001", approved, quote_id=choice, settings=settings(),
+                         api=object(), gmail=Mailbox())
+    assert row["Draft quote ID"] == choice and row["Draft status"] == "RESERVED"
 
 
 def test_reserved_action_counts_toward_daily_cap(monkeypatch):
