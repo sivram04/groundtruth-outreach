@@ -517,7 +517,36 @@ same missing founder values; the approval hash will cover the selected quote ID.
 A-0112 keeps its READY profile but is out of the pilot. No opt-outs from the 14 hand-sent
 emails are known; checking those threads is a precaution awaiting the founder's yes.
 
+## Hand-sent emails: read-only Gmail check, 2026-09-22
+
+Founder-authorised, read-only (`messages.list` / `messages.get` with `format=metadata`: headers
+and Gmail's snippet only) in `admin@lakshyaa.ai`, for the 14 leads marked `Sent by hand`:
+
+- **14 sent** on 2026-09-22 between 13:18 and 14:41 EDT, from `Admin Lakshyaa
+  <admin@lakshyaa.ai>`; subjects "…Advice on how a tight cash week gets decided" (12) and
+  "Contracts from ten thousand to forty million" (A-0012).
+- **0 replies, 0 bounces, 0 opt-out wording** as of the check.
+- **A-0005 Approved Plumbing was sent to `jeff@approvedplumbing.com`, not the Sheet's
+  `BEST EMAIL` `dennis@approvedplumbing.com`.** Nothing from that domain has come back either.
+- The sender's display name is "Admin Lakshyaa". Drafts created in this mailbox would show the
+  same name unless the founder changes it in Gmail settings.
+
+**Proposed Suppression entries: none** (no opt-outs or bounces). The `Suppression` tab has not
+been created: it waits for the founder's go, and would start with only its header
+(`Address or domain`, `Reason`, `Added at`, `Source`).
+
+**Offer wording:** the founder rejected the first suggestion as too narrow. Three options
+built on the inputs in the product's cash-flow inputs document (bank balances, open invoices
+and bills with due dates, payroll dates, fixed costs, upcoming billings by job; retainage and
+committed costs where relevant) were rendered read-only for the pilot four (130–153 words
+each); `offer_approved` stays false; none chosen yet.
+
 ## Change log
+
+- **2026-09-22** Read-only Gmail check of the 14 hand-sent emails: all sent, no replies,
+  bounces or opt-outs; A-0005 went to a different address than the Sheet's; display name is
+  "Admin Lakshyaa". No Suppression entries proposed; tab not created. Three offer options
+  rendered for review; nothing approved, drafted, deployed or sent.
 
 - **2026-09-22** Founder also rejected the vague "accounting and operational data"
   phrasing for the offer. The current product input checklist specifically names bank
