@@ -636,6 +636,11 @@ human review of the exact copy and source remains essential.
 
 ## Change log
 
+- **2026-09-22** Created an editable Word copy of the existing
+  `docs/OUTREACH_HANDBOOK_DRAFT.md` for founder review. It preserves the draft's
+  placeholders and pre-launch wording; it is not an approved or Drive-hosted runtime
+  handbook. No pipeline, Sheet, Gmail, deployment or schedule change.
+
 - **2026-09-22** Audited the local Stage 3 pipeline. The live create endpoint could accept
   the old fixed-template path with no Drive handbook, and word-overlap checks accepted two
   opposite-meaning claims. Live preview now always uses the Drive writer, creation requires
