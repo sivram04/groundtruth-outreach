@@ -1,0 +1,17 @@
+Subject: A conversation about [PRODUCT_NAME] next week?
+
+Hi [FIRST_NAME],
+
+[VERIFIED_COMPANY_OBSERVATION]
+
+I'm building [PRODUCT_NAME] to [INTENDED_USE]. The MVP is still being finished.
+I'd like to invite you to [NEXT_WEEK_ACTION] and hear where this direction does or doesn't fit the way your team works.
+
+[CTA_QUESTION]
+
+Best,
+[SENDER_NAME]
+[FOUNDER_TITLE], [PRODUCT_NAME]
+[SENDER_WEBSITE]
+[POSTAL_ADDRESS]
+If you don't want further outreach from me, reply "no thanks" and I'll stop.

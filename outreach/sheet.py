@@ -23,7 +23,9 @@ RUNS_HEADER = ["Run at (UTC)", "Job", "Where", "Result", "Detail"]
 CHECK_COLUMNS = ["Lead ID", "Email check", "Reason", "Checked at"]
 RESEARCH_COLUMNS = ["Fit", "Work mix", "Fit reason", "Fit evidence", "Researched at"]
 PROFILE_COLUMNS = ["Profile status", "Offerings evidence", "Markets evidence", "Profile reason", "Profiled at"]
-SYSTEM_COLUMNS = CHECK_COLUMNS + RESEARCH_COLUMNS + PROFILE_COLUMNS
+DRAFT_COLUMNS = ["Draft action", "Draft action at", "Draft status", "Draft hash", "Draft ID",
+                 "Draft link", "Drafted at"]
+SYSTEM_COLUMNS = CHECK_COLUMNS + RESEARCH_COLUMNS + PROFILE_COLUMNS + DRAFT_COLUMNS
 
 
 def _api():

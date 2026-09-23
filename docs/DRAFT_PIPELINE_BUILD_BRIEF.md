@@ -45,8 +45,9 @@ interfaces or documentation rather than claiming them complete.
 
 ## Acceptance and handoff
 
-- The preview path works offline with fixtures for the four reviewed company
-  profiles, and clearly marks any unresolved handbook field. It must not
+- The preview path works offline with synthetic fixtures and can read the four
+  reviewed company profiles from the Sheet later, when that read is authorized.
+  It clearly marks any unresolved handbook field. It must not
   invent a missing field or emit a send-ready draft containing a placeholder.
 - Tests cover gating, quote provenance, unsupported claims, subject and footer
   validation, manual-send exclusion, suppression, retry/idempotency, and the

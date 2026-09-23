@@ -1,0 +1,15 @@
+{
+  "version": "synthetic-example-v1",
+  "product_name": "Example Product",
+  "intended_use": "help trade contractors review cash timing",
+  "next_week_action": "have a short conversation about an early preview",
+  "cta_question": "Would a short conversation next week be useful?",
+  "sender_name": "Example Founder",
+  "founder_title": "Founder",
+  "sender_website": "https://example.test",
+  "postal_address": "123 Example St, Cleveland, OH 44101",
+  "sender_email": "founder@example.test",
+  "daily_cap": 4,
+  "offer_approved": true,
+  "subject_template": "A conversation about [PRODUCT_NAME] next week?"
+}

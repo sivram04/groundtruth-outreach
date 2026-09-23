@@ -1,0 +1,234 @@
+"""Stage 3 preview and one-way Gmail draft reservation, entirely offline."""
+
+import base64
+from email import policy
+from email.parser import BytesParser
+
+import pytest
+
+from outreach import drafting, gmail_drafts, job_draft, worker
+
+QUOTE = "We install electrical distribution systems for commercial buildings."
+URL = "https://example.test/services"
+
+
+def lead(**changes):
+    row = {
+        "Lead ID": "A-0001", "Company": "Example Electric", "BEST EMAIL": "owner@example.test",
+        "Website": "https://example.test/", "Email check": "OK", "Fit": "QUALIFIED",
+        "Profile status": "READY", "Profiled at": "2026-09-22 12:00:00",
+        "Offerings evidence": f'"{QUOTE}" ({URL})',
+    }
+    row.update(changes)
+    return row
+
+
+def facts(**changes):
+    fact = {"Lead ID": "A-0001", "Researched at": "2026-09-22 12:00:00",
+            "Category": "OFFERING", "Quote": QUOTE, "Page URL": URL}
+    fact.update(changes)
+    return [fact]
+
+
+def settings(**changes):
+    config = {"product_name": "Lakshyaa", "intended_use": "help trade contractors review cash timing",
+              "next_week_action": "have a short conversation about an early preview",
+              "cta_question": "Would a short conversation next week be useful?",
+              "sender_name": "Founder", "founder_title": "Founder",
+              "sender_website": "https://lakshyaa.ai", "postal_address": "123 Example St, Cleveland, OH 44101",
+              "sender_email": "admin@lakshyaa.ai", "daily_cap": 4, "offer_approved": True,
+              "version": "prelaunch-v1"}
+    config.update(changes)
+    return config
+
+
+def test_preview_uses_only_current_matching_company_quote():
+    out = drafting.preview(lead(), facts(), settings(), suppressed=False,
+                           subject_template="Question for [COMPANY]?")
+    assert out["preview_hash"] and out["blockers"] == []
+    assert QUOTE in out["body"] and out["evidence"] == {"category": "OFFERING", "quote": QUOTE, "url": URL}
+    assert out["subject"] == "Question for Example Electric?"
+    assert "MVP is still being finished" in out["body"]
+    assert "no thanks" in out["body"] and "123 Example St" in out["body"]
+
+
+@pytest.mark.parametrize("change", [
+    {"Researched at": "old"}, {"Quote": "We have no verifiable statement."},
+    {"Page URL": "https://other.test/services"},
+])
+def test_mismatched_evidence_cannot_become_send_ready(change):
+    out = drafting.preview(lead(), facts(**change), settings(), suppressed=False)
+    assert out["preview_hash"] is None and "no current, verified offering quote" in out["blockers"]
+
+
+@pytest.mark.parametrize("row_change,suppressed,config_change", [
+    ({"Email check": "RISKY"}, False, {}),
+    ({"Fit": "REVIEW_NEEDED"}, False, {}),
+    ({"Sent by hand": "Sent email on 9/22/2026"}, False, {}),
+    ({"HOLD": "yes"}, False, {}),
+    ({"Draft status": "RESERVED"}, False, {}),
+    ({}, True, {}),
+    ({}, None, {}),
+    ({}, False, {"postal_address": "[POSTAL_ADDRESS]"}),
+    ({}, False, {"offer_approved": "true"}),
+    ({}, False, {"cta_question": "Please book a call"}),
+    ({}, False, {"sender_email": ""}),
+])
+def test_unsafe_previews_never_have_an_approvable_hash(row_change, suppressed, config_change):
+    out = drafting.preview(lead(**row_change), facts(), settings(**config_change),
+                           suppressed=suppressed)
+    assert out["preview_hash"] is None and out["blockers"]
+
+
+def test_missing_handbook_fields_are_visible_but_not_send_ready():
+    out = drafting.preview(lead(), facts(), {}, suppressed=False)
+    assert out["preview_hash"] is None
+    assert "handbook field INTENDED_USE is missing" in out["blockers"]
+    assert "[INTENDED_USE]" in out["body"]
+
+
+def test_sender_identity_is_part_of_approved_hash():
+    first = drafting.preview(lead(), facts(), settings(), suppressed=False)
+    second = drafting.preview(lead(), facts(), settings(sender_email="other@lakshyaa.ai"),
+                              suppressed=False)
+    assert first["preview_hash"] != second["preview_hash"]
+
+
+class FakeTab:
+    name = "A_Contact_Now"
+
+    def __init__(self, row):
+        self.lead = row
+        self.rows = [(3, row)]
+        self.writes = []
+
+    def ensure_columns(self, names):
+        assert "Draft action" in names
+
+    def write(self, changes):
+        assert list(changes) == [3]
+        self.lead.update(changes[3])
+        self.writes.append(changes[3])
+        return {"written": 1, "skipped": []}
+
+
+class Mailbox:
+    def users(self):
+        return self
+
+    def getProfile(self, **kwargs):
+        return self
+
+    def execute(self):
+        return {"emailAddress": "admin@lakshyaa.ai"}
+
+
+def test_uncertain_gmail_create_stays_reserved_and_cannot_retry(monkeypatch):
+    monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
+    row = lead()
+    tab = FakeTab(row)
+    monkeypatch.setattr(job_draft, "_read", lambda api, ids: ([tab], [(tab, 3, row)], facts()))
+    monkeypatch.setattr(job_draft, "_suppressed", lambda api, email: False)
+    monkeypatch.setattr(gmail_drafts, "prior_sends", lambda gmail, recipient: False)
+    monkeypatch.setattr(gmail_drafts, "existing_drafts", lambda gmail, recipient: [])
+    calls = []
+
+    def uncertain(*args, **kwargs):
+        calls.append(True)
+        raise TimeoutError("unknown if Gmail committed")
+
+    monkeypatch.setattr(gmail_drafts, "create", uncertain)
+    digest = drafting.preview(row, facts(), settings(), suppressed=False)["preview_hash"]
+    with pytest.raises(TimeoutError):
+        job_draft.create("A-0001", digest, settings=settings(), api=object(), gmail=Mailbox())
+    assert tab.lead["Draft status"] == "RESERVED" and len(calls) == 1
+    with pytest.raises(job_draft.DraftBlocked, match="draft action"):
+        job_draft.create("A-0001", digest, settings=settings(), api=object(), gmail=Mailbox())
+    assert len(calls) == 1
+
+
+def test_changed_approval_hash_never_reaches_gmail(monkeypatch):
+    monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
+    row = lead()
+    tab = FakeTab(row)
+    monkeypatch.setattr(job_draft, "_read", lambda api, ids: ([tab], [(tab, 3, row)], facts()))
+    monkeypatch.setattr(job_draft, "_suppressed", lambda api, email: False)
+    monkeypatch.setattr(gmail_drafts, "prior_sends", lambda *args: pytest.fail("Gmail read occurred"))
+    with pytest.raises(job_draft.DraftBlocked, match="approved hash"):
+        job_draft.create("A-0001", "stale", settings=settings(), api=object(), gmail=object())
+    assert tab.writes == []
+
+
+def test_reserved_action_counts_toward_daily_cap(monkeypatch):
+    monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
+    row = lead()
+    tab = FakeTab(row)
+    other = lead(**{"Lead ID": "A-0002", "Draft status": "RESERVED",
+                    "Draft action at": job_draft.datetime.now(job_draft.timezone.utc).isoformat()})
+    tab.rows.append((4, other))
+    monkeypatch.setattr(job_draft, "_read", lambda api, ids: ([tab], [(tab, 3, row)], facts()))
+    monkeypatch.setattr(job_draft, "_suppressed", lambda api, email: False)
+    monkeypatch.setattr(gmail_drafts, "prior_sends", lambda *args: pytest.fail("Gmail read occurred"))
+    digest = drafting.preview(row, facts(), settings(), suppressed=False)["preview_hash"]
+    with pytest.raises(job_draft.DraftBlocked, match="daily draft cap"):
+        job_draft.create("A-0001", digest, settings=settings(daily_cap=1), api=object(), gmail=Mailbox())
+    assert tab.writes == []
+
+
+def test_reconcile_only_finalizes_one_matching_draft(monkeypatch):
+    monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
+    row = lead(**{"Draft action": "action-1", "Draft status": "RESERVED",
+                  "Draft hash": "hash", "Draft action at": "2026-09-22T12:00:00+00:00"})
+    tab = FakeTab(row)
+    monkeypatch.setattr(job_draft, "_read", lambda api, ids: ([tab], [(tab, 3, row)], []))
+    monkeypatch.setattr(gmail_drafts, "drafts_for_action", lambda gmail, action: [])
+    assert job_draft.reconcile("A-0001", api=object(), gmail=Mailbox())["status"] == "UNRESOLVED"
+    assert tab.writes == []
+    monkeypatch.setattr(gmail_drafts, "drafts_for_action", lambda gmail, action: [{"id": "draft-1"}])
+    assert job_draft.reconcile("A-0001", api=object(), gmail=Mailbox())["status"] == "CREATED"
+    assert row["Draft ID"] == "draft-1"
+
+
+def test_gmail_write_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("ENABLE_GMAIL_DRAFTS", raising=False)
+    with pytest.raises(job_draft.DraftBlocked, match="disabled"):
+        job_draft.create("A-0001", "hash", settings=settings(), api=object(), gmail=Mailbox())
+
+
+def test_worker_draft_create_endpoint_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("ENABLE_GMAIL_DRAFTS", raising=False)
+    result = worker.app.test_client().post(
+        "/jobs/draft/create", json={"lead_id": "A-0001", "approved_hash": "hash"})
+    assert result.status_code == 403
+
+
+def test_gmail_boundary_creates_only_a_draft():
+    class Call:
+        def __init__(self, result):
+            self.result = result
+
+        def execute(self):
+            return self.result
+
+    class Gmail:
+        body = None
+
+        def users(self):
+            return self
+
+        def drafts(self):
+            return self
+
+        def create(self, **kwargs):
+            self.body = kwargs["body"]
+            return Call({"id": "draft-1"})
+
+    gmail = Gmail()
+    assert gmail_drafts.create(gmail, to="owner@example.test", from_address="admin@lakshyaa.ai",
+                               subject="Question", body="Hello", action_id="action-1")["id"] == "draft-1"
+    raw = gmail.body["message"]["raw"]
+    message = BytesParser(policy=policy.default).parsebytes(
+        base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)))
+    assert message["To"] == "owner@example.test"
+    assert message[gmail_drafts.ACTION_HEADER] == "action-1"
+    assert message.get_content().strip() == "Hello"

@@ -1,0 +1,26 @@
+{
+  "leads": [
+    {
+      "Lead ID": "A-0001",
+      "Company": "Example Electric",
+      "BEST EMAIL": "owner@example.test",
+      "Website": "https://example.test/",
+      "Email check": "OK",
+      "Fit": "QUALIFIED",
+      "Profile status": "READY",
+      "Profiled at": "2026-09-22 12:00:00",
+      "Offerings evidence": "\"We install electrical distribution systems for commercial buildings.\" (https://example.test/services)"
+    }
+  ],
+  "research": [
+    {
+      "Researched at": "2026-09-22 12:00:00",
+      "Lead ID": "A-0001",
+      "Company": "Example Electric",
+      "Category": "OFFERING",
+      "Quote": "We install electrical distribution systems for commercial buildings.",
+      "Page URL": "https://example.test/services"
+    }
+  ],
+  "suppressed": {"A-0001": false}
+}

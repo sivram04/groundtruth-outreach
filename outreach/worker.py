@@ -4,7 +4,7 @@ import os
 
 from flask import Flask, jsonify, request
 
-from outreach import job_check, job_profile, job_research, sheet
+from outreach import job_check, job_draft, job_profile, job_research, sheet
 
 app = Flask(__name__)
 
@@ -38,6 +38,39 @@ def profile():
         return jsonify(ok=False, error="profile limit is five leads"), 400
     return jsonify(ok=True, **job_profile.run(where="cloud-run", limit=limit, ids=ids,
                                              dry_run=request.args.get("dry_run") == "1"))
+
+
+@app.post("/jobs/draft/preview")
+def draft_preview():
+    ids = request.get_json(silent=True) or {}
+    try:
+        return jsonify(ok=True, previews=job_draft.previews(ids.get("ids", [])))
+    except job_draft.DraftBlocked as exc:
+        return jsonify(ok=False, error=str(exc)), 400
+
+
+@app.post("/jobs/draft/create")
+def draft_create():
+    # Keep live Gmail writes disabled until the founder reviews the pilot previews.
+    if os.environ.get("ENABLE_GMAIL_DRAFTS") != "true":
+        return jsonify(ok=False, error="Gmail draft creation is disabled"), 403
+    body = request.get_json(silent=True) or {}
+    try:
+        result = job_draft.create(body.get("lead_id", ""), body.get("approved_hash", ""))
+        return jsonify(ok=True, **result)
+    except job_draft.DraftBlocked as exc:
+        return jsonify(ok=False, error=str(exc)), 400
+
+
+@app.post("/jobs/draft/reconcile")
+def draft_reconcile():
+    if os.environ.get("ENABLE_GMAIL_DRAFTS") != "true":
+        return jsonify(ok=False, error="Gmail draft reconciliation is disabled"), 403
+    body = request.get_json(silent=True) or {}
+    try:
+        return jsonify(ok=True, **job_draft.reconcile(body.get("lead_id", "")))
+    except job_draft.DraftBlocked as exc:
+        return jsonify(ok=False, error=str(exc)), 400
 
 
 if __name__ == "__main__":

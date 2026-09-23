@@ -1,5 +1,9 @@
 # MVP outreach handbook — template draft
 
+The initial-email runtime copy is in `outreach/handbook/prelaunch_initial.txt`; keep it
+aligned with this review document when changing the wording. The sender-specific values
+remain outside the repository in `.secrets/pilot_handbook.json`.
+
 Status: **pre-launch template for founder review, not ready for Gmail drafting.** The MVP
 is still being finished. This template invites a conversation next week; it does not
 promise a working product trial or a completed demo. The founder must fill in the offer

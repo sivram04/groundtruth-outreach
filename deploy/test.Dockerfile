@@ -5,6 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt pytest
 COPY outreach ./outreach
+COPY examples ./examples
 COPY tools ./tools
 COPY tests ./tests
 CMD ["python", "-m", "pytest", "-q", "tests"]

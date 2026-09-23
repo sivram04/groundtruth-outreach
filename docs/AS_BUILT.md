@@ -15,7 +15,7 @@ draft-to-send-to-follow-up pipeline has not been built.
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
 | 2 Research | **Bulk fit research paused; four company profiles piloted** 2026-09-22 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible; 396 pending, not to be resumed for now; four verified offerings/markets profiles saved; no research schedule exists |
-| 3 Drafts (pilot) | **Pre-launch template under founder review** | `docs/OUTREACH_HANDBOOK_DRAFT.md` now invites a next-week conversation while the MVP is unfinished; intended use, next-week action, CTA and postal address remain unfilled; no draft-generation code yet |
+| 3 Drafts (pilot) | **Local code built; disabled and not deployed** | Offline preview renders a verified company quote and customizable subject from the pre-launch handbook; Gmail draft creation requires an exact approved preview hash and is disabled by default. The copy is template-rendered from earlier Gemini research, not a free-form AI-written email. Real-copy quality and live integration remain unverified. |
 | 4 Gmail sync | Not started | Founder chose two follow-up drafts, each due on the third business day after the preceding email is actually sent; all emails are sent by hand |
 | 5 Tracking | Not started | |
 | 6 Calls | Not started | |
@@ -31,8 +31,9 @@ flowchart LR
   W -->|gemini-2.5-flash, JSON only| V[Vertex AI]
 ```
 
-**Nothing touches Gmail yet.** The sign-in includes Gmail permissions for later stages; no
-code reads or writes mail.
+**The deployed worker does not touch Gmail.** Local Stage 3 code can read prior sends and
+drafts and create one guarded draft, but was not deployed or exercised against the live
+mailbox. `ENABLE_GMAIL_DRAFTS` defaults off, and no schedule was added.
 
 ## GCP — project `lakshyaa-outreach`
 
@@ -60,6 +61,12 @@ Deploy: `sh deploy/deploy_worker.sh`.
 | `POST /jobs/research?limit=40` or `?ids=A-0001,B-0002` | Stage 2 company research (below). **Not scheduled.** |
 | `POST /jobs/profile?limit=5&ids=A-0001,...` (optional `dry_run=1`) | Pilot extraction of company offerings and markets for later drafts. Available on the private `profile-review` tag only; serving revision remains 00013. No schedule. |
 
+**Local code only, not deployed:** `POST /jobs/draft/preview` accepts 1–4 explicit Lead
+IDs. `POST /jobs/draft/create` requires one Lead ID, its exact approved preview hash,
+complete handbook settings, and `ENABLE_GMAIL_DRAFTS=true`; default is disabled.
+`POST /jobs/draft/reconcile` looks for an existing reserved Gmail draft and never creates
+a replacement. These endpoints have no Scheduler job.
+
 ## The Sheet
 
 `OCILB_A_and_B_Outreach_2026-09-21`, id `1eEVkxc0gJMFptYSr_u9prQ5O850TOX28AEq17CKaFiA`.
@@ -84,6 +91,11 @@ name, never by position — A and B have different layouts.
 are separate from the fit verdict. The Research tab also holds append-only `OFFERING` and
 `MARKET` quote rows with their source URLs. These are source material for a later draft, not
 email copy.
+
+**Stage 3 columns in local code only, not added to the live Sheet:** `Draft action`,
+`Draft action at`, `Draft status`, `Draft hash`, `Draft ID`, `Draft link`, `Drafted at`.
+They are created only by an enabled draft write. A `RESERVED` action counts toward the
+daily cap and prevents automatic retry after an uncertain Gmail result.
 
 **System columns** (added 2026-09-22, right of the founder's columns): `Lead ID`,
 `Email check`, `Reason`, `Checked at`.
@@ -431,6 +443,18 @@ checked against current Vertex AI pricing.
   (proven to block a planted file).
 
 ## Change log
+
+- **2026-09-22** Local Stage 3 initial-email pipeline: added versioned runtime template,
+  offline preview from matched current-profile Research quotes, configurable subject,
+  missing-field and suppression gates, exact-hash founder approval, conservative prior
+  send/draft checks, a date-bound approval hash, a Sheets reservation before Gmail
+  draft creation, and read-only Gmail reconciliation of uncertain creates.
+  `ENABLE_GMAIL_DRAFTS` defaults off. The initial-email copy is template-rendered
+  from the earlier Gemini-researched quote; a free-form AI writer is not built. No live
+  Google API call, Gmail draft, deployment, Scheduler change, or email send occurred.
+  Container build, `compileall`, and Ruff's E4/E7/E9/F checks passed; 162/162
+  offline tests passed. Real-copy
+  previews from the four profiled companies and Gmail/Sheet integration are UNVERIFIED.
 
 - **2026-09-22** Founder clarified the MVP is expected to be completed by the end of the
   week and wants to begin outreach with appointments later. The template now states the
