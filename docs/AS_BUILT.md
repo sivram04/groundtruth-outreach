@@ -787,7 +787,66 @@ All four subjects are the handbook's own: "A conversation about Lakshyaa next we
 
 265 tests pass offline in the container.
 
+## Automatic opening selection (built 2026-09-23)
+
+Founder instruction: stop hand-picking quotes as the normal workflow. `drafting.rank_opening`
+and `drafting.choose_opening` now select the opening, and **only the chosen quote is offered
+to the model**, so the evidence no longer varies run to run. An explicit `quote_id` still
+overrides, for review.
+
+**Refused outright as an opener** (never scored): the company's own praise
+(`writer.SELF_PRAISE`), a quote that is cut off, starts mid-sentence, is not a complete
+sentence, has a heading run into it, mentions residential work, or is too long; a quote naming
+no work the company does; a quote that is only a generic description of services.
+
+**Scored, highest wins,** ties broken by quote id so the same evidence always wins:
+project or construction words (×3), verbs of doing (×2), named places and commercial sectors
+(up to 3), a small preference for an OFFERING over a MARKET quote, minus 2 for a list of
+markets with no verb, minus 2 for an opener that refers to something unsaid ("In all three
+markets…").
+
+**When nothing qualifies the lead is held**, with the reasons, rather than forced into a weak
+opener.
+
+**Read-only evaluation across all 26 draft-eligible leads** (`selection_eval`, no writes):
+
+| | Passes automatically | Held for review |
+| --- | --- | --- |
+| Live path (has a company profile) | 4 | 1 |
+| Simulated (no profile yet) | 19 | 2 |
+| **Total** | **23** | **3** |
+
+- **Live** means the lead has a profile, so this is exactly what the pipeline would do.
+- **Simulated** means the lead has no profile, so the pipeline would hold it today. The
+  simulation ranks the quotes its stage-2 fit research already found, to show how the rule
+  behaves; those quotes are not mirrored into an evidence column and the live path will not
+  use them.
+
+**Held, and why:** A-0112 Cincinnati Air (live) — every quote has a run-in heading or is not a
+sentence; A-0036 Reliant and A-0053 Blau (simulated) — their quotes are cut off or fragments.
+
+**Agreement with the founder's manual pins:** Monroe, Conti and Applied Mechanical all match.
+**Harrington differs:** the founder pinned the electrical-construction quote, which the
+selector refuses because it opens with a run-in heading ("CONSTRUCTION From shopping malls…")
+and contains "leading". The selector falls back to Harrington's specialty-services list, which
+is narrower. Harrington's best evidence is trapped inside a compromised quote; re-profiling it
+would be the fix, and that is a write not yet made.
+
+**The real bottleneck is profiles, not selection:** 21 of the 26 have none, so the live
+pipeline holds them regardless of how good the selector is. Profiling those 21 is a Sheet
+write and has not been done.
+
+273 tests pass offline, including deterministic ranking, market lists losing to real work,
+self-praise never chosen, back-referring openers marked down, and a lead with nothing good
+being held rather than forced.
+
 ## Change log
+
+- **2026-09-23** Built automatic opening selection and made it the normal path; only the
+  chosen quote reaches the model, and a lead with no good opening is held with reasons.
+  Evaluated read-only across all 26 eligible leads: 23 would pass, 3 held; 21 of the 26 still
+  lack a company profile, which is the true blocker. Nothing approved, drafted, sent,
+  deployed or scheduled; the 396 stay paused.
 
 - **2026-09-23** Pinned all four pilot quotes; kept Conti on its portfolio quote after reading
   its whole site for anything more concrete. Fixed slash tokenising, and added a code rule

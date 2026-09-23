@@ -417,3 +417,73 @@ def test_an_unknown_quote_choice_blocks_rather_than_falling_back():
                                       "suppressed": {"A-0001": False}})[0]
     assert out["preview_hash"] is None
     assert "the selected quote is not a current, usable quote" in out["blockers"]
+
+
+# --- automatic opening selection ------------------------------------------------------------
+
+def options_for(*quotes):
+    return drafting.opening_options(
+        [{"category": c, "quote": q, "url": "https://example.test/p"} for c, q in quotes], "Acme")
+
+
+def test_specific_work_beats_a_generic_service_line():
+    chosen, _ = choose = drafting.choose_opening(options_for(
+        ("OFFERING", "Acme specializes in electrical services for its customers."),
+        ("OFFERING", "Acme installs switchgear and distribution systems in hospitals and schools.")))
+    assert "switchgear" in chosen["quote"]
+
+
+def test_a_market_list_is_not_chosen_over_real_work():
+    chosen, _ = drafting.choose_opening(options_for(
+        ("MARKET", "We work with offices, retail spaces, restaurants, warehouses and clinics."),
+        ("OFFERING", "Acme installs and modifies commercial gas lines for equipment upgrades.")))
+    assert "gas lines" in chosen["quote"]
+
+
+def test_self_praise_is_never_chosen():
+    chosen, report = drafting.choose_opening(options_for(
+        ("OFFERING", "Acme is the region's leading and finest electrical contractor."),
+        ("OFFERING", "Acme installs fire alarm systems in schools and hospitals.")))
+    assert "fire alarm" in chosen["quote"]
+    praised = [r for r in report if "leading" in r["quote"]][0]
+    assert praised["score"] is None and "the company's own praise" in praised["reasons"]
+
+
+def test_an_opener_that_refers_to_something_unsaid_is_marked_down():
+    chosen, _ = drafting.choose_opening(options_for(
+        ("OFFERING", "In all three markets Acme performs design/build and plan/spec work."),
+        ("OFFERING", "Acme performs design/build and plan/spec work for schools and plants.")))
+    assert chosen["quote"].startswith("Acme performs")
+
+
+def test_nothing_good_enough_holds_the_lead_for_review():
+    chosen, report = drafting.choose_opening(options_for(
+        ("MARKET", "Healthcare, workplace, retail, hospitality, industrial, and automotive."),
+        ("OFFERING", "Acme is proud of its reputation as a first-class contractor.")))
+    assert chosen is None and all(r["score"] is None for r in report)
+
+
+def test_selection_is_deterministic():
+    opts = options_for(("OFFERING", "Acme installs switchgear in hospitals."),
+                       ("OFFERING", "Acme installs panels in schools."))
+    assert (drafting.choose_opening(opts)[0]["quote_id"]
+            == drafting.choose_opening(list(reversed(opts)))[0]["quote_id"])
+
+
+def test_the_preview_chooses_without_a_pin_and_says_so():
+    out = preview()
+    assert out["chosen_automatically"] and out["preview_hash"]
+    assert out["evidence"]["quote"] == QUOTE
+
+
+def test_a_lead_with_no_good_opening_is_held_not_forced():
+    weak = "Healthcare, workplace, retail, hospitality, industrial, and automotive environments."
+    row = lead(**{"Offerings evidence": "", "Markets evidence": f'"{weak}" ({URL})'})
+    rows = [{"Lead ID": "A-0001", "Researched at": "2026-09-22 12:00:00", "Category": "MARKET",
+             "Quote": weak, "Page URL": URL}]
+    out = job_draft.previews(["A-0001"], settings=settings(), write=True, handbook=BOOK,
+                             model=model_for(),
+                             fixture={"leads": [row], "research": rows, "pages": SITE,
+                                      "suppressed": {"A-0001": False}})[0]
+    assert out["preview_hash"] is None
+    assert any("no quote is good enough to open with" in b for b in out["blockers"])

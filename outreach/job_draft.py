@@ -105,14 +105,22 @@ def written_preview(lead, facts, settings, handbook, *, suppressed, model, quote
     company, verified = drafting.verified_company_name(
         lead.get("Company", ""), site_text(lead) if pages is None else pages)
     options = drafting.opening_options(drafting.supported_quotes(lead, facts), company)
-    usable = [o for o in options if o["usable"]]
     if quote_id:
-        usable = [o for o in usable if o["quote_id"] == quote_id]
+        # An explicit choice overrides the ranking, but must still be a current usable quote.
+        usable = [o for o in options if o["usable"] and o["quote_id"] == quote_id]
         if not usable:
             return _blocked(lead, options,
                             ["the selected quote is not a current, usable quote"], handbook)
-    if not usable:
-        return _blocked(lead, options, ["no verified company quote to write from"], handbook)
+        selection = []
+    else:
+        # Normal path: the code picks the opening, so only that quote reaches the model.
+        chosen, selection = drafting.choose_opening(options)
+        if not chosen:
+            why = sorted({r for item in selection for r in item["reasons"]})
+            return _blocked(lead, options, ["no quote is good enough to open with: "
+                                            + ("; ".join(why) if why else "none available")],
+                            handbook)
+        usable = [chosen]
     try:
         draft, problems = writer.compose(handbook["text"], company, usable, model)
     except Exception as exc:  # a model or network failure must not produce a draft
@@ -122,6 +130,8 @@ def written_preview(lead, facts, settings, handbook, *, suppressed, model, quote
     result = drafting.preview(lead, facts, settings, suppressed=suppressed,
                               handbook=handbook, written=draft, company=company)
     result["company_name_used"] = company
+    result["selection"] = selection
+    result["chosen_automatically"] = not quote_id
     if not verified:
         result["blockers"].append(
             f'the company name "{company}" was not found on its own site; check it')

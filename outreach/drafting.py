@@ -155,6 +155,87 @@ def opening_options(facts, company=""):
     return options
 
 
+# Automatic opening selection (founder, 2026-09-23): prefer specific work or projects over
+# generic services, market lists and self-praise; never force an opener when none is good.
+DOING = re.compile(r"\b(install\w*|modif\w*|fabricat\w*|construct\w*|build\w*|renovat\w*|"
+                   r"retrofit\w*|upgrad\w*|replac\w*|repip\w*|wir\w*|pip\w*|weld\w*|"
+                   r"maintain\w*|servic\w+|design\w*|engineer\w*|complet\w+|deliver\w+)\b", re.I)
+PROJECT_WORDS = re.compile(r"\b(construction|build-?out\w*|fit-?out\w*|tenant|design[-/ ]build|"
+                           r"new construction|renovation\w*|retrofit\w*|project\w*|portfolio|"
+                           r"installation\w*)\b", re.I)
+PLACES = re.compile(r"\b(school\w*|hospital\w*|clinic\w*|universit\w*|college\w*|campus\w*|"
+                    r"office\w*|retail|restaurant\w*|warehouse\w*|plant\w*|facilit\w*|"
+                    r"church\w*|mall\w*|bank\w*|hotel\w*|arena\w*|venue\w*|treatment|"
+                    r"data cent\w*|manufactur\w*|distribution|municipal\w*|"
+                    r"commercial|industrial|institutional)\b", re.I)
+# An opener must stand on its own. "In all three markets ..." refers to something the reader
+# has not been told.
+BACK_REFERENCE = re.compile(r"^(?:in (?:all|both|these|those|that|this)\b|for (?:these|those|it)\b|"
+                            r"also\b|additionally\b|they\b|these\b|those\b|it\b|we also\b)", re.I)
+# A quote that only says it provides services, with nothing specific attached.
+GENERIC_ONLY = re.compile(r"^(?:the\s+)?[\w.,'&\- ]{0,60}?\b(?:specializes? in|provides?|offers?|"
+                          r"is a|are a)\b[^.]{0,80}\b(?:services?|solutions?|needs?)\b[^.]{0,20}\.?$",
+                          re.I)
+DISQUALIFYING = {"appears cut off", "starts mid-sentence", "not a complete sentence",
+                 "heading runs into sentence", "generic self-description",
+                 "mentions residential work", "residential page", "too long for an opening"}
+
+
+def rank_opening(option):
+    """Score one verified quote as an opening, with the reasons it was marked down.
+
+    Returns (score, reasons). A score of None means it must not be used as an opener.
+    """
+    quote = option["quote"]
+    reasons = sorted(set(option.get("warnings", [])) & DISQUALIFYING)
+    if not option.get("usable"):
+        reasons.append("not usable for a commercial pilot")
+    from outreach.writer import SELF_PRAISE  # local import keeps this module import-light
+    if SELF_PRAISE.search(quote):
+        reasons.append("the company's own praise")
+    if reasons:
+        return None, reasons
+
+    doing = bool(DOING.search(quote))
+    project = bool(PROJECT_WORDS.search(quote))
+    places = len(set(m.group(0).lower() for m in PLACES.finditer(quote)))
+    if not (doing or project):
+        return None, ["names no work the company does"]
+    if GENERIC_ONLY.match(quote.strip()) and not (project or places):
+        return None, ["only a generic description of services"]
+    commas = quote.count(",")
+    listy = commas >= 3 and not doing
+    back_reference = bool(BACK_REFERENCE.match(quote.strip()))
+    score = (3 * project + 2 * doing + min(places, 3)
+             + (option["category"] == "OFFERING") - (2 if listy else 0)
+             - (2 if back_reference else 0))
+    notes = (["reads as a list of markets"] if listy else []) + \
+            (["opens by referring to something unsaid"] if back_reference else [])
+    return score, notes
+
+
+def choose_opening(options):
+    """Pick the opening automatically, or return None when nothing is good enough.
+
+    Returns (chosen, report): report lists every candidate with its score or its reasons, so a
+    lead held for review says why.
+    """
+    report = []
+    for option in options:
+        score, reasons = rank_opening(option)
+        report.append({"quote_id": option["quote_id"], "quote": option["quote"],
+                       "url": option["url"], "category": option["category"],
+                       "score": score, "reasons": reasons})
+    ranked = [(r["score"], r["quote_id"], r) for r in report if r["score"] is not None]
+    if not ranked:
+        return None, report
+    # Deterministic: best score, then the quote id, so the same evidence always wins.
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+    best = ranked[0][2]
+    chosen = next(o for o in options if o["quote_id"] == best["quote_id"])
+    return chosen, report
+
+
 def _fill(template, values):
     for key, value in values.items():
         template = template.replace(f"[{key}]", value)
