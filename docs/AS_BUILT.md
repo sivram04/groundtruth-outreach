@@ -519,6 +519,13 @@ emails are known; checking those threads is a precaution awaiting the founder's 
 
 ## Change log
 
+- **2026-09-22** Founder also rejected the vague "accounting and operational data"
+  phrasing for the offer. The current product input checklist specifically names bank
+  balances, open invoices and bills, payroll dates, fixed costs and upcoming job
+  billings; commitments, retainage and credit-line details apply where present.
+  Replacement outreach wording remains a proposal, not approved or placed in the
+  pilot settings. No preview, draft, deployment or schedule changed.
+
 - **2026-09-22** Founder rejected the proposed "see cash needs" offer as too narrow.
   The intended positioning is AI-powered cash-flow decision support for construction
   subcontractors: combine accounting and operational data, analyze the situation,

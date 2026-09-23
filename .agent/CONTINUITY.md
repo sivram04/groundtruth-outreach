@@ -9,6 +9,15 @@
 
 ## [DECISIONS]
 
+- 2026-09-23T02:19Z [USER] Supersedes the generic "accounting and operational
+  data" outreach phrasing below: name the actual inputs in prospective copy.
+  The founder has not approved a replacement offer. [CODE] The product's
+  founder-decided checklist in `docs/construction/CASH_FLOW_INPUTS_AND_DATA_SOURCES.md`
+  names bank balances, open invoices and bills, payroll by pay date, fixed
+  costs, upcoming billings by job, plus commitments, retainage and credit-line
+  details when applicable. Use a concise, accurate subset in a cold email;
+  do not imply current live integrations or a completed MVP.
+
 - 2026-09-23T01:37Z [USER] Corrected the outreach positioning: Lakshyaa is an
   AI-powered cash-flow decision product for construction subcontractors. It is
   intended to combine accounting and operational data, analyze the company's
