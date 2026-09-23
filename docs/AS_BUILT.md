@@ -840,7 +840,64 @@ write and has not been done.
 self-praise never chosen, back-referring openers marked down, and a lead with nothing good
 being held rather than forced.
 
+## Profiles closed and the pipeline run for real, 2026-09-23
+
+**The selector no longer discards a source for its packaging** (founder instruction). A quote
+may carry a run-in heading, a clipped edge or the company's own praise and still support a
+factual sentence: those are now score penalties, not refusals. Only residential work, or a
+quote naming no work at all, refuses the source outright. The email-level checks — unsupported
+words, self-praise, banned claims, contact details — decide what actually reaches a recipient.
+With this, the selector's automatic choice matched the founder's four manual pins exactly, and
+Cincinnati Air gained a usable source instead of being held.
+
+**The 21 draft-eligible leads without profiles were profiled.** Dry run of three first
+(A-0017, A-0020, A-0022): 3 READY, and all 10 of their quotes were then **independently
+re-fetched from the pages they cite and found there**, 0 missing. Then five batches:
+
+| Batch | Leads | READY | Review | Failed | Tokens in / out / thinking |
+| --- | --- | --- | --- | --- | --- |
+| 1 | A-0017…A-0028 | 4 | 1 | 0 | 11,602 / 1,547 / 12,760 |
+| 2 | A-0031…A-0043 | 5 | 0 | 0 | 27,314 / 2,236 / 12,279 |
+| 3 | A-0045…A-0053 | 5 | 0 | 0 | 15,858 / 1,521 / 9,491 |
+| 4 | A-0055…A-0188 | 4 | 0 | 1 (A-0059, RuntimeError) | 17,841 / 1,393 / 9,481 |
+| 5 | A-0219, then A-0059 retry | 2 | 0 | 0 | 2,451 / 339 / 1,612 + retry |
+
+**Cost:** roughly 83,000 input, 7,600 output and 47,000 thinking tokens for 22 profile calls,
+about 3,800 / 350 / 2,100 per company. The single failure succeeded on retry. **All 26
+eligible leads now have a profile: 25 READY, 1 REVIEW_NEEDED** (A-0028 MJB Electric — its site
+yielded no specific offering, only market statements).
+
+**Four fixes the real run exposed** (the first pass held 14 of 26):
+
+1. **A noun-phrase quote now supports the verb that makes it a sentence.** "Design and
+   installation of power distribution systems" supports "installs"; stems now fold
+   `-ation`/`-ion`.
+2. **Neutral predicates need no source of their own** — provides, offers, delivers, performs,
+   serves, includes, such as, range of. They assert nothing about the kind of work; whatever
+   follows them still must be grounded. Without this a quote written as a noun phrase could
+   not be made into a sentence at all.
+3. **Company names match progressively shorter prefixes,** so a site writing a longer name
+   than the Sheet still verifies (A-0031 Muetzel).
+4. **Gemini calls back off between attempts** and the evaluation paces its batches: bursts of
+   26 previews were being rate limited into hard failures, which showed up as different leads
+   failing on each run. A failure now reports the real error, not just its type.
+
+**The real pipeline across all 26, read-only, opening chosen automatically for every lead —
+none pinned:**
+
+**25 pass, 1 held.** The single hold is A-0028 MJB Electric: "no quote is good enough to open
+with: names no work the company does", which matches its REVIEW_NEEDED profile. Every passing
+lead's only remaining blocker is the unapproved offer, so no approval hash exists anywhere.
+
+279 tests pass offline in the container.
+
 ## Change log
+
+- **2026-09-23** Profiled the 21 remaining draft-eligible leads (dry run and independent
+  quote re-fetch first); all 26 now have a profile. Loosened the selector so a heading or
+  boast marks a source down instead of discarding it, and fixed four grounding and robustness
+  problems the real run exposed. Real pipeline over all 26: 25 pass, 1 held. The 396 stay
+  paused; nothing approved, drafted, sent, deployed or scheduled.
 
 - **2026-09-23** Built automatic opening selection and made it the normal path; only the
   chosen quote reaches the model, and a lead with no good opening is held with reasons.

@@ -124,7 +124,8 @@ def written_preview(lead, facts, settings, handbook, *, suppressed, model, quote
     try:
         draft, problems = writer.compose(handbook["text"], company, usable, model)
     except Exception as exc:  # a model or network failure must not produce a draft
-        return _blocked(lead, options, [f"the writer failed: {type(exc).__name__}"], handbook)
+        return _blocked(lead, options,
+                        [f"the writer failed: {type(exc).__name__}: {exc}"[:180]], handbook)
     if draft is None:
         return _blocked(lead, options, problems, handbook)
     result = drafting.preview(lead, facts, settings, suppressed=suppressed,

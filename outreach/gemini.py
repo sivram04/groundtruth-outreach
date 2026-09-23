@@ -29,7 +29,7 @@ def _token():
                               text=True, check=True).stdout.strip()
 
 
-def generate_json(prompt, schema, attempts=3):
+def generate_json(prompt, schema, attempts=4):
     """Returns (parsed_json, usage). Raises after `attempts` failures."""
     body = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -39,7 +39,7 @@ def generate_json(prompt, schema, attempts=3):
     last = None
     for attempt in range(attempts):
         if attempt:
-            time.sleep(2 ** attempt)  # back off; bursts of previews can be rate limited
+            time.sleep(3 * 2 ** attempt)  # back off; bursts of previews get rate limited
         try:
             r = requests.post(URL, json=body, timeout=120, headers={"Authorization": f"Bearer {_token()}"})
             r.raise_for_status()

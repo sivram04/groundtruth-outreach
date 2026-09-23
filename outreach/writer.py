@@ -91,6 +91,7 @@ STOPWORDS = {
     # installation of ...") could not be turned into a sentence at all.
     "provide", "provides", "offer", "offers", "deliver", "delivers", "perform", "performs",
     "handle", "handles", "supply", "supplies", "serve", "serves", "include", "includes",
+    "including", "included", "such", "range", "ranging", "variety", "types", "kinds",
 }
 WORD = re.compile(r"[A-Za-z][A-Za-z'&/-]*")
 # Claims this pilot never makes, whatever the model produces.
