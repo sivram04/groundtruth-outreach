@@ -15,7 +15,7 @@ draft-to-send-to-follow-up pipeline has not been built.
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
 | 2 Research | **Bulk fit research paused; four company profiles piloted** 2026-09-22 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible; 396 pending, not to be resumed for now; four verified offerings/markets profiles saved; no research schedule exists |
-| 3 Drafts (pilot) | **Template draft under founder review** | `docs/OUTREACH_HANDBOOK_DRAFT.md` has three placeholder-only emails; MVP facts, trial action and postal address remain unfilled; no draft-generation code yet |
+| 3 Drafts (pilot) | **Pre-launch template under founder review** | `docs/OUTREACH_HANDBOOK_DRAFT.md` now invites a next-week conversation while the MVP is unfinished; intended use, next-week action, CTA and postal address remain unfilled; no draft-generation code yet |
 | 4 Gmail sync | Not started | Founder chose two follow-up drafts, each due on the third business day after the preceding email is actually sent; all emails are sent by hand |
 | 5 Tracking | Not started | |
 | 6 Calls | Not started | |
@@ -431,6 +431,12 @@ checked against current Vertex AI pricing.
   (proven to block a planted file).
 
 ## Change log
+
+- **2026-09-22** Founder clarified the MVP is expected to be completed by the end of the
+  week and wants to begin outreach with appointments later. The template now states the
+  MVP is unfinished and invites a next-week conversation, without promising access or a
+  finished demo. The pilot audit reflects this pre-launch path. A prospect may reply
+  immediately; the founder can answer and schedule later. No Gmail draft or send occurred.
 
 - **2026-09-22** Draft-pilot readiness audit: clean local checkout and 138/138 existing
   tests pass in a network-isolated container; Cloud Run still serves revision 00013,

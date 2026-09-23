@@ -56,7 +56,11 @@ cover existing behavior, not the proposed draft-to-send-to-follow-up path.
 ## Next gate
 
 First produce **four dry-run draft previews** from the reviewed profiles with the
-filled handbook. The founder should judge whether each is worth sending with little
-or no editing. Only then create the corresponding Gmail drafts. Reconcile sent mail
+filled handbook. The founder clarified after this audit that the MVP is unfinished,
+so these must be **pre-launch conversation invitations** unless the MVP is verified
+usable at draft time. A quick reply can be handled by offering a conversation next
+week; no draft may imply live access today. The founder should judge whether each
+is worth sending with little or no editing. Only then create the corresponding
+Gmail drafts. Reconcile sent mail
 before enabling follow-up scheduling. Keep all existing schedules paused until those
 end-to-end checks pass.

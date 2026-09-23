@@ -1,17 +1,19 @@
 # MVP outreach handbook — template draft
 
-Status: **for founder review, not ready for Gmail drafting.** The founder will fill in the
-MVP facts and invitation. This document is a writing template, not evidence that any
-particular product capability or customer outcome exists.
+Status: **pre-launch template for founder review, not ready for Gmail drafting.** The MVP
+is still being finished. This template invites a conversation next week; it does not
+promise a working product trial or a completed demo. The founder must fill in the offer
+and signature before any real draft is created.
 
 ## Writing rules
 
 1. Lead with one natural sentence about the prospect's company, supported by a quote and
    URL from its own site. Do not infer its finances, software, or operational problems.
-2. Say what the MVP actually lets someone do **today**, and what happens if they accept the
-   invitation. Do not promise faster payment, savings, or an integration unless verified.
-3. Offer an early look and ask for candid feedback. Interest should come from the concrete
-   experience, not invented scarcity or a claim that the prospect needs help.
+2. Say what Lakshyaa is **being built to help with**, and disclose that the MVP is still
+   being finished. Invite a conversation next week; do not claim they can use a finished
+   product now. Do not promise faster payment, savings, or an integration unless verified.
+3. Offer a short conversation and ask for candid feedback. Interest should come from a
+   relevant use case, not invented scarcity or a claim that the prospect needs help.
 4. Give each email one clear next step. Prepare follow-ups in the same Gmail thread on the
    third business day after the previous email was actually sent, if there is no reply.
    Count Monday–Friday dates in America/New_York, with the next business date as day 1;
@@ -28,28 +30,33 @@ particular product capability or customer outcome exists.
 | `[FIRST_NAME]` | Contact's known first name; use a neutral greeting if unknown. |
 | `[VERIFIED_COMPANY_OBSERVATION]` | One complete, relevant sentence about the prospect's company based on stored company-site evidence. |
 | `[PRODUCT_NAME]` | Lakshyaa or the approved name used in the sender's offer. |
-| `[MVP_CAPABILITY]` | One precise, verified thing the working MVP does today. |
-| `[TRIAL_ACTION]` | A verb phrase for the actual next experience, such as trying an available feature or taking an assisted walkthrough. |
-| `[CTA_QUESTION]` | One complete, answerable question matching the trial action. |
+| `[INTENDED_USE]` | One accurate sentence fragment describing what Lakshyaa is being built to help with; do not present an unfinished feature as available. |
+| `[NEXT_WEEK_ACTION]` | A verb phrase for a truthful next-week activity, such as "have a short conversation about an early preview." Do not promise a finished demo or live access. |
+| `[CTA_QUESTION]` | One complete, answerable question asking about that next-week activity. |
 | `[SENDER_NAME]` | Sender's accurate name. |
 | `[FOUNDER_TITLE]` | Sender's accurate title. |
 | `[SENDER_WEBSITE]` | Sender's real website URL. |
 | `[POSTAL_ADDRESS]` | Sender's valid physical postal address. |
 
-The company observation and MVP capability need human review before they enter a draft.
+The company observation and intended use need human review before they enter a draft.
 Hold the draft for review if either field has no verified value. Do not substitute an
-example from a sales book, competitor page, or industry report for either field.
+example from a sales book, competitor page, or industry report for either field. If the
+recipient replies before the MVP is ready, respond promptly and arrange a next-week
+conversation; do not claim that a product trial is available today.
+Recheck the product's actual state before every draft or send; switch to a different,
+approved trial invitation once a usable MVP is available.
 
 ## Initial email
 
-**Subject:** An early look at [PRODUCT_NAME]?
+**Subject:** A conversation about [PRODUCT_NAME] next week?
 
 Hi [FIRST_NAME],
 
 [VERIFIED_COMPANY_OBSERVATION]
 
-I'm building [PRODUCT_NAME]. The MVP [MVP_CAPABILITY]. I'd like to invite you to
-[TRIAL_ACTION] and tell me where it does or doesn't fit the way your team works.
+I'm building [PRODUCT_NAME] to [INTENDED_USE]. The MVP is still being finished.
+I'd like to invite you to [NEXT_WEEK_ACTION] and hear where this direction does or
+doesn't fit the way your team works.
 
 [CTA_QUESTION]
 
@@ -67,8 +74,9 @@ there has been no reply. Keep it in the same thread; do not create a separate `R
 
 Hi [FIRST_NAME],
 
-Following up on my note about [PRODUCT_NAME]. If you choose to [TRIAL_ACTION], I'd
-value your honest reaction to the MVP, including what it gets wrong.
+Following up on my note about [PRODUCT_NAME]. If you choose to [NEXT_WEEK_ACTION],
+I'd value your honest reaction to the direction we're taking, including what we
+might be missing.
 
 [CTA_QUESTION]
 
@@ -86,8 +94,8 @@ has been no reply. Keep it in the same thread. This is the last follow-up.
 
 Hi [FIRST_NAME],
 
-I'll close the loop on [PRODUCT_NAME]. If you'd like to [TRIAL_ACTION], reply and I'll
-share the next step. If the timing isn't right, no need to respond; this is my last note.
+I'll close the loop on [PRODUCT_NAME]. If you'd like to [NEXT_WEEK_ACTION], reply and
+I'll arrange it. If the timing isn't right, no need to respond; this is my last note.
 
 Best,  
 [SENDER_NAME]  
