@@ -541,7 +541,40 @@ and bills with due dates, payroll dates, fixed costs, upcoming billings by job; 
 committed costs where relevant) were rendered read-only for the pilot four (130–153 words
 each); `offer_approved` stays false; none chosen yet.
 
+## Proposed template v3, under founder review 2026-09-22
+
+Rendered read-only with the proposed template substituted in memory; **no code changed,
+`offer_approved` stays false, nothing drafted or deployed.** Changes from the live template:
+
+- The product paragraph and question the founder asked to keep as the working version, ending
+  on one question instead of an invitation sentence.
+- **The opening is a natural observation written for each company** instead of
+  `Your site says, "…"`. It restates that company's stored quote in plain words, says nothing
+  about their cash or finances (checked against a money-word list), and the review preview
+  still shows the quote and its page URL beside the email.
+- **A truthful per-lead subject** that names the company, not the product.
+
+| Lead | Subject | Opening | Rests on (source) | Words |
+| --- | --- | --- | --- | --- |
+| A-0030 Monroe | Question for Monroe Plumbing | "I noticed Monroe handles commercial gas-line work for equipment upgrades and renovations." | "…installs and modifies commercial gas lines for equipment upgrades, renovations…" (monroeplumbing.net/commercial-gas-lines) | 103 |
+| A-0062 Conti | Question for Conti Corporation | "I noticed Conti's portfolio runs to schools, hospitals and treatment plants across northeast Ohio." | "…portfolio includes schools, hospitals, sewage/wastewater treatment facilities, and churches…" (theconticorporation.com) | 105 |
+| A-0078 Harrington | Question for Harrington Electric | "I noticed Harrington works on commercial, industrial and institutional facilities across Northeast Ohio." | "…solutions for commercial, industrial and institutional facilities in Northeast Ohio." (harringtonelectric.com) | 104 |
+| A-0049 Applied Mechanical | Question for Applied Mechanical | "I noticed AMS designs and installs HVAC and plumbing systems for commercial, industrial and institutional clients." | "AMS is a regional mechanical contractor specializing in the design, installation, and service…" (appliedmechanicalsys.com) | 107 |
+
+**Open design question:** these openings are written by hand for four leads. Generating them
+for more leads needs a model step that rewrites a stored quote, with its own check that the
+result adds no fact the quote does not contain. Not built.
+
+**Suppression tab created 2026-09-22** with header only (`Address or domain`, `Reason`,
+`Added at`, `Source`) and no entries; the Gmail check found no opt-outs **as of that check**.
+Recorded in Runs as `suppression-tab`.
+
 ## Change log
+
+- **2026-09-22** Created the empty Suppression tab (header only). Rendered proposed template
+  v3 read-only for the pilot four: per-company natural openings grounded in each stored quote,
+  per-lead truthful subjects, source still shown in review. No code change, no approval, no
+  drafts, nothing deployed.
 
 - **2026-09-22** Read-only Gmail check of the 14 hand-sent emails: all sent, no replies,
   bounces or opt-outs; A-0005 went to a different address than the Sheet's; display name is
