@@ -86,11 +86,11 @@ def test_a_company_sentence_citing_no_verified_quote_is_refused():
     assert draft is None and "the company sentence cites no verified quote" in problems
 
 
-@pytest.mark.parametrize("claim", ["Example Electric installs HVAC systems.",
-                                   "Not surprisingly, Example Electric installs HVAC systems."])
+@pytest.mark.parametrize("claim", ["Example Electric installs HVAC and refrigeration systems.",
+                                   "Not surprisingly, Example Electric installs HVAC and refrigeration systems."])
 def test_a_negated_quote_cannot_support_the_opposite_company_claim(claim):
     negative = [{"quote_id": "q1", "category": "OFFERING",
-                 "quote": "Example Electric does not install HVAC systems.", "url": URL}]
+                 "quote": "Example Electric does not install HVAC or refrigeration systems.", "url": URL}]
     rows = sentences(company={"text": claim,
                               "kind": "COMPANY", "quote_id": "q1"})
     draft, problems = writer.verify(TEXT, "Example Electric", negative, rows,
@@ -100,8 +100,8 @@ def test_a_negated_quote_cannot_support_the_opposite_company_claim(claim):
 
 def test_a_negated_quote_can_be_used_verbatim():
     negative = [{"quote_id": "q1", "category": "OFFERING",
-                 "quote": "Example Electric does not install HVAC systems.", "url": URL}]
-    rows = sentences(company={"text": "Example Electric does not install HVAC systems.",
+                 "quote": "Example Electric does not install HVAC or refrigeration systems.", "url": URL}]
+    rows = sentences(company={"text": "Example Electric does not install HVAC or refrigeration systems.",
                               "kind": "COMPANY", "quote_id": "q1"})
     draft, problems = writer.verify(TEXT, "Example Electric", negative, rows,
                                     "A conversation about Example Product next week")
@@ -298,3 +298,55 @@ def test_neutral_predicates_need_no_source_but_their_objects_do():
     quote = "Our engineering, construction and installation services support your project."
     assert writer.ungrounded("Acme provides engineering and construction services", [quote, "Acme"]) == []
     assert writer.ungrounded("Acme provides payroll financing", [quote, "Acme"]) == ["financing", "payroll"]
+
+
+# --- the opening must say something only this company could say ----------------------------
+
+@pytest.mark.parametrize("opening", [
+    "Gateway Electric engages with general contractors and owners in the coordination and "
+    "completion of projects.",
+    "Koch Refrigeration provides Commercial and Industrial Service, Proactive Maintenance "
+    "and Installation.",
+    "Muetzel is staffed and equipped to handle the budgeting, design, estimating and "
+    "construction of your project.",
+])
+def test_a_generic_opening_is_refused(opening):
+    company = opening.split()[0] + " " + opening.split()[1]
+    assert not writer.names_specific_work(opening, company)
+
+
+@pytest.mark.parametrize("opening,company", [
+    ("Monroe Plumbing installs and modifies commercial gas lines for equipment upgrades.",
+     "Monroe Plumbing"),
+    ("All Phase Power & Lighting designs and installs complete power distribution systems.",
+     "All Phase Power & Lighting"),
+    ("Wuest Electric Co. performs Explosion Proof Installations for Liquid Bulk Storage in "
+     "Class 1, 2, or 3 Hazardous Locations.", "Wuest Electric Co"),
+    ("Conti Corporation's portfolio includes schools, hospitals and churches.",
+     "Conti Corporation"),
+])
+def test_a_specific_opening_passes(opening, company):
+    assert writer.names_specific_work(opening, company)
+
+
+def test_the_company_name_cannot_supply_the_specificity():
+    """"Gateway Electric" must not make a sentence about coordination count as electrical work."""
+    assert not writer.names_specific_work(
+        "Gateway Electric handles the coordination and completion of projects.", "Gateway Electric")
+
+
+def test_removing_the_name_does_not_delete_the_same_words_used_as_work():
+    assert writer.names_specific_work(
+        "All Phase Power & Lighting installs power distribution and lighting systems.",
+        "All Phase Power & Lighting")
+
+
+def test_a_generic_opening_blocks_the_draft():
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL,
+              "quote": "We engage with general contractors and owners in the coordination and "
+                       "completion of projects on time and within budget."}]
+    rows = [{"text": "Example Electric engages with general contractors and owners in the "
+                     "coordination and completion of projects.", "kind": "COMPANY",
+             "quote_id": "q1"}] + sentences()[1:]
+    draft, problems = writer.verify(TEXT, "Example Electric", facts, rows, "A conversation")
+    assert draft is None and any("could describe any contractor" in p for p in problems)

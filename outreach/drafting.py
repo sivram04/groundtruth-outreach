@@ -204,8 +204,12 @@ def rank_opening(option):
     if reasons:
         return None, reasons
 
-    from outreach.writer import SELF_PRAISE  # local import keeps this module import-light
+    from outreach import writer  # local import keeps this module import-light
+    SELF_PRAISE = writer.SELF_PRAISE
     penalty = sum(weight for warning, weight in PENALTIES.items() if warning in warnings)
+    # A source that names a trade or a kind of building gives the writer something specific to
+    # say; one made only of process words cannot produce a distinctive opening.
+    specific_work = 3 if writer.names_specific_work(quote, option.get("company", "")) else 0
     notes = sorted(warnings & set(PENALTIES))
     if SELF_PRAISE.search(quote):
         # Usable as a source; the email may not repeat the boast, and that is checked there.
@@ -222,9 +226,11 @@ def rank_opening(option):
     commas = quote.count(",")
     listy = commas >= 3 and not doing
     back_reference = bool(BACK_REFERENCE.match(quote.strip()))
-    score = (3 * project + 2 * doing + min(places, 3)
+    score = (3 * project + 2 * doing + min(places, 3) + specific_work
              + (option["category"] == "OFFERING") - (2 if listy else 0)
              - (2 if back_reference else 0) - penalty)
+    if not specific_work:
+        notes.append("names no trade work, building or project")
     if listy:
         notes.append("reads as a list of markets")
     if back_reference:

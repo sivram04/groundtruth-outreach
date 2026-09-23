@@ -385,7 +385,7 @@ def test_an_unconfirmed_name_stops_the_draft(ready):
 
 
 def test_the_operator_can_choose_which_verified_quote_is_written_from():
-    market = "We serve commercial and institutional clients across the region."
+    market = "We serve schools and hospitals with switchgear and fire alarm work."
     market_url = "https://example.test/markets"
     row = lead(**{"Markets evidence": f'"{market}" ({market_url})'})
     rows = facts() + [{"Lead ID": "A-0001", "Researched at": "2026-09-22 12:00:00",
@@ -396,8 +396,8 @@ def test_the_operator_can_choose_which_verified_quote_is_written_from():
     def model(prompt, schema):
         assert market in prompt and QUOTE not in prompt  # only the chosen quote is offered
         return {"subject": "A conversation about Example Product next week", "sentences": [
-            {"text": "Example Electric serves commercial and institutional clients across the "
-                     "region.", "kind": "COMPANY", "quote_id": chosen},
+            {"text": "Example Electric serves schools and hospitals with switchgear and fire "
+                     "alarm work.", "kind": "COMPANY", "quote_id": chosen},
             {"text": "I'm building Example Product, a cash-flow decision tool for construction "
                      "subcontractors. The MVP is still being finished.", "kind": "PRODUCT"},
             {"text": "Would you be open to a twenty minute conversation next week about the "

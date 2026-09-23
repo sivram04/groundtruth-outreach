@@ -108,6 +108,50 @@ CONTACT = re.compile(r"https?://\S+|www\.\S+|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[
 SELF_PRAISE = re.compile(r"\b(?:leading|premier|best|finest|oldest|largest|top-?rated|"
                          r"world-?class|first-?class|award-?winning|most trusted|"
                          r"number one|#\s?1)\b", re.I)
+# Words every contractor's website uses. A sentence built only from these says nothing a
+# reader could not have guessed: "engages with general contractors and owners in the
+# coordination and completion of projects". Listing what is generic is more reliable than
+# trying to list every trade — it lets "hazardous locations" or "sheet metal" count without
+# either being enumerated.
+GENERIC_TRADE_WORDS = {
+    "service", "services", "solution", "solutions", "need", "needs", "project", "projects",
+    "construction", "installation", "installations", "install", "installs", "maintenance",
+    "maintain", "repair", "repairs", "design", "designs", "designing", "engineering",
+    "engineer", "planning", "plan", "plans", "budgeting", "budget", "estimating", "estimate",
+    "scheduling", "schedule", "coordination", "coordinate", "completion", "complete",
+    "commercial", "industrial", "institutional", "contractor", "contractors", "owner",
+    "owners", "client", "clients", "customer", "customers", "quality", "professional",
+    "professionals", "expertise", "experience", "experienced", "staffed", "equipped",
+    "diverse", "system", "systems", "vision", "visions", "general", "personnel",
+    "management", "manager", "managers", "proactive", "comprehensive", "capability",
+    "capabilities", "support", "specialty", "specialties", "specialize", "specializes",
+    "specializing", "scope", "time", "business", "businesses", "company", "companies",
+    "region", "regional", "area", "areas", "local", "facility", "facilities", "property",
+    "properties", "site", "sites", "job", "jobs", "team", "teams", "years", "partner",
+    "partners", "trust", "trusted", "reliable", "dependable", "safety", "safe",
+    "unique", "demanding", "various", "engage", "engages", "engaged", "pre-construction",
+    "high-profile", "reliability",
+}
+
+
+def names_specific_work(text, company=""):
+    """True when an opening says something only this company's site could say.
+
+    The company's own name is removed first — "Gateway Electric" must not make a sentence
+    about coordination and completion count as naming electrical work — and what remains must
+    contain at least one content word that is not part of every contractor's vocabulary.
+    """
+    if company:
+        # Only the whole name, never its separate words: stripping "Power" from
+        # "All Phase Power & Lighting" would also delete "power distribution systems".
+        text = re.sub(r"\s+".join(re.escape(w) for w in company.split()) + r"(?:'s)?",
+                      " ", text, flags=re.I)
+    distinctive = {word for word in _words(text) if word not in GENERIC_TRADE_WORDS}
+    # Two, not one: a single unusual word ("engages", "pre-construction") is a turn of phrase,
+    # not a fact about the work.
+    return len(distinctive) >= 2
+
+
 NEGATION = re.compile(r"\b(?:no|not|never|without|cannot|can't|won't|doesn't|don't)\b", re.I)
 STATE = re.compile(r"\b(?:available|ready|finished|complete|completed|launched|live)\b", re.I)
 QUALIFIER = re.compile(r"\b(?:still being|not yet|in progress|under development)\b", re.I)
@@ -213,6 +257,10 @@ def verify(handbook_text, company, facts, sentences, subject):
                 continue
             if _polarity_reversed(text, fact["quote"], single_quote=True):
                 problems.append("company sentence reverses or omits a quote's qualifier")
+                continue
+            if not names_specific_work(text, company):
+                problems.append("the opening names no trade work, building or project, so it "
+                                "could describe any contractor")
                 continue
             praise = SELF_PRAISE.search(text)
             if praise:

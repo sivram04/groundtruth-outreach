@@ -891,7 +891,71 @@ lead's only remaining blocker is the unapproved offer, so no approval hash exist
 
 279 tests pass offline in the container.
 
+## A repeatable check on the copy itself, 2026-09-23
+
+Founder instruction: audit the complete copy, not the validator's verdict; flag openings that
+are true but generic; make it repeatable rather than hand-picked.
+
+**`writer.names_specific_work`** now screens the produced opening sentence. It removes the
+company's own name — as a whole phrase, never word by word, since stripping "Power" from
+"All Phase Power & Lighting" also deleted "power distribution systems" — and requires **at
+least two content words that are not part of every contractor's vocabulary**
+(`GENERIC_TRADE_WORDS`: services, solutions, projects, construction, installation,
+maintenance, design, engineering, planning, budgeting, estimating, scheduling, coordination,
+completion, commercial, industrial, institutional, contractors, owners, clients, quality,
+professional, expertise, systems, facilities, and the like). A generic opening blocks the
+draft. `rank_opening` also scores a source higher when it names specific work, so the
+selector prefers such quotes before the model ever writes.
+
+**Why a list of generic words rather than a list of trades:** a trade whitelist marked Wuest
+Electric's "Explosion Proof Installations for Liquid Bulk Storage… in Class 1, 2, or 3
+Hazardous Locations" as generic, because none of those words is a trade name. Inverting it
+lets anything distinctive count without being enumerated. **Two words, not one**: a single
+unusual word ("engages", "pre-construction") is a turn of phrase, not a fact about the work.
+The threshold was tuned against all 25 real openings and agrees with a hand reading of each.
+It is a heuristic word list and will need extending as new copy appears.
+
+**Audit of the 25 passing openings** — five were true but generic, the rest specific:
+
+| Lead | Opening | Verdict |
+| --- | --- | --- |
+| A-0017 Gateway Electric | "engages with general contractors and owners in the coordination and completion of projects" | generic — no trade, no building, no project |
+| A-0022 Industrial Reliability | "provides industrial construction services, including pre-construction planning, budgeting, engineering, and scheduling" | generic — process words only |
+| A-0025 Koch Refrigeration | "provides Commercial and Industrial Service, Proactive Maintenance and Installation" | generic — the trade is only in its name |
+| A-0031 Muetzel | "staffed and equipped to handle the budgeting, design, estimating and construction of your project" | generic at the time; the selector now picks a better quote for this lead |
+| A-0219 Guenther Mechanical | "provides engineering, construction and installation services to design and build visions" | generic |
+
+**Pipeline after the check: 21 pass, 5 held** (A-0017, A-0022, A-0025 generic; A-0028 has no
+usable quote at all; A-0219 held this run on a grounding word). 289 tests pass offline.
+
+## Proposed `[INTENDED_USE]`, awaiting founder review — **not written to Drive**
+
+The founder's objections to the current line: it never says what decision the product
+recommends, and it implies the reader does not know what to do. His own positioning answers
+both — "recommending **ranked, feasible actions across the business** … knowing **why it's
+recommended**, its **cash impact, costs and trade-offs**" — and the PRD names the competition
+as "the owner, their bookkeeper, their project managers and a spreadsheet". A catalogue of
+specific decisions is deliberately **not** offered: the fixed decision list was deleted
+2026-09-18 and §2.8 says its action kinds say "what to look for, never what to recommend".
+
+Proposed:
+
+> weigh the cash decisions a subcontractor faces from one picture — bank balances, open
+> invoices and bills with their due dates, payroll dates, fixed costs, and the billings still
+> to come on each job — and set out ranked, workable moves across the jobs and the business,
+> each with what it costs and why
+
+Rendered read-only for the four pilot leads and the five held, with the line substituted in
+memory; the Drive document keeps hash `b1237580414fe948`. Emails run 128–132 words, up from
+97–111. Nothing approved, drafted or sent.
+
 ## Change log
+
+- **2026-09-23** Added a repeatable generic-opening check on the produced copy and audited all
+  25 passing openings against it: five were true but generic. Pipeline now 21 pass, 5 held.
+  Proposed a new `[INTENDED_USE]` naming the decision purpose and the exact planned inputs,
+  rendered read-only for nine leads; the Drive handbook is unchanged and the offer is still
+  unapproved.
 
 - **2026-09-23** Profiled the 21 remaining draft-eligible leads (dry run and independent
   quote re-fetch first); all 26 now have a profile. Loosened the selector so a heading or
