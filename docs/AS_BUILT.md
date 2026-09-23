@@ -519,6 +519,13 @@ emails are known; checking those threads is a precaution awaiting the founder's 
 
 ## Change log
 
+- **2026-09-22** Signature gains an optional phone line (`sender_phone`, between website and
+  postal address; omitted cleanly when unset; malformed numbers block approval; part of the
+  approval hash). Founder supplied sender name, title, postal address and phone; they are in
+  the git-ignored `.secrets/pilot_handbook.json`. Pilot previews now block only on the offer
+  wording (intended use, next-week action, CTA, approval) and the missing Suppression tab.
+  175 tests pass in a container. Nothing deployed, drafted or sent.
+
 - **2026-09-22** Profiled A-0049 Applied Mechanical as the replacement for A-0112 (dry run,
   then one write). Read-only previews for the pilot four all give usable openings and
   first-name greetings; all blocked pending founder values, offer approval and Suppression.

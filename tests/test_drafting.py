@@ -87,6 +87,30 @@ def test_missing_handbook_fields_are_visible_but_not_send_ready():
     assert "[INTENDED_USE]" in out["body"]
 
 
+def test_phone_appears_between_website_and_address_when_set():
+    out = drafting.preview(lead(), facts(), settings(sender_phone="614-599-3989"), suppressed=False)
+    assert out["preview_hash"] and out["blockers"] == []
+    assert "https://lakshyaa.ai\n614-599-3989\n123 Example St" in out["body"]
+
+
+def test_no_phone_leaves_no_blank_line():
+    out = drafting.preview(lead(), facts(), settings(), suppressed=False)
+    assert out["preview_hash"] and "https://lakshyaa.ai\n123 Example St" in out["body"]
+    assert "[SENDER_PHONE]" not in out["body"]
+
+
+@pytest.mark.parametrize("phone", ["12345", "call me", "614-599-398"])
+def test_malformed_phone_blocks_approval(phone):
+    out = drafting.preview(lead(), facts(), settings(sender_phone=phone), suppressed=False)
+    assert out["preview_hash"] is None and "sender phone is invalid" in out["blockers"]
+
+
+def test_phone_is_part_of_approved_hash():
+    assert (drafting.preview(lead(), facts(), settings(), suppressed=False)["preview_hash"]
+            != drafting.preview(lead(), facts(), settings(sender_phone="614-599-3989"),
+                                suppressed=False)["preview_hash"])
+
+
 def test_sender_identity_is_part_of_approved_hash():
     first = drafting.preview(lead(), facts(), settings(), suppressed=False)
     second = drafting.preview(lead(), facts(), settings(sender_email="other@lakshyaa.ai"),

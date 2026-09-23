@@ -13,5 +13,6 @@ Best,
 [SENDER_NAME]
 [FOUNDER_TITLE], [PRODUCT_NAME]
 [SENDER_WEBSITE]
+[SENDER_PHONE]
 [POSTAL_ADDRESS]
 If you don't want further outreach from me, reply "no thanks" and I'll stop.

@@ -207,6 +207,14 @@ def preview(lead, research_rows, settings, *, suppressed=None, subject_template=
         f'Your site says, “{evidence["quote"]}”' if evidence else "[VERIFIED_COMPANY_OBSERVATION]")
     subject_source, body_source = initial_template()
     subject_source = subject_template or subject_source
+    # Optional signature phone (founder, 2026-09-22). Absent: the line is dropped entirely.
+    phone = str(settings.get("sender_phone", "")).strip()
+    if phone:
+        if not re.fullmatch(r"\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}", phone):
+            blockers.append("sender phone is invalid")
+        values["SENDER_PHONE"] = phone
+    else:
+        body_source = body_source.replace("[SENDER_PHONE]\n", "")
     values["COMPANY"] = lead.get("Company", "").strip()
     subject = _fill(subject_source, values)
     body = _fill(body_source, values)
