@@ -2,6 +2,12 @@
 
 ## [PLANS]
 
+- 2026-09-23T02:57Z [USER] Supersedes the local-handbook assumption below:
+  before stage 3 begins, the founder will put the final outreach handbook in
+  Google Drive. The private drafting worker will run in GCP and read it there.
+  The handbook is not in Drive yet; no link or new sign-in is due now. Current
+  local template code remains a disabled prototype, not the planned writer.
+
 - 2026-09-22T20:24:00-04:00 [ASSUMPTION] Stage 3 proceeds locally: review four real
   company-profile previews after the founder fills the handbook, then a
   controlled Gmail-draft pilot. Stage 4 sent/reply sync and follow-ups are

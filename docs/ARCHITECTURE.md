@@ -1,7 +1,15 @@
 # Outreach automation — architecture
 
-Prepared 2026-09-22. Status: **plan, nothing built.** Where this conflicts with
+Prepared 2026-09-22. Status: **plan; current implementation is in `AS_BUILT.md`.** Where this conflicts with
 `PIPELINE_2026-09-14.md`, this document wins.
+
+**Founder decision, 2026-09-22:** the final outreach handbook is **not in Drive
+yet**. Before stage 3 starts, the founder will put the final version in Google
+Drive. The Cloud Run worker in GCP must then read that document; a repository
+file or local settings file will not be the production handbook. Google Sheets
+(also in Drive) remains the outreach business record. Gmail holds drafts and
+messages, and GCP hosts the worker, model calls and secrets. Local files may
+support development and tests, but production drafting must not depend on them.
 
 ## 1. What it does
 
@@ -22,6 +30,7 @@ The founder keeps tiered leads in a Google Sheet. The system:
 | --- | --- |
 | **The system never sends.** | No send call exists in the code. A test fails the build if `drafts.send`, `messages.send` or an SMTP client appears. Google has no drafts-only permission — `gmail.compose` also allows sending — so this is our code's promise, and the Sent folder is the founder's check. |
 | **Google Sheets is the only outreach business record.** | No database. Every lead, result, event and metric is a row in the Sheet. Pub/Sub temporarily buffers tracking hits; Gmail retains the actual drafts and messages. A hit is not recorded until the worker has written its event to Sheets. |
+| **The founder's future Drive document is the only production handbook.** | Stage 3 waits until the founder puts the final handbook in Drive. The private GCP worker then reads that file with read-only authorization. Each preview and draft records its version or content hash. If it cannot read the file or the version changes after approval, drafting stops for review; no local copy silently takes its place. |
 | **No third-party tools.** | Only Google: Workspace (Gmail, Sheets), GCP (Cloud Run, Scheduler, Pub/Sub, Secret Manager), Gemini on Vertex AI. Apollo only supplied the addresses. |
 | **Never draft to someone who should not get one.** | A lead gets a draft only if: the email check is acceptable under the selected policy, fit QUALIFIED, no HOLD, no matching address or domain on Suppression, no existing or uncertain draft action, and the day's cap not reached. A plausibility check does not establish that the mailbox is active. |
 | **Never overwrite the founder's columns.** | The system writes only to columns and tabs it created. Rows are identified by a Lead ID the system adds, never by row number, so the founder can sort and filter freely. |
@@ -34,6 +43,7 @@ The founder keeps tiered leads in a Google Sheet. The system:
 flowchart LR
   subgraph Founder
     S[(Google Sheet<br/>Leads · Research · Events<br/>Suppression · Dashboard · Settings · Runs)]
+    H[Google Drive<br/>founder's final handbook]
     G[Gmail<br/>Drafts → founder presses Send]
   end
 
@@ -46,13 +56,15 @@ flowchart LR
   end
 
   W <-->|read leads, write results| S
+  W -->|read handbook and version| H
   W -->|create drafts, read sent/replies/bounces| G
   W -->|fetch company websites, DNS| NET[Public internet]
   R[Recipient opens / clicks] --> T
 ```
 
-Two Cloud Run services, deliberately separate: the **worker** holds the Gmail and Sheets
-sign-in and accepts authenticated job calls; the **tracker** is public and holds only its
+Two Cloud Run services, deliberately separate: the **worker** holds the Gmail,
+Sheets and (once authorized) read-only Drive sign-in and accepts authenticated
+job calls; the **tracker** is public and holds only its
 tracking verification key. The tracker's service account has no mailbox or Sheet access.
 
 ## 4. The Google Sheet
@@ -87,7 +99,7 @@ the Runs tab and make retries safe before enabling a recurring job.
 | --- | --- | --- |
 | **check** | 30 min | New rows get a Lead ID. Email checked: format, duplicate, on Suppression, generic inbox (`info@`, `office@`), domain has mail servers (DNS), company website loads, Apollo's own status column if present. Result: OK / RISKY / INVALID with the reason. |
 | **research** | 30 min | For CHECKED leads: read the company's own site (home plus a few linked pages like About, Services, Projects; respects robots.txt, page cap per company). Gemini proposes structured quotes; the worker keeps only quotes that appear on the named page. Fit: QUALIFIED / REVIEW_NEEDED / DISQUALIFIED with reasons. For a small draft pilot, a separate profile pass also records verified products/services and markets without changing fit. |
-| **draft** | weekdays, morning | For QUALIFIED leads in tier order, up to the daily cap: Gemini writes from the handbook and the stored quotes. Validator checks approved factual fields, length, postal address and opt-out line. Passing drafts go to Gmail Drafts; stage 3 drafts are untracked, and stage 5 may add tracking to new drafts. The row gets the draft link. Failing drafts go to REVIEW_NEEDED with why. |
+| **draft** | weekdays, morning | For QUALIFIED leads in tier order, up to the daily cap: the worker reads the designated Drive handbook and its version, then Gemini writes from it and the stored quotes. The validator checks approved factual fields, length, postal address and opt-out line. A changed or unavailable handbook blocks creation. Passing drafts go to Gmail Drafts with the handbook version recorded in the Sheet; stage 3 drafts are untracked, and stage 5 may add tracking to new drafts. The row gets the draft link. Failing drafts go to REVIEW_NEEDED with why. |
 | **sync** | 10 min | Reads Gmail changes since the last check. Confidently associates a new sent message with the intended action using recipient, thread, time and content evidence; ambiguous matches go to review and do not start follow-up timers. Messages from the recipient → REPLIED (auto-replies flagged separately). Detected bounce notices → BOUNCED, address to Suppression, follow-ups cancelled. Replies asking to stop → OPTED_OUT, to Suppression. |
 | **followup** | weekdays, morning | After the founder actually sends the initial email, draft follow-up 1 on the third business day after its sent date, if there is no reply. After the founder sends follow-up 1, draft follow-up 2 on the third business day after that sent date. Use America/New_York dates; the next Monday–Friday date is day 1, and weekends do not count. Holiday exclusions still need a calendar decision. Keep drafts in the same thread, at most two; the founder sends each by hand. |
 | **tracking** | 5 min | Pulls buffered hits from Pub/Sub, turns them into OPEN / CLICK events, updates the lead's counts. |
@@ -180,8 +192,8 @@ outreach/
   sheets/        the only code that reads or writes the Sheet
   gmail/         create drafts, read changes — no send
   research/      fetch pages, extract quotes, fit
-  writing/       handbook loader, prompts, validator
-  handbook/      the founder's handbook, versioned
+  writing/       Drive handbook loader, prompts, validator
+  handbook/      non-production fixtures only; Drive document is authoritative
   tests/         includes the no-send test
   deploy/        Dockerfiles, Scheduler and IAM setup scripts
 ```
@@ -197,7 +209,7 @@ Each stage is usable on its own and must pass before the next starts.
 | 0 Setup | Project, APIs, Internal sign-in app, founder signs in, worker reads the Sheet and writes to Runs | A Runs row appears from GCP | No |
 | 1 Check | Lead IDs, `check` job | Every lead has a check result and reason; founder spot-checks 20 | No |
 | 2 Research | `research` job, Research tab, company profile facts for drafting | Founder agrees with fit on a sample and can inspect verified products/services and markets with their URLs | No |
-| 3 Drafts | Handbook loader, validator, `draft` job, **no tracking yet** | **Decision point:** how many drafts the founder would send with no or light edits | Drafts only |
+| 3 Drafts | Read-only Drive handbook loader, Gemini writer, validator, `draft` job, **no tracking yet** | **Decision point:** how many drafts the founder would send with no or light edits | Drafts only |
 | 4 Sync | `sync` and `followup` jobs, Suppression, auto opt-out | Founder sends a few real drafts; SENT, REPLIED and a bounce all land correctly | Founder sends |
 | 5 Tracking | Tracker service, `t.lakshyaa.ai`, Pub/Sub, Dashboard | A test email to the founder's own other inbox shows open and click | Founder sends |
 | 6 Calls | Call outcome columns drive reply drafts | — | Drafts only |
@@ -211,7 +223,7 @@ Each stage is usable on its own and must pass before the next starts.
    Stage 0 also needs the founder's chosen Sheet and authorization to create cloud resources;
    selecting billing alone does not complete setup.
 3. **Postal address** for the email footer.
-4. **The handbook** — which file.
+4. **The handbook** — the founder will place the final version in Google Drive, then provide its link or file ID and authorize read-only access for the worker. Its content and version must be read from Drive before a preview can be approved. No link is needed before the document exists.
 5. **Settings defaults** — daily draft cap, follow-up spacing, whether catch-all addresses get
    drafts, bounce-rate stop threshold.
 6. **DMARC record** for the sending domain (none existed for `lakshyaa.ai` on 2026-09-14).

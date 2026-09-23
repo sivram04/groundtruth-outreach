@@ -571,6 +571,12 @@ Recorded in Runs as `suppression-tab`.
 
 ## Change log
 
+- **2026-09-22** Founder clarified the final stage-3 architecture: the final
+  handbook **will be** placed in Google Drive; it is **not there yet**. The
+  private GCP worker will read that document for Gemini drafting. The existing
+  local fixed-template pilot is a disabled prototype, not the intended writer.
+  No Drive link, reauthorization, deployment, draft or schedule change occurred.
+
 - **2026-09-22** Created the empty Suppression tab (header only). Rendered proposed template
   v3 read-only for the pilot four: per-company natural openings grounded in each stored quote,
   per-lead truthful subjects, source still shown in review. No code change, no approval, no

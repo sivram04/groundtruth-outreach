@@ -10,6 +10,10 @@ The founder's own cold-email funnel. `docs/ARCHITECTURE.md` is authoritative;
 - **Google Sheets is the only record** of leads, results, events and metrics. No database.
 - **No third-party tools.** Only Google: Workspace (Gmail, Sheets), GCP, Gemini on Vertex AI.
   Apollo only supplied the email addresses.
+- **Future production handbook:** the founder has not put the final handbook in Drive yet.
+  Stage 3 must eventually read that Drive document from the private GCP worker; the local
+  handbook draft and settings are not the production source. Do not request a Drive link
+  or turn on drafting before the document exists.
 - **Never overwrite the founder's columns** in the Sheet; identify rows by the system's Lead ID.
 - **Never invent** a company fact; every company-specific statement traces to a stored quote.
 - **Research the company, not the person's private life.** Preserve separate, verified facts
