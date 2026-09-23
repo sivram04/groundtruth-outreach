@@ -15,7 +15,7 @@ draft-to-send-to-follow-up pipeline has not been built.
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
 | 2 Research | **Bulk fit research paused; four company profiles piloted** 2026-09-22 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible; 396 pending, not to be resumed for now; four verified offerings/markets profiles saved; no research schedule exists |
-| 3 Drafts (pilot) | **Local code built; disabled and not deployed** | Offline preview renders a verified company quote and customizable subject from the pre-launch handbook; Gmail draft creation requires an exact approved preview hash and is disabled by default. The copy is template-rendered from earlier Gemini research, not a free-form AI-written email. Real-copy quality and live integration remain unverified. |
+| 3 Drafts (pilot) | **Local code built; disabled and not deployed** | Offline preview renders a verified company quote and customizable subject from the pre-launch handbook; Gmail draft creation requires an exact approved preview hash and is disabled by default. The copy is template-rendered from earlier Gemini research, not a free-form AI-written email. **Read-only live previews run 2026-09-22 for the four READY leads** (A-0030, A-0062, A-0078, A-0112): all blocked as intended (handbook fields unfilled, offer not approved, no Suppression tab), no hash, nothing written. Copy review: 1 of 4 openings reads well; see "Stage 3 live preview review". Gmail draft creation remains unexercised. |
 | 4 Gmail sync | Not started | Founder chose two follow-up drafts, each due on the third business day after the preceding email is actually sent; all emails are sent by hand |
 | 5 Tracking | Not started | |
 | 6 Calls | Not started | |
@@ -442,7 +442,43 @@ checked against current Vertex AI pricing.
 - `.secrets/` and client/token JSON are git-ignored; a pre-commit hook refuses them
   (proven to block a planted file).
 
+## Stage 3 live preview review, 2026-09-22
+
+Run locally, read-only (`python -m outreach.job_draft --ids A-0030,A-0062,A-0078,A-0112`),
+against the live Sheet with `.secrets/pilot_handbook.json` (git-ignored). Filled only with
+verified values — product `Lakshyaa`, sender email `admin@lakshyaa.ai` (the signed-in mailbox),
+website `https://lakshyaa.ai` (HTTP 200), daily cap 4. Sender name, title, postal address,
+intended use, next-week action and CTA are visible `[FOUNDER: …]` placeholders;
+`offer_approved` is false. No preview has a hash; no Sheet or Gmail write.
+
+| Lead | Opening quote chosen | Reads as |
+| --- | --- | --- |
+| A-0078 Harrington | "Harrington Electric Co. is Cleveland's oldest and finest electrical and voice-data-video contracting firm." | fine |
+| A-0030 Monroe | "New Construction Plumbing Plumbing layout, rough-in…" — from the **residential** page | weak: heading run into the sentence |
+| A-0112 Cincinnati Air | "Commercial HVAC Comfort cooling, chillers, DX systems, boilers…" | weak: heading plus equipment list |
+| A-0062 Conti | "The Conti Corporation specializes in heating and plumbing services" | weak: bland, cut off |
+
+**Cause is quote selection, not the companies:** `drafting.preview` always uses the first
+stored OFFERING quote. Each weak lead has a better verified quote in its own profile (Monroe:
+"…installs and modifies commercial gas lines for equipment upgrades, renovations, and new
+connections…"; Conti's strongest line — "portfolio includes schools, hospitals…" — is stored as
+a MARKET quote, which the template never uses; all three Cincinnati Air offerings have run-in
+headings because page text joins headings to paragraphs). Profiling replacement companies
+would not help, since the same first-quote rule would apply; not done.
+
+**Greeting:** every preview says "Hi there" because the code reads a `First Name` column the
+Sheet does not have. For all four leads `Decision maker` is the person at `BEST EMAIL`
+(`Their email` equals `BEST EMAIL`), so a first-name greeting would be accurate.
+
+**Local Windows runs** need `tzdata` in the venv (`zoneinfo` has no system time-zone data on
+Windows); installed locally only. The container resolves `America/New_York` without it.
+
 ## Change log
+
+- **2026-09-22** Read-only live previews for the four READY leads: all correctly blocked; 1 of
+  4 openings reads well. Weakness traced to first-quote selection and a missing first-name
+  source, not to the profiles; no replacement profiled. `profile-review` tag kept. Bulk
+  research and schedules paused; no drafts; nothing sent.
 
 - **2026-09-22** Local Stage 3 initial-email pipeline: added versioned runtime template,
   offline preview from matched current-profile Research quotes, configurable subject,
