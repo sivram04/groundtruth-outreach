@@ -61,6 +61,11 @@ def verified_company_name(sheet_name, site_text):
     stripped = LEGAL_SUFFIX.sub("", sheet_name).strip(" ,.&-")
     if stripped and stripped != sheet_name:
         candidates.append(stripped)
+    # A site often writes a longer or shorter name than the Sheet ("Muetzel Plumbing, Heating
+    # & Air Conditioning"). Try progressively shorter prefixes, never fewer than two words.
+    words = (stripped or sheet_name).split()
+    for end in range(len(words) - 1, 1, -1):
+        candidates.append(" ".join(words[:end]).strip(" ,.&-"))
     for candidate in candidates:
         if not candidate:
             continue

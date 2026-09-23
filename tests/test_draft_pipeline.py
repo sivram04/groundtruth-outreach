@@ -506,3 +506,13 @@ def test_a_lead_with_no_good_opening_is_held_not_forced():
                                       "suppressed": {"A-0001": False}})[0]
     assert out["preview_hash"] is None
     assert any("no quote is good enough to open with" in b for b in out["blockers"])
+
+
+def test_a_site_name_longer_than_the_sheet_name_is_still_verified():
+    site = "Muetzel Plumbing, Heating & Air Conditioning has served Columbus since 1908."
+    assert drafting.verified_company_name("MUETZEL PLUMBING & HEATING CO", site) == \
+        ("Muetzel Plumbing", True)
+
+
+def test_a_name_that_is_nowhere_on_the_site_is_still_unverified():
+    assert drafting.verified_company_name("ZEPHYR WIDGETS LLC", "Acme Electric does wiring.")[1] is False

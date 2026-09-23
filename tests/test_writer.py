@@ -286,3 +286,15 @@ def test_the_factual_detail_from_the_same_quote_still_passes():
                   "malls, banks and medical facilities.", "kind": "COMPANY", "quote_id": "q1"}]
         + sentences()[1:], "A conversation next week")
     assert problems == [] and draft is not None
+
+
+def test_a_noun_phrase_quote_supports_the_verb_that_makes_it_a_sentence():
+    quote = "Design and installation of complete power distribution systems for offices."
+    assert writer.ungrounded("Acme installs power distribution systems for offices", [quote, "Acme"]) == []
+    assert writer.ungrounded("Acme installs solar arrays", [quote, "Acme"]) == ["arrays", "solar"]
+
+
+def test_neutral_predicates_need_no_source_but_their_objects_do():
+    quote = "Our engineering, construction and installation services support your project."
+    assert writer.ungrounded("Acme provides engineering and construction services", [quote, "Acme"]) == []
+    assert writer.ungrounded("Acme provides payroll financing", [quote, "Acme"]) == ["financing", "payroll"]

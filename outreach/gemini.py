@@ -3,6 +3,7 @@
 import json
 import shutil
 import subprocess
+import time
 
 import google.auth
 import google.auth.transport.requests
@@ -36,7 +37,9 @@ def generate_json(prompt, schema, attempts=3):
                              "responseSchema": schema},
     }
     last = None
-    for _ in range(attempts):
+    for attempt in range(attempts):
+        if attempt:
+            time.sleep(2 ** attempt)  # back off; bursts of previews can be rate limited
         try:
             r = requests.post(URL, json=body, timeout=120, headers={"Authorization": f"Bearer {_token()}"})
             r.raise_for_status()

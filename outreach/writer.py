@@ -86,6 +86,11 @@ STOPWORDS = {
     "under", "very", "want", "way", "well", "whether", "within", "without", "yet", "work",
     "works", "working", "worth", "open", "would", "noticed", "notice", "building", "build",
     "don", "doesn", "isn", "aren", "wasn", "won", "can", "let", "get", "put", "say", "said",
+    # Neutral predicates. They assert nothing about the kind of work: whatever follows them
+    # still has to be grounded. Without these, a quote written as a noun phrase ("Design and
+    # installation of ...") could not be turned into a sentence at all.
+    "provide", "provides", "offer", "offers", "deliver", "delivers", "perform", "performs",
+    "handle", "handles", "supply", "supplies", "serve", "serves", "include", "includes",
 }
 WORD = re.compile(r"[A-Za-z][A-Za-z'&/-]*")
 # Claims this pilot never makes, whatever the model produces.
@@ -148,7 +153,10 @@ def _stem(word):
     sentence that faithfully repeated its quote.
     """
     forms = {word}
-    for suffix, replacement in (("ies", "y"), ("ing", ""), ("es", ""), ("ed", ""), ("s", "")):
+    # "installation" and "installs" must meet: a quote written as a noun phrase still supports
+    # the verb that turns it into a sentence.
+    for suffix, replacement in (("ations", ""), ("ation", ""), ("ions", ""), ("ion", ""),
+                                ("ies", "y"), ("ing", ""), ("es", ""), ("ed", ""), ("s", "")):
         if len(word) > len(suffix) + 2 and word.endswith(suffix):
             forms.add(word[: -len(suffix)] + replacement)
     return forms
