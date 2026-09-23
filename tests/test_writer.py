@@ -252,3 +252,37 @@ def test_blocked_preview_keeps_the_shape_and_has_no_hash():
     out = job_draft._blocked({"Lead ID": "A-0001", "Company": "X", "BEST EMAIL": "o@x.test"},
                              [], ["handbook unavailable: no handbook document ID is configured"])
     assert out["preview_hash"] is None and out["body"] == "" and out["blockers"]
+
+
+def test_a_slash_joins_alternatives_each_of_which_is_grounded():
+    quote = "We serve sewage/wastewater treatment facilities and schools."
+    assert writer.ungrounded("wastewater treatment facilities", [quote]) == []
+    assert writer.ungrounded("sewage treatment facilities", [quote]) == []
+    assert writer.ungrounded("stormwater treatment facilities", [quote]) == ["stormwater"]
+
+
+@pytest.mark.parametrize("text", [
+    "Example Electric is one of the leading electrical contractors in the region.",
+    "Example Electric is Cleveland's oldest and finest electrical firm.",
+    "Example Electric is a premier installer of commercial systems.",
+])
+def test_a_company_s_own_praise_is_refused_even_when_the_quote_contains_it(text):
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL,
+              "quote": "Example Electric is one of the leading, oldest and finest premier "
+                       "electrical contractors and installers of commercial systems in Cleveland."}]
+    draft, problems = writer.verify(TEXT, "Example Electric", facts,
+                                    [{"text": text, "kind": "COMPANY", "quote_id": "q1"}]
+                                    + sentences()[1:], "A conversation next week")
+    assert draft is None and any("own praise" in p for p in problems)
+
+
+def test_the_factual_detail_from_the_same_quote_still_passes():
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL,
+              "quote": "We are one of the leading design/build electrical construction "
+                       "professionals for shopping malls, banks and medical facilities."}]
+    draft, problems = writer.verify(
+        TEXT, "Example Electric", facts,
+        [{"text": "Example Electric does design/build electrical construction for shopping "
+                  "malls, banks and medical facilities.", "kind": "COMPANY", "quote_id": "q1"}]
+        + sentences()[1:], "A conversation next week")
+    assert problems == [] and draft is not None

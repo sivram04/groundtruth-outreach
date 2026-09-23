@@ -59,7 +59,10 @@ Write:
   - exactly ONE sentence with kind "COMPANY": a natural observation about what this company
     does, resting on ONE quote. Put that quote's id in "quote_id". Use only words whose
     meaning is in that quote. Do not say or imply anything about their money, cash, payment
-    timing, problems, software or how they are run.
+    timing, problems, software or how they are run. **Never repeat a company's praise of
+    itself** — words such as leading, finest, oldest, premier, best or first-class — even if
+    the quote contains them. State the work and who it is for, using only the quote's words:
+    say what they build and for what kinds of buildings, not how good they say they are.
   - ONE to THREE sentences with kind "PRODUCT": what the founder is building and its current
     state, taken from the handbook. Use only the handbook's own words and meaning.
   - exactly ONE sentence with kind "ASK": the request the handbook asks for, phrased as a
@@ -94,6 +97,11 @@ BANNED = re.compile(
     re.I)
 CONTACT = re.compile(r"https?://\S+|www\.\S+|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|"
                      r"\+?\d[\d\s().-]{8,}\d")
+# Handbook rule 6, enforced here rather than left to the model: a company's own praise of
+# itself is not a fact about what it does, even when the quote contains it.
+SELF_PRAISE = re.compile(r"\b(?:leading|premier|best|finest|oldest|largest|top-?rated|"
+                         r"world-?class|first-?class|award-?winning|most trusted|"
+                         r"number one|#\s?1)\b", re.I)
 NEGATION = re.compile(r"\b(?:no|not|never|without|cannot|can't|won't|doesn't|don't)\b", re.I)
 STATE = re.compile(r"\b(?:available|ready|finished|complete|completed|launched|live)\b", re.I)
 QUALIFIER = re.compile(r"\b(?:still being|not yet|in progress|under development)\b", re.I)
@@ -122,12 +130,14 @@ def _polarity_reversed(text, source, *, single_quote=False):
 
 
 def _words(text):
-    """Content words only: contractions and possessives fold to their stem ("I'm" -> "i")."""
+    """Content words only. Contractions and possessives fold to their stem ("I'm" -> "i"), and
+    a slash separates alternatives, so "sewage/wastewater" supports either word on its own."""
     out = []
     for token in WORD.findall(text):
-        word = token.lower().split("'")[0].strip("-/&")
-        if len(word) > 2 and word not in STOPWORDS:
-            out.append(word)
+        for part in token.lower().split("'")[0].split("/"):
+            word = part.strip("-&")
+            if len(word) > 2 and word not in STOPWORDS:
+                out.append(word)
     return out
 
 
@@ -194,6 +204,11 @@ def verify(handbook_text, company, facts, sentences, subject):
                 continue
             if _polarity_reversed(text, fact["quote"], single_quote=True):
                 problems.append("company sentence reverses or omits a quote's qualifier")
+                continue
+            praise = SELF_PRAISE.search(text)
+            if praise:
+                problems.append(f'company sentence repeats the company\'s own praise '
+                                f'("{praise.group(0)}"); use the factual detail instead')
                 continue
             missing = ungrounded(text, [fact["quote"], company])
             if missing:

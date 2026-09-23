@@ -742,7 +742,58 @@ next week?", because that is what the handbook supplies.
 260 tests pass offline in the container, including new ones for verified naming, a name absent
 from the site, an unconfirmed name at draft time, operator quote choice and an unknown choice.
 
+## Final pilot previews, 2026-09-23 (all four pinned; still unapproved)
+
+Handbook `b1237580414fe948a05ecd63031b6a974ec6e8e785200358d0fe74c66a861056`, modified
+2026-09-23T05:00Z. Settings version `prelaunch-pilot-v1-unapproved`, `offer_approved` false.
+Every preview's only blocker is the unapproved offer; no approval hash exists.
+
+Founder-chosen quotes, all four now pinned so the reviewed copy is the copy that would be
+drafted: Monroe `b4d204b67979d840` (gas lines), Conti `e91a25817a016362` (portfolio),
+Harrington `8557ed10e2ea8068` (electrical construction), Applied `83f3b598a4a1d94f`.
+
+**Conti stays in the pilot.** Its whole site was read: beyond the generic "specializes in
+heating and plumbing services" there is only staff counts, a founder anecdote, and text about
+**Enertech, a different company, which must never be used for Conti**. The portfolio quote is
+the most concrete verified evidence available, so it was pinned. The founder's proposed
+rewrite exposed a tokenising flaw (below); with that fixed, the writer produced the quote's
+own sentence, which reads naturally.
+
+**Two screening fixes this round, both found by real copy:**
+
+1. **A slash joins alternatives.** `sewage/wastewater` was one token, so "wastewater" on its
+   own looked invented and a faithful rewrite was rejected. Tokens now split on `/`, so either
+   word is supported.
+2. **A company's own praise is refused, in code.** Handbook rule 6 asks for the factual detail
+   rather than self-description, but the model kept writing "one of the leading design/build
+   electrical construction professionals" for Harrington — repeating the boast the founder
+   asked to drop — and adding "projects", which its quote does not contain. `writer.SELF_PRAISE`
+   now rejects a company sentence containing leading, premier, best, finest, oldest, largest,
+   top-rated, world-class, first-class, award-winning, most trusted or number one, **even when
+   the quote contains them**, and the prompt says so too. Harrington then produced the factual
+   list of building types instead. The rule is enforced by code, not left to the model.
+
+**The four emails as they stand** (97–111 words each, one ask, greeting and signature written
+by code):
+
+| Lead | Opening sentence |
+| --- | --- |
+| A-0030 Monroe Plumbing | "Monroe Plumbing installs and modifies commercial gas lines for equipment upgrades, renovations, and new connections." |
+| A-0062 Conti Corporation | "The Conti Corporation portfolio includes schools, hospitals, sewage/wastewater treatment facilities, and churches throughout northeast Ohio and western Pennsylvania." |
+| A-0078 Harrington Electric Co | "Harrington Electric Co is a design/build electrical construction professional for shopping malls, office space, banks, medical facilities, sports venues, educational institutions, manufacturing, and distribution plants." |
+| A-0049 Applied Mechanical Systems | "Applied Mechanical Systems is a regional mechanical contractor specializing in the design, installation, and service of heating, ventilation, air conditioning, and plumbing systems for commercial, industrial, and institutional clients." |
+
+All four subjects are the handbook's own: "A conversation about Lakshyaa next week?".
+
+265 tests pass offline in the container.
+
 ## Change log
+
+- **2026-09-23** Pinned all four pilot quotes; kept Conti on its portfolio quote after reading
+  its whole site for anything more concrete. Fixed slash tokenising, and added a code rule
+  refusing a company's own praise even when its quote contains it (Harrington no longer says
+  "leading"). Final read-only previews rendered for founder review. Nothing approved, drafted,
+  sent, deployed or scheduled.
 
 - **2026-09-23** Founder-instructed copy fixes: removed the duplicate invitation from the
   initial template, added writing rule 6 against market lists and self-promotional phrases,
