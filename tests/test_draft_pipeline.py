@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from outreach import drafting, gmail_drafts, handbook_drive, job_draft, writer
+from outreach import drafting, gmail_drafts, handbook_drive, job_draft, worker, writer
 
 HANDBOOK_TEXT = (Path(__file__).resolve().parent.parent / "examples" / "synthetic_handbook.txt"
                  ).read_text(encoding="utf-8")
@@ -215,6 +215,28 @@ def test_one_approved_written_draft_reaches_gmail_once(ready):
     assert tab.lead["Draft status"] == "CREATED" and tab.lead["Draft hash"] == digest
 
 
+def test_create_refuses_the_old_template_even_with_its_approved_hash(ready):
+    row, tab, created = ready
+    old = drafting.preview(row, facts(), settings(
+        intended_use="an early preview", next_week_action="a call",
+        cta_question="Would next week work?"), suppressed=False)
+    assert old["preview_hash"]
+    with pytest.raises(job_draft.DraftBlocked, match="Drive-handbook written draft"):
+        job_draft.create("A-0001", old["preview_hash"], settings=settings(),
+                         api=object(), gmail=Mailbox())
+    assert tab.writes == [] and created == []
+
+
+def test_worker_preview_always_uses_the_drive_writer(monkeypatch):
+    called = []
+    monkeypatch.setattr(job_draft, "previews", lambda ids, **kwargs:
+                        called.append(kwargs) or [{"preview_hash": None}])
+    response = worker.app.test_client().post("/jobs/draft/preview",
+                                              json={"ids": ["A-0001"], "write": False})
+    assert response.status_code == 200
+    assert called[0]["write"] is True
+
+
 def test_a_handbook_edited_after_approval_stops_the_draft(ready):
     row, _, created = ready
     written, digest = approved_written(row)
@@ -274,6 +296,19 @@ def test_a_second_draft_for_the_same_lead_is_refused(ready):
         job_draft.create("A-0001", digest, written=written, settings=settings(),
                          api=object(), gmail=Mailbox(), handbook=BOOK)
     assert len(created) == 1
+
+
+def test_a_reserved_action_counts_toward_the_daily_cap(ready):
+    row, tab, created = ready
+    tab.rows.append((4, lead(**{"Lead ID": "A-0002", "Draft status": "RESERVED",
+                              "Draft action at": job_draft.datetime.now(
+                                  job_draft.timezone.utc).isoformat()})))
+    written, digest = approved_written(row)
+    with pytest.raises(job_draft.DraftBlocked, match="daily draft cap"):
+        job_draft.create("A-0001", digest, written=written,
+                         settings=settings(daily_cap=1), api=object(),
+                         gmail=Mailbox(), handbook=BOOK)
+    assert tab.writes == [] and created == []
 
 
 def test_an_uncertain_gmail_result_leaves_a_reservation_and_no_retry(ready, monkeypatch):

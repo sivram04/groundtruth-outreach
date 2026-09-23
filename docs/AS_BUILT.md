@@ -15,7 +15,7 @@ draft-to-send-to-follow-up pipeline has not been built.
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
 | 2 Research | **Bulk fit research paused; five company profiles READY** 2026-09-22 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible; 396 pending, not to be resumed for now. Five verified offerings/markets profiles are saved; four are in the pilot and Cincinnati Air remains READY but out of it. No research schedule exists. |
-| 3 Drafts (pilot) | **Drive → Gemini → checks pipeline built locally; waiting on the handbook; not deployed** | The writer, the Drive loader and the grounding checks exist and pass 251 tests offline in a container, proven end to end on a synthetic handbook and lead. Nothing is connected to a real handbook: the founder's document is not in Drive, the sign-in has no Drive scope, no offer or email is approved, no preview has an approval hash, no draft action exists in the Sheet, Gmail drafting has never run, and the draft endpoints are not deployed. |
+| 3 Drafts (pilot) | **Drive → Gemini → checks pipeline built locally; waiting on the handbook; not deployed** | The writer, Drive loader and screening checks pass 255 tests offline in a container on synthetic inputs. Nothing is connected to a real handbook: the founder's document is not in Drive, the sign-in has no Drive scope, no offer or email is approved, no preview has an approval hash, no draft action exists in the Sheet, Gmail drafting has never run, and the draft endpoints are not deployed. |
 | 4 Gmail sync | Not started | Founder chose two follow-up drafts, each due on the third business day after the preceding email is actually sent; all emails are sent by hand |
 | 5 Tracking | Not started | |
 | 6 Calls | Not started | |
@@ -61,13 +61,12 @@ Deploy: `sh deploy/deploy_worker.sh`.
 | `POST /jobs/research?limit=40` or `?ids=A-0001,B-0002` | Stage 2 company research (below). **Not scheduled.** |
 | `POST /jobs/profile?limit=5&ids=A-0001,...` (optional `dry_run=1`) | Pilot extraction of company offerings and markets for later drafts. Available on the private `profile-review` tag only; serving revision remains 00013. No schedule. |
 
-**Local code only, not deployed:** `POST /jobs/draft/preview` takes `write: true` to compose
-with Gemini from the Drive handbook (otherwise the older fixed template), and
-`POST /jobs/draft/create` takes the approved `written` draft alongside its hash. Also
-`POST /jobs/draft/preview` accepts 1–4 explicit Lead
-IDs and optional `quote_choices` by Lead ID. `POST /jobs/draft/create` requires one Lead ID,
-its selected `quote_id` when chosen explicitly, its exact approved preview hash,
-complete handbook settings, and `ENABLE_GMAIL_DRAFTS=true`; default is disabled.
+**Local code only, not deployed:** `POST /jobs/draft/preview` always uses Gemini with the
+Drive handbook for 1–4 explicit Lead IDs. `POST /jobs/draft/create` requires the approved
+`written` payload and its exact preview hash; it reloads the Drive handbook and current
+quotes before creating a draft. The old fixed-template preview remains available only for
+offline comparison and cannot create a Gmail draft, even with an approval hash and quote ID.
+Draft creation also requires complete settings and `ENABLE_GMAIL_DRAFTS=true`; default is disabled.
 `POST /jobs/draft/reconcile` looks for an existing reserved Gmail draft and never creates
 a replacement. These endpoints have no Scheduler job.
 
@@ -593,13 +592,17 @@ and the lead's verified quotes as **data, explicitly labelled not-instructions**
 returns a subject and three to five labelled sentences: one COMPANY (citing one quote's id),
 one to three PRODUCT, one ASK.
 
-**3. Code decides whether that may ever be sent.** `writer.verify` — no model involved, so it
+**3. Code screens the wording before approval.** `writer.verify` — no model involved, so it
 can be re-run later — rejects a draft unless every content word is already present in the
 source the sentence claims: the cited quote for a company sentence, the handbook for a product
 or ask sentence. Plurals and contractions fold; filler words are ignored. It also refuses a
 banned claim (guarantees, "available today", invented cash trouble), any link, address or
 phone number inside the copy, a missing or misordered part, an ask that is not a question, and
-an ungrounded, over-long or exclamatory subject. **The greeting, signature, website, phone,
+an ungrounded, over-long or exclamatory subject. It also rejects obvious reversals of a
+quote's negation or the handbook's qualified product state. These checks cannot establish
+semantic entailment: a sentence can reuse source words while making a different claim.
+The founder must compare every exact preview with its cited quote and handbook before approval.
+**The greeting, signature, website, phone,
 postal address and opt-out line are written by `drafting.assemble`, never by the model.**
 
 **4. The approval binds everything.** The preview hash now covers the handbook's content hash
@@ -607,7 +610,8 @@ and document ID alongside the recipient, subject, body, sender, evidence and quo
 the Drive document changes the hash, so an approval made before the edit no longer matches and
 the draft is refused.
 
-**5. Creating a draft re-checks; it never re-writes.** `create(..., written=...)` reloads the
+**5. Creating a draft re-checks; it never re-writes.** The live preview endpoint always uses
+the Drive writer, and `create` refuses a missing `written` payload. It reloads the
 handbook, re-runs `writer.verify` against the live quotes, rebuilds the same body, recomputes
 the hash and compares it to the founder's approved hash. The model is not called — a test
 asserts that. Everything from before still applies: `ENABLE_GMAIL_DRAFTS` off by default, one
@@ -615,20 +619,29 @@ lead at a time, OK email plus QUALIFIED fit, Suppression, HOLD, daily cap, the m
 the configured sender, no prior send or existing draft, a RESERVED row that blocks any retry
 after an uncertain Gmail result, and no sending code anywhere.
 
-**Tests: 251 pass offline in the container** (`docker run --rm --network none outreach-tests`),
+**Tests: 255 pass offline in the container** (`docker run --rm --network none lakshyaa-outreach-audit`),
 using `examples/synthetic_handbook.txt` and synthetic leads. They prove fail-closed behaviour
 for: no handbook, unreadable Drive, a handbook edited after approval, a handbook whose offer
 was removed, an unsupported company claim, an invented capability, a promise, an injected
 instruction or address inside a quote, a tampered sentence, a wrong or empty hash, missing
-authorization, a second draft for the same lead, an uncertain Gmail result, and a mailbox that
+authorization, the old-template bypass, two polarity reversals, a second draft for the same
+lead, an uncertain Gmail result, and a mailbox that
 is not the sender. A synthetic run through the CLI in the container produced a complete,
 approvable draft with its evidence and hashes.
 
 **What this does not prove:** no real handbook has been read, no real email has been written
 by Gemini, and no Gmail draft has ever been created. Copy quality against the founder's own
-handbook is unknown.
+handbook is unknown. The lexical and polarity screens do not prove all generated claims true;
+human review of the exact copy and source remains essential.
 
 ## Change log
+
+- **2026-09-22** Audited the local Stage 3 pipeline. The live create endpoint could accept
+  the old fixed-template path with no Drive handbook, and word-overlap checks accepted two
+  opposite-meaning claims. Live preview now always uses the Drive writer, creation requires
+  its written payload, and obvious negation/product-state reversals are rejected. The full
+  255-test offline suite passes in a network-disabled container. No deployment, schedule,
+  Sheet or Gmail write. Semantic claim support still requires founder review.
 
 - **2026-09-22** Built the Stage 3 Drive → Gemini → checks pipeline: read-only Drive handbook
   loader with content hash, Gemini writer whose every word must trace to the handbook or a

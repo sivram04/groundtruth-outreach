@@ -175,7 +175,7 @@ def _revalidated(lead, facts, written, settings, handbook=None, drive=None):
     return book, rebuilt
 
 
-def create(lead_id, approved_hash, *, quote_id=None, written=None, settings=None, api=None,
+def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
            gmail=None, drive=None, handbook=None):
     """Reserve in Sheets, create one Gmail draft, then finalize the Sheet row.
 
@@ -186,20 +186,16 @@ def create(lead_id, approved_hash, *, quote_id=None, written=None, settings=None
         raise DraftBlocked("Gmail draft creation is disabled")
     if not approved_hash:
         raise DraftBlocked("the founder's approved preview hash is required")
+    if not isinstance(written, dict) or not written.get("sentences"):
+        raise DraftBlocked("a Drive-handbook written draft is required")
     settings = load_settings() if settings is None else settings
     api = api or _api()
     tabs, matches, facts = _read(api, [lead_id])
     tab, row, lead = matches[0]
-    if written is not None:
-        book, rebuilt = _revalidated(lead, facts, written, settings, handbook, drive)
-        result = drafting.preview(lead, facts, settings,
-                                 suppressed=_suppressed(api, lead.get("BEST EMAIL", "")),
-                                 handbook=book, written=rebuilt)
-    else:
-        result = drafting.preview(lead, facts, settings,
-                                 suppressed=_suppressed(api, lead.get("BEST EMAIL", "")),
-                                 subject_template=settings.get("subject_template"),
-                                 selected_quote_id=quote_id)
+    book, rebuilt = _revalidated(lead, facts, written, settings, handbook, drive)
+    result = drafting.preview(lead, facts, settings,
+                             suppressed=_suppressed(api, lead.get("BEST EMAIL", "")),
+                             handbook=book, written=rebuilt)
     if result["blockers"]:
         raise DraftBlocked("; ".join(result["blockers"]))
     if result["preview_hash"] != approved_hash:

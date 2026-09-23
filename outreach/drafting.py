@@ -1,7 +1,7 @@
-"""Pure, fail-closed rendering of founder-reviewed initial-email previews.
+"""Pure rendering and eligibility gates for founder-reviewed initial-email previews.
 
-Company words are copied from a previously verified Research quote. The model does not
-paraphrase a company's finances or invent a pain point in this pilot.
+Written previews use a verified Research quote and a Drive handbook. Word screening does
+not prove semantic support; the founder reviews the exact copy and cited source.
 """
 
 import hashlib

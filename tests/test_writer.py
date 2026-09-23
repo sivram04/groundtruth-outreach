@@ -86,6 +86,39 @@ def test_a_company_sentence_citing_no_verified_quote_is_refused():
     assert draft is None and "the company sentence cites no verified quote" in problems
 
 
+@pytest.mark.parametrize("claim", ["Example Electric installs HVAC systems.",
+                                   "Not surprisingly, Example Electric installs HVAC systems."])
+def test_a_negated_quote_cannot_support_the_opposite_company_claim(claim):
+    negative = [{"quote_id": "q1", "category": "OFFERING",
+                 "quote": "Example Electric does not install HVAC systems.", "url": URL}]
+    rows = sentences(company={"text": claim,
+                              "kind": "COMPANY", "quote_id": "q1"})
+    draft, problems = writer.verify(TEXT, "Example Electric", negative, rows,
+                                    "A conversation about Example Product next week")
+    assert draft is None and problems
+
+
+def test_a_negated_quote_can_be_used_verbatim():
+    negative = [{"quote_id": "q1", "category": "OFFERING",
+                 "quote": "Example Electric does not install HVAC systems.", "url": URL}]
+    rows = sentences(company={"text": "Example Electric does not install HVAC systems.",
+                              "kind": "COMPANY", "quote_id": "q1"})
+    draft, problems = writer.verify(TEXT, "Example Electric", negative, rows,
+                                    "A conversation about Example Product next week")
+    assert draft is not None and problems == []
+
+
+def test_a_product_sentence_cannot_reverse_the_handbook_state():
+    draft, problems = verify(product={"text": "The MVP is finished.",
+                                      "kind": "PRODUCT", "quote_id": ""})
+    assert draft is None and problems
+
+
+def test_a_subject_cannot_reverse_the_handbook_state():
+    draft, problems = verify(subject="Example Product MVP finished")
+    assert draft is None and problems
+
+
 def test_an_invented_product_capability_is_refused():
     draft, problems = verify(product={"text": "Example Product connects to QuickBooks and pays "
                                               "your bills automatically.", "kind": "PRODUCT",

@@ -1,5 +1,11 @@
 # Stage 3 draft pilot — local runbook
 
+**Historical fixed-template procedure below.** It can still generate offline comparison
+previews, but it cannot create a Gmail draft. The undeployed live endpoint now always uses
+the Drive handbook and Gemini writer; draft creation requires its exact `written` payload
+and approval hash. See `docs/AS_BUILT.md` for the current gates. A real pilot remains blocked
+until the founder's handbook exists in Drive and Drive read access is granted.
+
 Status: local code only. Read-only previews ran against the founder's Sheet for
 the four READY profiles on 2026-09-22; no Sheet or Gmail write occurred. The
 production worker remains on the older revision, the check schedule stays

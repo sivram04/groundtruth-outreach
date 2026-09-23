@@ -1,9 +1,12 @@
-"""Gemini writes the company-specific parts; this module proves every word is grounded.
+"""Gemini writes the company-specific parts; this module screens source support.
 
 The model never gets the last word. It returns sentences, each labelled and, for a company
 sentence, attributed to one verified quote ID. Code then checks that every content word in a
 sentence appears in the source it claims: the cited quote for a company sentence, the
 founder's handbook for a product or ask sentence. A word from nowhere fails the draft.
+
+Word overlap does not establish factual entailment. The founder must review each exact draft
+against its cited quote and handbook before approving its hash.
 
 Website text reaches this module only as previously verified quotes. It is untrusted data,
 never instruction: the prompt says so, and the output checks reject any address, link or
@@ -91,6 +94,31 @@ BANNED = re.compile(
     re.I)
 CONTACT = re.compile(r"https?://\S+|www\.\S+|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|"
                      r"\+?\d[\d\s().-]{8,}\d")
+NEGATION = re.compile(r"\b(?:no|not|never|without|cannot|can't|won't|doesn't|don't)\b", re.I)
+STATE = re.compile(r"\b(?:available|ready|finished|complete|completed|launched|live)\b", re.I)
+QUALIFIER = re.compile(r"\b(?:still being|not yet|in progress|under development)\b", re.I)
+
+
+def _normalized(text):
+    return " ".join(re.findall(r"[a-z0-9]+", text.casefold()))
+
+
+def _polarity_reversed(text, source, *, single_quote=False):
+    """Reject obvious reversals of a quoted denial or a qualified product state.
+
+    This is a conservative screen, not a semantic proof. Exact source wording remains
+    permissible; a human must still assess the complete claim before approving.
+    """
+    if single_quote and NEGATION.search(source) and _normalized(source) not in _normalized(text):
+        return True
+    for state in set(STATE.findall(text.casefold())):
+        source_clauses = [clause for clause in re.split(r"[.!?]\s+|\n", source)
+                          if re.search(rf"\b{re.escape(state)}\b", clause, re.I)]
+        if source_clauses and all(NEGATION.search(c) or QUALIFIER.search(c) for c in source_clauses):
+            if not any(_normalized(c) in _normalized(text) for c in source_clauses):
+                if not (NEGATION.search(text) or QUALIFIER.search(text)):
+                    return True
+    return False
 
 
 def _words(text):
@@ -112,7 +140,7 @@ def _stem(word):
 
 
 def ungrounded(text, sources):
-    """Content words in `text` with no counterpart in any source. Empty means fully grounded."""
+    """Content words without a source counterpart; empty does not prove the claim true."""
     pool = set()
     for source in sources:
         for word in _words(source):
@@ -163,6 +191,9 @@ def verify(handbook_text, company, facts, sentences, subject):
             if not fact:
                 problems.append("the company sentence cites no verified quote")
                 continue
+            if _polarity_reversed(text, fact["quote"], single_quote=True):
+                problems.append("company sentence reverses or omits a quote's qualifier")
+                continue
             missing = ungrounded(text, [fact["quote"], company])
             if missing:
                 problems.append("company sentence is not supported by its quote: "
@@ -170,6 +201,9 @@ def verify(handbook_text, company, facts, sentences, subject):
                 continue
             evidence = fact
         else:
+            if kind == "PRODUCT" and _polarity_reversed(text, handbook_text):
+                problems.append("product sentence reverses or omits a handbook qualifier")
+                continue
             missing = ungrounded(text, [handbook_text, company])
             if missing:
                 problems.append(f"{kind.lower()} sentence adds words the handbook does not use: "
@@ -182,6 +216,8 @@ def verify(handbook_text, company, facts, sentences, subject):
         problems.append("the subject line is unusable")
     elif CONTACT.search(subject) or BANNED.search(subject):
         problems.append("the subject line carries a banned claim or a contact detail")
+    elif _polarity_reversed(subject, handbook_text):
+        problems.append("the subject line reverses or omits a handbook qualifier")
     elif ungrounded(subject, [handbook_text, company, " ".join(f["quote"] for f in facts)]):
         problems.append("the subject line is not grounded in the handbook or a verified quote")
     if problems:

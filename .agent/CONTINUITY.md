@@ -39,6 +39,11 @@
 
 ## [PROGRESS]
 
+- 2026-09-23T03:39Z [CODE] Stage 3 local audit closed the fixed-template Gmail-draft
+  bypass: the live preview endpoint always uses the Drive writer, and `create` requires a
+  written payload that is revalidated against the handbook. Added conservative polarity
+  checks for quote negation and qualified product state. No deployment or remote write.
+
 - 2026-09-22T20:48:00-04:00 [CODE] Local Stage 3 previews now list every current
   verified OFFERING/MARKET quote, allow an explicit quote ID bound to the
   approval hash, avoid weak automatic defaults, and use `Decision maker` for a
@@ -51,6 +56,12 @@
   conservative reconciliation. No deployment or live Google write occurred.
 
 ## [DISCOVERIES]
+
+- 2026-09-23T03:39Z [TOOL] Before the fix, an old-template hash could reach the Gmail
+  draft path without a Drive handbook. Word overlap also accepted a negated quote as a
+  positive company claim and "MVP is finished" from a "still being finished" handbook.
+  After the fix, 255 tests pass offline in a network-disabled container. Lexical screening
+  remains insufficient to prove semantic support; exact source review is required.
 
 - 2026-09-23T03:00Z [TOOL] Read-only status check: 492 leads have email-check
   outcomes; 69 have fit verdicts, 5 company profiles are READY, 26 are
