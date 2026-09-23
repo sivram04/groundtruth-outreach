@@ -487,7 +487,34 @@ Greetings now say Hi Brian, Hi John, Hi Tom and Hi Mark respectively because
 “Hi there.” The previews remain blocked by founder fields, approval and the
 missing Suppression tab; no draft or send occurred.
 
+## Pilot set after replacing Cincinnati Air, 2026-09-22
+
+A-0112 Cincinnati Air's four stored quotes all had run-in headings or were bare lists, so it
+has no default opening. Under the founder's instruction to profile a replacement when a
+profile gives weak copy, **A-0049 Applied Mechanical** (OK email, QUALIFIED, Michael Ayers,
+President; `Their email` = `BEST EMAIL`) was profiled alone through the private
+`profile-review` tag: dry run first, then one write — READY, 3 offering and 2 market quotes,
+tokens 6,757 in / 352 out / 1,532 thinking. No other lead was profiled.
+
+Read-only previews for the pilot four (A-0030, A-0062, A-0078, A-0049) — all still blocked on
+handbook fields, offer approval and Suppression; no hash; no Sheet or Gmail write:
+
+| Lead | Greeting | Opening quote (source) |
+| --- | --- | --- |
+| A-0030 Monroe | Hi Brian | "Monroe Plumbing installs and modifies commercial gas lines for equipment upgrades, renovations, and new connections with safety and code compliance at the center." (commercial-gas-lines page) |
+| A-0062 Conti | Hi John | "The Conti Corporation portfolio includes schools, hospitals, sewage/wastewater treatment facilities, and churches throughout northeast Ohio and western Pennsylvania." (home) |
+| A-0078 Harrington | Hi Tom | "Harrington Electric Co. is Cleveland's oldest and finest electrical and voice-data-video contracting firm." (about) |
+| A-0049 Applied Mechanical | Hi Michael | "Our specialties include plumbing and process piping, sheet metal fabrication, MEP, system retrofits, service, controls, design-build, plan & spec, and fast-track projects." (home) |
+
+A-0112 keeps its READY profile but is out of the pilot. No opt-outs from the 14 hand-sent
+emails are known; checking those threads is a precaution awaiting the founder's yes.
+
 ## Change log
+
+- **2026-09-22** Profiled A-0049 Applied Mechanical as the replacement for A-0112 (dry run,
+  then one write). Read-only previews for the pilot four all give usable openings and
+  first-name greetings; all blocked pending founder values, offer approval and Suppression.
+  Nothing deployed, drafted or sent; schedules paused.
 
 - **2026-09-22** Local Stage 3 copy fix: replaced first-OFFERING selection with a
   list of verified OFFERING/MARKET quotes and quote IDs. Defaults avoid
