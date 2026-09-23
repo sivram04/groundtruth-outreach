@@ -21,10 +21,13 @@ SECRET = "google-signin-token"
 CLIENT_FILE = Path(__file__).resolve().parent.parent / ".secrets" / "client_secret.json"
 
 # gmail.compose creates drafts. It also permits sending; this codebase never sends.
+# drive.readonly is read-only by definition: it lets the worker read the founder's handbook
+# document and nothing else. Added 2026-09-23 when that handbook was created.
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.compose",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.readonly",
 ]
 
 

@@ -22,6 +22,7 @@ FIELDS = ("PRODUCT_NAME", "INTENDED_USE", "NEXT_WEEK_ACTION", "CTA_QUESTION",
 SIGNATURE_FIELDS = ("PRODUCT_NAME", "SENDER_NAME", "FOUNDER_TITLE", "SENDER_WEBSITE",
                     "POSTAL_ADDRESS")
 OPT_OUT = 'If you don\'t want further outreach from me, reply "no thanks" and I\'ll stop.'
+WITHHELD = "[draft withheld]"
 TOKEN = re.compile(r"\[[^\]\n]+\]")
 
 
@@ -160,14 +161,16 @@ def verified_first_name(lead):
 def _finish(lead, settings, sender_email, subject, body, evidence, chosen, options, blockers,
             *, handbook=None, written=None):
     """Last checks shared by both paths, then the approval hash over everything that matters."""
-    if TOKEN.search(subject + "\n" + body):
-        blockers.append("unresolved template placeholder")
+    # A body already withheld for other reasons must not invent extra blockers about itself.
+    if body != WITHHELD:
+        if TOKEN.search(subject + "\n" + body):
+            blockers.append("unresolved template placeholder")
+        if not body.endswith(OPT_OUT):
+            blockers.append("opt-out footer is missing")
+        if len(body) > 2500:
+            blockers.append("body exceeds the pilot length limit")
     if "\n" in subject or "\r" in subject or len(subject) > 100:
         blockers.append("subject is invalid")
-    if not body.endswith(OPT_OUT):
-        blockers.append("opt-out footer is missing")
-    if len(body) > 2500:
-        blockers.append("body exceeds the pilot length limit")
 
     recipient = lead.get("BEST EMAIL", "").strip().lower()
     if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", recipient):
@@ -284,7 +287,7 @@ def preview(lead, research_rows, settings, *, suppressed=None, subject_template=
     values["COMPANY"] = lead.get("Company", "").strip()
     if written is not None:
         subject = written["subject"]
-        body = assemble(written, values) if not blockers else "[draft withheld]"
+        body = assemble(written, values) if not blockers else WITHHELD
         return _finish(lead, settings, sender_email, subject, body, evidence, chosen, options,
                        blockers, handbook=handbook, written=written)
     subject = _fill(subject_source, values)
