@@ -440,13 +440,32 @@ def test_a_market_list_is_not_chosen_over_real_work():
     assert "gas lines" in chosen["quote"]
 
 
-def test_self_praise_is_never_chosen():
+def test_a_boastful_quote_loses_to_a_plain_one_but_is_not_thrown_away():
+    """A source may contain a boast; the email simply may not repeat it (see test_writer)."""
     chosen, report = drafting.choose_opening(options_for(
-        ("OFFERING", "Acme is the region's leading and finest electrical contractor."),
+        ("OFFERING", "Acme is the region's leading and finest installer of fire alarm systems "
+                     "in schools and hospitals."),
         ("OFFERING", "Acme installs fire alarm systems in schools and hospitals.")))
-    assert "fire alarm" in chosen["quote"]
     praised = [r for r in report if "leading" in r["quote"]][0]
-    assert praised["score"] is None and "the company's own praise" in praised["reasons"]
+    plain = [r for r in report if "leading" not in r["quote"]][0]
+    assert praised["score"] is not None  # still usable as a source
+    assert any("own praise" in note for note in praised["reasons"])
+    assert plain["score"] > praised["score"] and chosen["quote"] == plain["quote"]
+
+
+def test_a_boastful_quote_is_still_chosen_when_it_is_the_only_real_evidence():
+    chosen, _ = drafting.choose_opening(options_for(
+        ("MARKET", "Healthcare, workplace, retail, hospitality and industrial."),
+        ("OFFERING", "Acme is the leading design/build electrical construction firm for "
+                     "shopping malls, banks and hospitals.")))
+    assert chosen is not None and "design/build" in chosen["quote"]
+
+
+def test_a_heading_no_longer_throws_the_source_away():
+    chosen, _ = drafting.choose_opening(options_for(
+        ("OFFERING", "CONSTRUCTION From shopping malls to hospitals, we install electrical "
+                     "systems and build out tenant spaces.")))
+    assert chosen is not None
 
 
 def test_an_opener_that_refers_to_something_unsaid_is_marked_down():

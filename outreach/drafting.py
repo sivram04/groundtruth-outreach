@@ -176,25 +176,36 @@ BACK_REFERENCE = re.compile(r"^(?:in (?:all|both|these|those|that|this)\b|for (?
 GENERIC_ONLY = re.compile(r"^(?:the\s+)?[\w.,'&\- ]{0,60}?\b(?:specializes? in|provides?|offers?|"
                           r"is a|are a)\b[^.]{0,80}\b(?:services?|solutions?|needs?)\b[^.]{0,20}\.?$",
                           re.I)
-DISQUALIFYING = {"appears cut off", "starts mid-sentence", "not a complete sentence",
-                 "heading runs into sentence", "generic self-description",
-                 "mentions residential work", "residential page", "too long for an opening"}
+# A source quote is refused only when nothing in it may be used: residential work, or no
+# work at all. A heading, a boast or a clipped edge is a reason to prefer another quote, not
+# to throw the source away — the model may still take a factual span from it, and the email
+# checks (unsupported words, self-praise) decide what actually reaches the recipient.
+DISQUALIFYING = {"mentions residential work", "residential page"}
+PENALTIES = {"heading runs into sentence": 1, "appears cut off": 1, "starts mid-sentence": 2,
+             "not a complete sentence": 1, "generic self-description": 3,
+             "too long for an opening": 2}
 
 
 def rank_opening(option):
-    """Score one verified quote as an opening, with the reasons it was marked down.
+    """Score one verified quote as a source for the opening, with what marked it down.
 
-    Returns (score, reasons). A score of None means it must not be used as an opener.
+    Returns (score, reasons). A score of None means the source itself must not be used.
     """
     quote = option["quote"]
-    reasons = sorted(set(option.get("warnings", [])) & DISQUALIFYING)
+    warnings = set(option.get("warnings", []))
+    reasons = sorted(warnings & DISQUALIFYING)
     if not option.get("usable"):
         reasons.append("not usable for a commercial pilot")
-    from outreach.writer import SELF_PRAISE  # local import keeps this module import-light
-    if SELF_PRAISE.search(quote):
-        reasons.append("the company's own praise")
     if reasons:
         return None, reasons
+
+    from outreach.writer import SELF_PRAISE  # local import keeps this module import-light
+    penalty = sum(weight for warning, weight in PENALTIES.items() if warning in warnings)
+    notes = sorted(warnings & set(PENALTIES))
+    if SELF_PRAISE.search(quote):
+        # Usable as a source; the email may not repeat the boast, and that is checked there.
+        penalty += 1
+        notes.append("contains the company's own praise, which the email may not repeat")
 
     doing = bool(DOING.search(quote))
     project = bool(PROJECT_WORDS.search(quote))
@@ -208,10 +219,12 @@ def rank_opening(option):
     back_reference = bool(BACK_REFERENCE.match(quote.strip()))
     score = (3 * project + 2 * doing + min(places, 3)
              + (option["category"] == "OFFERING") - (2 if listy else 0)
-             - (2 if back_reference else 0))
-    notes = (["reads as a list of markets"] if listy else []) + \
-            (["opens by referring to something unsaid"] if back_reference else [])
-    return score, notes
+             - (2 if back_reference else 0) - penalty)
+    if listy:
+        notes.append("reads as a list of markets")
+    if back_reference:
+        notes.append("opens by referring to something unsaid")
+    return score, sorted(set(notes))
 
 
 def choose_opening(options):
