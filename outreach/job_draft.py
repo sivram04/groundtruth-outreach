@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from outreach import drafting, gemini, gmail_drafts, handbook_drive, writer
+from outreach import drafting, gemini, gmail_drafts, handbook_drive, research, writer
 from outreach.sheet import DRAFT_COLUMNS, LEAD_TABS, SHEET_ID, SYSTEM_COLUMNS, Tab, _api
 
 MAX_PILOT = 4
@@ -90,20 +90,43 @@ def _blocked(lead, options, blockers, handbook=None):
             "blockers": blockers, "preview_hash": None}
 
 
-def written_preview(lead, facts, settings, handbook, *, suppressed, model):
+def site_text(lead):
+    """The company's own pages, used only to confirm how it writes its name. Never quoted."""
+    try:
+        pages, _ = research.read_site(lead.get("Website", ""))
+    except Exception:
+        return ""
+    return " ".join(text for _, text in pages)
+
+
+def written_preview(lead, facts, settings, handbook, *, suppressed, model, quote_id=None,
+                    pages=None):
     """Gemini writes; `drafting` decides whether the result may ever become a draft."""
-    options = drafting.opening_options(drafting.supported_quotes(lead, facts), lead.get("Company", ""))
+    company, verified = drafting.verified_company_name(
+        lead.get("Company", ""), site_text(lead) if pages is None else pages)
+    options = drafting.opening_options(drafting.supported_quotes(lead, facts), company)
     usable = [o for o in options if o["usable"]]
+    if quote_id:
+        usable = [o for o in usable if o["quote_id"] == quote_id]
+        if not usable:
+            return _blocked(lead, options,
+                            ["the selected quote is not a current, usable quote"], handbook)
     if not usable:
         return _blocked(lead, options, ["no verified company quote to write from"], handbook)
     try:
-        draft, problems = writer.compose(handbook["text"], lead.get("Company", ""), usable, model)
+        draft, problems = writer.compose(handbook["text"], company, usable, model)
     except Exception as exc:  # a model or network failure must not produce a draft
         return _blocked(lead, options, [f"the writer failed: {type(exc).__name__}"], handbook)
     if draft is None:
         return _blocked(lead, options, problems, handbook)
-    return drafting.preview(lead, facts, settings, suppressed=suppressed,
-                            handbook=handbook, written=draft)
+    result = drafting.preview(lead, facts, settings, suppressed=suppressed,
+                              handbook=handbook, written=draft, company=company)
+    result["company_name_used"] = company
+    if not verified:
+        result["blockers"].append(
+            f'the company name "{company}" was not found on its own site; check it')
+        result["preview_hash"] = None
+    return result
 
 
 def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
@@ -120,7 +143,8 @@ def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
             book, why = _handbook(settings, handbook, drive)
             return [(written_preview(leads[i], fixture["research"], settings, book,
                                      suppressed=fixture.get("suppressed", {}).get(i, None),
-                                     model=model or gemini.generate_json)
+                                     model=model or gemini.generate_json,
+                                     quote_id=quote_choices.get(i), pages=fixture.get("pages", ""))
                      if book else _blocked(leads[i], [], [why]))
                     for i in ids]
         return [drafting.preview(leads[lead_id], fixture["research"], settings,
@@ -135,7 +159,8 @@ def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
         book, why = _handbook(settings, handbook, drive)
         return [(written_preview(by_id[i], facts, settings, book,
                                  suppressed=_suppressed(api, by_id[i].get("BEST EMAIL", "")),
-                                 model=model or gemini.generate_json)
+                                 model=model or gemini.generate_json,
+                                 quote_id=quote_choices.get(i))
                  if book else _blocked(by_id[i], [], [why]))
                 for i in ids]
     return [drafting.preview(by_id[lead_id], facts, settings,
@@ -160,23 +185,31 @@ def _actions_today(tabs):
     return count
 
 
-def _revalidated(lead, facts, written, settings, handbook=None, drive=None):
-    """Re-judge an approved written draft against the live handbook and quotes. No model call."""
+def _revalidated(lead, facts, written, settings, handbook=None, drive=None, pages=None):
+    """Re-judge an approved written draft against the live handbook, quotes and company name.
+
+    The company name is re-derived from the company's own site exactly as the preview did, so
+    the rebuilt copy and its hash match what the founder approved.
+    """
     book, why = _handbook(settings, handbook, drive)
     if not book:
         raise DraftBlocked(why)
-    options = drafting.opening_options(drafting.supported_quotes(lead, facts), lead.get("Company", ""))
-    rebuilt, problems = writer.revalidate(book["text"], lead.get("Company", ""),
+    company, verified = drafting.verified_company_name(
+        lead.get("Company", ""), site_text(lead) if pages is None else pages)
+    if not verified:
+        raise DraftBlocked(f'the company name "{company}" is no longer confirmed on its own site')
+    options = drafting.opening_options(drafting.supported_quotes(lead, facts), company)
+    rebuilt, problems = writer.revalidate(book["text"], company,
                                           [o for o in options if o["usable"]], written)
     if rebuilt is None:
         raise DraftBlocked("; ".join(problems))
     if any(rebuilt[k] != written.get(k) for k in ("subject", "company", "product", "ask")):
         raise DraftBlocked("the approved wording no longer passes its own checks")
-    return book, rebuilt
+    return book, rebuilt, company
 
 
 def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
-           gmail=None, drive=None, handbook=None):
+           gmail=None, drive=None, handbook=None, pages=None):
     """Reserve in Sheets, create one Gmail draft, then finalize the Sheet row.
 
     A failed/uncertain create leaves RESERVED. No second create is attempted for that
@@ -192,10 +225,10 @@ def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
     api = api or _api()
     tabs, matches, facts = _read(api, [lead_id])
     tab, row, lead = matches[0]
-    book, rebuilt = _revalidated(lead, facts, written, settings, handbook, drive)
+    book, rebuilt, company = _revalidated(lead, facts, written, settings, handbook, drive, pages)
     result = drafting.preview(lead, facts, settings,
                              suppressed=_suppressed(api, lead.get("BEST EMAIL", "")),
-                             handbook=book, written=rebuilt)
+                             handbook=book, written=rebuilt, company=company)
     if result["blockers"]:
         raise DraftBlocked("; ".join(result["blockers"]))
     if result["preview_hash"] != approved_hash:

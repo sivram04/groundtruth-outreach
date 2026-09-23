@@ -48,6 +48,29 @@ def initial_template(path=HANDBOOK):
         line.rstrip() for line in body.strip().splitlines())
 
 
+# A Sheet name is often shouted ("APPLIED MECHANICAL SYSTEMS INC"). The company's own site
+# shows how it writes its name; we take that, never an abbreviation we made up.
+LEGAL_SUFFIX = re.compile(r"[\s,]+(?:inc|llc|l\.l\.c|corp|corporation|co|company|ltd|"
+                          r"limited|plc|lp|llp)\.?\s*$", re.I)
+
+
+def verified_company_name(sheet_name, site_text):
+    """Return (name, verified). The site's own capitalisation wins; otherwise title case."""
+    sheet_name = " ".join(sheet_name.split())
+    candidates = [sheet_name]
+    stripped = LEGAL_SUFFIX.sub("", sheet_name).strip(" ,.&-")
+    if stripped and stripped != sheet_name:
+        candidates.append(stripped)
+    for candidate in candidates:
+        if not candidate:
+            continue
+        pattern = r"\s+".join(re.escape(word) for word in candidate.split())
+        found = re.search(pattern, site_text or "", re.I)
+        if found:
+            return " ".join(found.group(0).split()), True
+    return (stripped or sheet_name).title(), False
+
+
 def _host(url):
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"}:
@@ -199,7 +222,7 @@ def _finish(lead, settings, sender_email, subject, body, evidence, chosen, optio
 
 
 def preview(lead, research_rows, settings, *, suppressed=None, subject_template=None,
-            selected_quote_id=None, handbook=None, written=None):
+            selected_quote_id=None, handbook=None, written=None, company=None):
     """Return reviewable copy and blockers. A hash exists only for send-ready copy.
 
     `suppressed=None` means the suppression list was unavailable; this blocks a write.
@@ -224,7 +247,8 @@ def preview(lead, research_rows, settings, *, suppressed=None, subject_template=
     elif suppressed:
         blockers.append("address or domain is suppressed")
 
-    options = opening_options(supported_quotes(lead, research_rows), lead.get("Company", ""))
+    options = opening_options(supported_quotes(lead, research_rows),
+                              company or lead.get("Company", ""))
     if written is not None:
         # The writer must have cited a quote that is still verified for this lead right now.
         cited = (written.get("evidence") or {}).get("quote_id", "")
@@ -284,7 +308,7 @@ def preview(lead, research_rows, settings, *, suppressed=None, subject_template=
         values["SENDER_PHONE"] = phone
     else:
         body_source = body_source.replace("[SENDER_PHONE]\n", "")
-    values["COMPANY"] = lead.get("Company", "").strip()
+    values["COMPANY"] = (company or lead.get("Company", "")).strip()
     if written is not None:
         subject = written["subject"]
         body = assemble(written, values) if not blockers else WITHHELD

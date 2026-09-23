@@ -686,7 +686,70 @@ exists and none can become a Gmail draft:
 Each is a handbook question, not a code question: the writer may only use what the handbook
 and the quotes give it.
 
+## Four copy fixes, 2026-09-23 (founder-instructed, all still unapproved)
+
+**Two handbook edits** (`tools/edit_handbook_2026_09_23b.py`, a second one-time in-memory Docs
+sign-in; the worker's Drive access stays read-only). Read-only check first, then verified after:
+
+1. **Removed** "I'd like to invite you to [NEXT_WEEK_ACTION] and hear where this direction does
+   or doesn't fit the way your team works." from the **initial email template only**, so each
+   email makes one ask, in its closing question. Both follow-ups keep their own wording, which
+   uses different sentences ("If you choose to…", "If you'd like to…") and was not touched.
+2. **Added writing rule 6:** prefer a concrete, verified activity over a list of markets or a
+   self-promotional phrase such as "first-class" or "oldest and finest".
+
+Content hash `e6415247176218e2` → `b1237580414fe948`; 5,416 → 5,521 characters. Every kept
+section verified present afterwards, including both follow-ups and the offer values.
+
+**Two code changes, treated as evidence selection, not as company facts in the handbook:**
+
+- **`drafting.verified_company_name`** takes the Sheet's shouted name, strips a legal suffix
+  and finds that name **in the company's own site text**, using the site's capitalisation.
+  "APPLIED MECHANICAL SYSTEMS INC" → "Applied Mechanical Systems" (their site writes it that
+  way throughout; it also uses "AMS" 48 times, but an abbreviation is never invented here). A
+  name that cannot be found on the site **blocks the preview** and, at draft time, raises
+  rather than creating. `create` re-derives the same name, so the approved hash still matches.
+- **`written_preview(..., quote_id=...)`** lets the operator choose which verified quote the
+  writer may use; only that quote is offered to the model, and an unknown id blocks rather
+  than silently falling back. Monroe now opens on its commercial gas-lines quote instead of
+  the customer-type list.
+
+**A stemming bug this exposed and fixed:** the grounding check folded "serves" to "serv" but
+left "serve" alone, so a sentence that faithfully repeated its quote was rejected. Stems are
+now compared as sets, symmetrically.
+
+**Previews after the fixes** — all four render, each with one ask, and the **only** blocker on
+every one is `founder has not approved the offer wording`:
+
+| Lead | Name used | Opening rests on |
+| --- | --- | --- |
+| A-0030 Monroe | Monroe Plumbing | "Monroe Plumbing installs and modifies commercial gas lines for equipment upgrades, renovations…" (chosen by the operator) |
+| A-0062 Conti | Conti Corporation | "The Conti Corporation specializes in heating and plumbing services" |
+| A-0078 Harrington | Harrington Electric Co | "Our Telecommunications Division specializes in engineering, design, and installation of structured cabling systems" — the writer moved off "oldest and finest" under rule 6 |
+| A-0049 Applied Mechanical | Applied Mechanical Systems | "AMS is a regional mechanical contractor specializing in the design, installation, and service…" |
+
+Bodies are 97–106 words, down from 130.
+
+**Subjects can be customised without inventing facts.** The subject is screened against the
+handbook, the company name and the verified quotes. Checked against the live handbook:
+"Question for Monroe Plumbing", "Commercial gas lines at Monroe Plumbing" and "A conversation
+about equipment upgrades and renovations" all pass; "Cut your collection time by 30 days" is
+refused (invents "collection", "cut", "time") and "Monroe Plumbing is losing money on
+slow-paying GCs" is refused (invents "losing", "money", "slow-paying", "gcs"). All four
+previews currently use the handbook's own template subject, "A conversation about Lakshyaa
+next week?", because that is what the handbook supplies.
+
+260 tests pass offline in the container, including new ones for verified naming, a name absent
+from the site, an unconfirmed name at draft time, operator quote choice and an unknown choice.
+
 ## Change log
+
+- **2026-09-23** Founder-instructed copy fixes: removed the duplicate invitation from the
+  initial template, added writing rule 6 against market lists and self-promotional phrases,
+  derived company names verified against each company's own site, and let the operator pick
+  the quote (Monroe now opens on commercial gas lines). Fixed an asymmetric stemming bug.
+  All four previews rerun read-only; only blocker is the unapproved offer. Nothing approved,
+  drafted, sent, deployed or scheduled.
 
 - **2026-09-23** Added `drive.readonly` and re-signed in; read the founder's handbook from
   Drive; ran the first real Gemini previews. Inserted the three draft offer values into the

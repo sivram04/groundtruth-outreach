@@ -15,6 +15,7 @@ HANDBOOK_TEXT = (Path(__file__).resolve().parent.parent / "examples" / "syntheti
 BOOK = {"text": HANDBOOK_TEXT, "content_hash": "hash-one", "document_id": "doc-one",
         "name": "Handbook", "version": "1", "modified": "2026-09-22T10:00:00Z", "source": "drive"}
 QUOTE = "We install electrical distribution systems for commercial buildings."
+SITE = "Example Electric is an electrical contractor. " + QUOTE
 URL = "https://example.test/services"
 
 
@@ -68,7 +69,7 @@ def preview(row=None, *, book=BOOK, model=None, config=None, suppressed=False):
     row = row or lead()
     return job_draft.previews(["A-0001"], settings=config or settings(), write=True,
                               handbook=book, model=model or model_for(),
-                              fixture={"leads": [row], "research": facts(),
+                              fixture={"leads": [row], "research": facts(), "pages": SITE,
                                        "suppressed": {"A-0001": suppressed}})[0]
 
 
@@ -209,7 +210,7 @@ def test_one_approved_written_draft_reaches_gmail_once(ready):
     row, tab, created = ready
     written, digest = approved_written(row)
     result = job_draft.create("A-0001", digest, written=written, settings=settings(),
-                              api=object(), gmail=Mailbox(), handbook=BOOK)
+                              api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
     assert result["status"] == "CREATED" and len(created) == 1
     assert created[0]["to"] == "sam@example.test" and created[0]["body"].endswith(drafting.OPT_OUT)
     assert tab.lead["Draft status"] == "CREATED" and tab.lead["Draft hash"] == digest
@@ -243,7 +244,7 @@ def test_a_handbook_edited_after_approval_stops_the_draft(ready):
     edited = {**BOOK, "content_hash": "hash-two"}
     with pytest.raises(job_draft.DraftBlocked, match="approved hash"):
         job_draft.create("A-0001", digest, written=written, settings=settings(),
-                         api=object(), gmail=Mailbox(), handbook=edited)
+                         api=object(), gmail=Mailbox(), handbook=edited, pages=SITE)
     assert created == []
 
 
@@ -253,7 +254,7 @@ def test_a_handbook_whose_offer_was_removed_stops_the_draft(ready):
     thinner = {**BOOK, "text": HANDBOOK_TEXT.replace("preview", "coffee")}
     with pytest.raises(job_draft.DraftBlocked):
         job_draft.create("A-0001", digest, written=written, settings=settings(),
-                         api=object(), gmail=Mailbox(), handbook=thinner)
+                         api=object(), gmail=Mailbox(), handbook=thinner, pages=SITE)
     assert created == []
 
 
@@ -263,7 +264,7 @@ def test_a_tampered_body_cannot_be_created(ready):
     written["sentences"][2]["text"] = "Would you send me your bank login this week?"
     with pytest.raises(job_draft.DraftBlocked):
         job_draft.create("A-0001", digest, written=written, settings=settings(),
-                         api=object(), gmail=Mailbox(), handbook=BOOK)
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
     assert created == []
 
 
@@ -273,7 +274,7 @@ def test_a_wrong_or_missing_hash_cannot_be_created(ready):
     for bad in ("", "0" * 64):
         with pytest.raises(job_draft.DraftBlocked):
             job_draft.create("A-0001", bad, written=written, settings=settings(),
-                             api=object(), gmail=Mailbox(), handbook=BOOK)
+                             api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
     assert created == []
 
 
@@ -283,7 +284,7 @@ def test_gmail_writes_stay_disabled_without_authorization(monkeypatch, ready):
     written, digest = approved_written(row)
     with pytest.raises(job_draft.DraftBlocked, match="disabled"):
         job_draft.create("A-0001", digest, written=written, settings=settings(),
-                         api=object(), gmail=Mailbox(), handbook=BOOK)
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
     assert created == []
 
 
@@ -291,10 +292,10 @@ def test_a_second_draft_for_the_same_lead_is_refused(ready):
     row, tab, created = ready
     written, digest = approved_written(row)
     job_draft.create("A-0001", digest, written=written, settings=settings(),
-                     api=object(), gmail=Mailbox(), handbook=BOOK)
+                     api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
     with pytest.raises(job_draft.DraftBlocked):
         job_draft.create("A-0001", digest, written=written, settings=settings(),
-                         api=object(), gmail=Mailbox(), handbook=BOOK)
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
     assert len(created) == 1
 
 
@@ -307,7 +308,7 @@ def test_a_reserved_action_counts_toward_the_daily_cap(ready):
     with pytest.raises(job_draft.DraftBlocked, match="daily draft cap"):
         job_draft.create("A-0001", digest, written=written,
                          settings=settings(daily_cap=1), api=object(),
-                         gmail=Mailbox(), handbook=BOOK)
+                         gmail=Mailbox(), handbook=BOOK, pages=SITE)
     assert tab.writes == [] and created == []
 
 
@@ -321,11 +322,11 @@ def test_an_uncertain_gmail_result_leaves_a_reservation_and_no_retry(ready, monk
     monkeypatch.setattr(gmail_drafts, "create", uncertain)
     with pytest.raises(TimeoutError):
         job_draft.create("A-0001", digest, written=written, settings=settings(),
-                         api=object(), gmail=Mailbox(), handbook=BOOK)
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
     assert tab.lead["Draft status"] == "RESERVED"
     with pytest.raises(job_draft.DraftBlocked):
         job_draft.create("A-0001", digest, written=written, settings=settings(),
-                         api=object(), gmail=Mailbox(), handbook=BOOK)
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
     assert len(created) == 1
 
 
@@ -338,7 +339,7 @@ def test_a_mailbox_that_is_not_the_configured_sender_is_refused(ready):
             return {"emailAddress": "someone.else@lakshyaa.ai"}
     with pytest.raises(job_draft.DraftBlocked, match="mailbox"):
         job_draft.create("A-0001", digest, written=written, settings=settings(),
-                         api=object(), gmail=Other(), handbook=BOOK)
+                         api=object(), gmail=Other(), handbook=BOOK, pages=SITE)
     assert created == []
 
 
@@ -350,4 +351,69 @@ def test_create_never_calls_the_model(ready, monkeypatch):
         raise AssertionError("create must re-check, never re-write")
     monkeypatch.setattr(writer, "compose", forbidden)
     assert job_draft.create("A-0001", digest, written=written, settings=settings(),
-                            api=object(), gmail=Mailbox(), handbook=BOOK)["status"] == "CREATED"
+                            api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)["status"] == "CREATED"
+
+
+# --- the company's own name, and the operator's choice of quote ----------------------------
+
+def test_the_shouted_sheet_name_becomes_the_site_s_own_capitalisation():
+    row = lead(Company="EXAMPLE ELECTRIC INC")
+    out = preview(row)
+    assert out["company_name_used"] == "Example Electric" and out["preview_hash"]
+    assert "EXAMPLE ELECTRIC INC" not in out["body"]
+
+
+def test_a_name_absent_from_the_site_blocks_the_preview(monkeypatch):
+    out = job_draft.previews(["A-0001"], settings=settings(), write=True, handbook=BOOK,
+                             model=model_for(company_text="Installs electrical distribution "
+                                             "systems for commercial buildings."),
+                             fixture={"leads": [lead(Company="UNSEEN WIDGETS LLC")],
+                                      "research": facts(), "pages": SITE,
+                                      "suppressed": {"A-0001": False}})[0]
+    assert out["preview_hash"] is None
+    assert any("not found on its own site" in b for b in out["blockers"])
+
+
+def test_an_unconfirmed_name_stops_the_draft(ready):
+    row, _, created = ready
+    written, digest = approved_written(row)
+    row["Company"] = "RENAMED HOLDINGS LLC"
+    with pytest.raises(job_draft.DraftBlocked, match="no longer confirmed"):
+        job_draft.create("A-0001", digest, written=written, settings=settings(),
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert created == []
+
+
+def test_the_operator_can_choose_which_verified_quote_is_written_from():
+    market = "We serve commercial and institutional clients across the region."
+    market_url = "https://example.test/markets"
+    row = lead(**{"Markets evidence": f'"{market}" ({market_url})'})
+    rows = facts() + [{"Lead ID": "A-0001", "Researched at": "2026-09-22 12:00:00",
+                       "Category": "MARKET", "Quote": market, "Page URL": market_url}]
+    options = drafting.opening_options(drafting.supported_quotes(row, rows), "Example Electric")
+    chosen = [o for o in options if o["quote"] == market][0]["quote_id"]
+
+    def model(prompt, schema):
+        assert market in prompt and QUOTE not in prompt  # only the chosen quote is offered
+        return {"subject": "A conversation about Example Product next week", "sentences": [
+            {"text": "Example Electric serves commercial and institutional clients across the "
+                     "region.", "kind": "COMPANY", "quote_id": chosen},
+            {"text": "I'm building Example Product, a cash-flow decision tool for construction "
+                     "subcontractors. The MVP is still being finished.", "kind": "PRODUCT"},
+            {"text": "Would you be open to a twenty minute conversation next week about the "
+                     "early preview?", "kind": "ASK"}]}, {}
+
+    out = job_draft.previews(["A-0001"], settings=settings(), write=True, handbook=BOOK,
+                             model=model, quote_choices={"A-0001": chosen},
+                             fixture={"leads": [row], "research": rows, "pages": SITE,
+                                      "suppressed": {"A-0001": False}})[0]
+    assert out["evidence"]["quote"] == market and out["preview_hash"]
+
+
+def test_an_unknown_quote_choice_blocks_rather_than_falling_back():
+    out = job_draft.previews(["A-0001"], settings=settings(), write=True, handbook=BOOK,
+                             model=model_for(), quote_choices={"A-0001": "0" * 16},
+                             fixture={"leads": [lead()], "research": facts(), "pages": SITE,
+                                      "suppressed": {"A-0001": False}})[0]
+    assert out["preview_hash"] is None
+    assert "the selected quote is not a current, usable quote" in out["blockers"]

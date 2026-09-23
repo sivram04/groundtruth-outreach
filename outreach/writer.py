@@ -132,11 +132,16 @@ def _words(text):
 
 
 def _stem(word):
-    """Crude singular/verb folding, so 'systems' matches 'system' and 'installs' 'install'."""
-    for suffix in ("ing", "ies", "es", "ed", "s"):
-        if len(word) > len(suffix) + 3 and word.endswith(suffix):
-            return "ies" == suffix and word[:-3] + "y" or word[: -len(suffix)]
-    return word
+    """Every plausible stem of a word, so the comparison is symmetric.
+
+    A single stem was not: it folded "serves" to "serv" but left "serve" alone, and rejected a
+    sentence that faithfully repeated its quote.
+    """
+    forms = {word}
+    for suffix, replacement in (("ies", "y"), ("ing", ""), ("es", ""), ("ed", ""), ("s", "")):
+        if len(word) > len(suffix) + 2 and word.endswith(suffix):
+            forms.add(word[: -len(suffix)] + replacement)
+    return forms
 
 
 def ungrounded(text, sources):
@@ -144,12 +149,8 @@ def ungrounded(text, sources):
     pool = set()
     for source in sources:
         for word in _words(source):
-            pool.add(word)
-            pool.add(_stem(word))
-    missing = []
-    for word in _words(text):
-        if word not in pool and _stem(word) not in pool:
-            missing.append(word)
+            pool |= _stem(word)
+    missing = [word for word in _words(text) if not _stem(word) & pool]
     return sorted(set(missing))
 
 
