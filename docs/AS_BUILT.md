@@ -519,6 +519,13 @@ emails are known; checking those threads is a precaution awaiting the founder's 
 
 ## Change log
 
+- **2026-09-22** Founder rejected the proposed "see cash needs" offer as too narrow.
+  The intended positioning is AI-powered cash-flow decision support for construction
+  subcontractors: combine accounting and operational data, analyze the situation,
+  compare scenarios, and recommend next steps. No replacement offer wording has
+  been approved; `.secrets/pilot_handbook.json` still has offer placeholders and
+  `offer_approved=false`. No preview, draft, deployment or schedule changed.
+
 - **2026-09-22** Signature gains an optional phone line (`sender_phone`, between website and
   postal address; omitted cleanly when unset; malformed numbers block approval; part of the
   approval hash). Founder supplied sender name, title, postal address and phone; they are in

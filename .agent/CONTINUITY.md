@@ -9,6 +9,13 @@
 
 ## [DECISIONS]
 
+- 2026-09-23T01:37Z [USER] Corrected the outreach positioning: Lakshyaa is an
+  AI-powered cash-flow decision product for construction subcontractors. It is
+  intended to combine accounting and operational data, analyze the company's
+  situation, compare scenarios, and recommend next steps from that analysis.
+  The prior "see cash needs" offer wording was rejected. Replacement wording
+  is not yet founder-approved; do not present planned capabilities as live.
+
 - 2026-09-22T20:24:00-04:00 [USER] The MVP is unfinished this week; outreach may
   invite next-week conversations but must not promise a live trial today.
 - 2026-09-22T20:24:00-04:00 [USER] Asked Claude Code to build the missing automated
