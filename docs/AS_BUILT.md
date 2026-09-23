@@ -15,7 +15,7 @@ draft-to-send-to-follow-up pipeline has not been built.
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
 | 2 Research | **Bulk fit research paused; four company profiles piloted** 2026-09-22 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible; 396 pending, not to be resumed for now; four verified offerings/markets profiles saved; no research schedule exists |
-| 3 Drafts (pilot) | **Local code built; disabled and not deployed** | Read-only live previews for four READY leads remain blocked as intended (handbook fields unfilled, offer not approved, no Suppression tab), with no hash or write. Quote selection now shows all verified options and chooses a complete commercial sentence by default; three leads get a default, Cincinnati Air requires an explicit reviewed choice. Named greetings require `Their email` to match `BEST EMAIL`. Gmail draft creation remains unexercised. |
+| 3 Drafts (pilot) | **Local code built; disabled and not deployed** | Read-only live previews for four READY leads remain blocked as intended (handbook fields unfilled, offer not approved, no Suppression tab), with no hash or write. Quote selection now shows all verified options and chooses a complete commercial sentence by default. **Pilot four: A-0030 Monroe, A-0062 Conti, A-0078 Harrington (defaults) and A-0049 Applied Mechanical (explicit quote `83f3b598a4a1d94f`, its complete "regional mechanical contractor… for commercial, industrial, and institutional clients" sentence).** A-0112 Cincinnati Air was replaced because it has no clean opening. Named greetings require `Their email` to match `BEST EMAIL`. Gmail draft creation remains unexercised. |
 | 4 Gmail sync | Not started | Founder chose two follow-up drafts, each due on the third business day after the preceding email is actually sent; all emails are sent by hand |
 | 5 Tracking | Not started | |
 | 6 Calls | Not started | |
@@ -505,6 +505,14 @@ handbook fields, offer approval and Suppression; no hash; no Sheet or Gmail writ
 | A-0062 Conti | Hi John | "The Conti Corporation portfolio includes schools, hospitals, sewage/wastewater treatment facilities, and churches throughout northeast Ohio and western Pennsylvania." (home) |
 | A-0078 Harrington | Hi Tom | "Harrington Electric Co. is Cleveland's oldest and finest electrical and voice-data-video contracting firm." (about) |
 | A-0049 Applied Mechanical | Hi Michael | "Our specialties include plumbing and process piping, sheet metal fabrication, MEP, system retrofits, service, controls, design-build, plan & spec, and fast-track projects." (home) |
+
+**Applied opener changed on review:** the default above is a service list, so the pilot uses
+A-0049's complete MARKET sentence, selected explicitly with
+`--quote-choice A-0049=83f3b598a4a1d94f`: "AMS is a regional mechanical contractor
+specializing in the design, installation, and service of heating, ventilation, air
+conditioning, and plumbing systems for commercial, industrial, and institutional clients."
+Read-only rerun: all four render with first-name greetings; still blocked (no hash) on the
+same missing founder values; the approval hash will cover the selected quote ID.
 
 A-0112 keeps its READY profile but is out of the pilot. No opt-outs from the 14 hand-sent
 emails are known; checking those threads is a precaution awaiting the founder's yes.
