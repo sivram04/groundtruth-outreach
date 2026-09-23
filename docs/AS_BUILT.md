@@ -5,6 +5,9 @@ is actually built. **Updated after every change**, newest entry first in the cha
 
 Last updated: 2026-09-22.
 
+Pilot-readiness evidence and blockers: `docs/PILOT_READINESS_AUDIT.md`. The full
+draft-to-send-to-follow-up pipeline has not been built.
+
 ## Stage status
 
 | Stage | Status | Proof |
@@ -428,6 +431,13 @@ checked against current Vertex AI pricing.
   (proven to block a planted file).
 
 ## Change log
+
+- **2026-09-22** Draft-pilot readiness audit: clean local checkout and 138/138 existing
+  tests pass in a network-isolated container; Cloud Run still serves revision 00013,
+  while the profile-review revision has 0% traffic, and the only Scheduler job remains
+  paused. Stage 3 is blocked on filled handbook values, a validated draft preview and
+  idempotent Gmail draft writes. Gmail sent/reply sync and follow-up scheduling do not
+  exist. Findings and build gates in `docs/PILOT_READINESS_AUDIT.md`.
 
 - **2026-09-22** Founder corrected the cadence: **three business days**, superseding the
   calendar-day wording below. Count Monday–Friday in America/New_York; the next business
