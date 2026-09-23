@@ -634,8 +634,65 @@ by Gemini, and no Gmail draft has ever been created. Copy quality against the fo
 handbook is unknown. The lexical and polarity screens do not prove all generated claims true;
 human review of the exact copy and source remains essential.
 
+## The handbook in Drive, and the first real previews (2026-09-23)
+
+**Drive read access added.** `outreach/signin.py` now also requests `drive.readonly`; the
+founder signed in once and the new token replaced the Secret Manager version. The worker's
+stored credentials are read-only for Drive: they can read the handbook and nothing else.
+
+**The handbook document.** `1lnKJMRZe0QPyxFZaV6zNq_GI-HNudncnW1uzrvwzeuU`,
+"OUTREACH_HANDBOOK_DRAFT" — a copy of this repo's template draft, holding the writing rules,
+the field table, the initial-email template and both follow-ups. A second ID the founder sent
+(`1im_UBYRaRCrrvwNtnWc39I8TEJ6MpL-A`) is an uploaded Word file and is refused by design: the
+loader accepts Google Docs and text files only.
+
+**First real Gemini run, against that document as it stood.** It produced a good company
+sentence from a verified quote, but the only product sentence it could write was "The MVP is
+still being finished", and it reused the subject line as the ask. Cause: the document named
+the fields `[INTENDED_USE]`, `[NEXT_WEEK_ACTION]` and `[CTA_QUESTION]` but never gave their
+values, so there were no product or offer words to ground a sentence in. The pipeline behaved
+correctly — it cannot invent what the handbook does not authorise.
+
+**Founder-instructed edit, 2026-09-23** (`tools/edit_handbook_doc.py`): a read-only check
+first, then a **separate one-time Google Docs sign-in held in memory only** — never written to
+disk or Secret Manager, so the worker's Drive access stays read-only — inserted a
+"Draft offer values for founder review" block after the Status paragraph with the three
+values. The tool then re-read the document and verified the insertion and that the writing
+rules, field table, initial-email template and both follow-ups survived. Content hash
+`992bd199043912d1` → `e6415247176218e2`; 5,029 → 5,416 characters. **These values are the
+founder's to review; they are not approved copy.**
+
+**Read-only previews after the edit** — all four pilot leads now produce a complete email
+whose **only** blocker is `founder has not approved the offer wording`, so no approval hash
+exists and none can become a Gmail draft:
+
+| Lead | Opening sentence | Rests on (source) |
+| --- | --- | --- |
+| A-0030 Monroe | "Monroe Plumbing works with offices, retail spaces, restaurants and hospitality, medical and dental offices, and warehouses across Northeast Ohio." | the same sentence on monroeplumbing.net/commercial-plumbing |
+| A-0062 Conti | "The Conti Corporation specializes in heating and plumbing services." | theconticorporation.com |
+| A-0078 Harrington | "Harrington Electric Co. is Cleveland's oldest and finest electrical and voice-data-video contracting firm." | harringtonelectric.com/about |
+| A-0049 Applied Mechanical | "APPLIED MECHANICAL SYSTEMS INC is a regional mechanical contractor specializing in the design, installation, and service of heating, ventilation, air conditioning, and plumbing systems…" | appliedmechanicalsys.com |
+
+**Copy problems for the founder to judge, not defects in the checks:**
+
+- **A-0049 uses the Sheet's shouted company name**, "APPLIED MECHANICAL SYSTEMS INC". The site
+  says "AMS". Nothing in the handbook tells the writer how to name a company.
+- **Three of four say the invitation twice** — once in the product paragraph (from the
+  template's "I'd like to invite you to…" line) and again as the question. A-0049 does not.
+- **Conti and Harrington quote the companies' own marketing back at them** ("first-class",
+  "oldest and finest"). Accurate to the source, but it reads as flattery.
+- **Monroe's opening is a list of customer types**, accurate but flat.
+
+Each is a handbook question, not a code question: the writer may only use what the handbook
+and the quotes give it.
+
 ## Change log
 
+- **2026-09-23** Added `drive.readonly` and re-signed in; read the founder's handbook from
+  Drive; ran the first real Gemini previews. Inserted the three draft offer values into the
+  Doc through a one-time in-memory Docs sign-in, verified the templates survived, and reran
+  read-only previews: all four leads now render a complete email blocked only on approval.
+  Nothing approved, drafted, sent, deployed or scheduled.
 - **2026-09-22** Created an editable Word copy of the existing
   `docs/OUTREACH_HANDBOOK_DRAFT.md` for founder review. It preserves the draft's
   placeholders and pre-launch wording; it is not an approved or Drive-hosted runtime
