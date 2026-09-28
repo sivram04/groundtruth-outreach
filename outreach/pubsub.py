@@ -17,8 +17,11 @@ SUBSCRIPTION = "outreach-tracking-worker"
 API = "https://pubsub.googleapis.com/v1"
 
 
+_SESSION = requests.Session()  # one pool of connections per process, not one per call
+
+
 def _post(path, body, timeout):
-    response = requests.post(f"{API}/projects/{PROJECT}/{path}", json=body, timeout=timeout,
+    response = _SESSION.post(f"{API}/projects/{PROJECT}/{path}", json=body, timeout=timeout,
                              headers={"Authorization": f"Bearer {cloud_token()}"})
     response.raise_for_status()
     return response.json()

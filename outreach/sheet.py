@@ -45,8 +45,20 @@ SUPPRESSION_TAB = "Suppression"
 SUPPRESSION_HEADER = ["Address or domain", "Reason", "Added at", "Source"]
 
 
+_SHEETS = None
+
+
 def _api():
-    return build("sheets", "v4", credentials=founder_credentials(), cache_discovery=False).spreadsheets()
+    """The Sheets client, built once per process and reused, with its connection.
+
+    Building a fresh client (and so a fresh encrypted connection) for every scheduled run grew the
+    deployed worker by about 55 MB a sync run until Cloud Run killed it (measured 2026-09-28).
+    The credentials refresh themselves; the worker handles one request at a time."""
+    global _SHEETS
+    if _SHEETS is None:
+        _SHEETS = build("sheets", "v4", credentials=founder_credentials(),
+                        cache_discovery=False).spreadsheets()
+    return _SHEETS
 
 
 def now_utc():

@@ -12,8 +12,15 @@ from outreach.google_auth import founder_credentials
 ACTION_HEADER = "X-Lakshyaa-Draft-Action"
 
 
+_GMAIL = None
+
+
 def client():
-    return build("gmail", "v1", credentials=founder_credentials(), cache_discovery=False)
+    """The Gmail client, built once per process and reused (see `sheet._api`)."""
+    global _GMAIL
+    if _GMAIL is None:
+        _GMAIL = build("gmail", "v1", credentials=founder_credentials(), cache_discovery=False)
+    return _GMAIL
 
 
 def _message(raw):

@@ -186,9 +186,12 @@ def test_the_queue_answers_at_once_and_acknowledges_in_batches(monkeypatch):
         def json(self):
             return {"receivedMessages": [{"ackId": "a1", "message": {"data": "eyJoaXQiOiAiaDEifQ=="}},
                                          {"ackId": "a2", "message": {"data": "!!"}}]}
+    class Session:
+        def post(self, url, json, timeout, headers):
+            calls.append((url, json))
+            return Answer()
     monkeypatch.setattr(pubsub, "cloud_token", lambda: "token")
-    monkeypatch.setattr(pubsub.requests, "post", lambda url, json, timeout, headers:
-                        calls.append((url, json)) or Answer())
+    monkeypatch.setattr(pubsub, "_SESSION", Session())
     pulled = pubsub.Queue().pull(100)
     assert calls[0][1] == {"maxMessages": 100, "returnImmediately": True}
     assert pulled == [("a1", {"hit": "h1"}), ("a2", None)]

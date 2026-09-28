@@ -17,5 +17,5 @@ gcloud run deploy outreach-tracker --image="$IMAGE" --region=$R --project=$P \
   --set-secrets=TRACKING_KEY=tracking-signing-key:latest \
   --set-env-vars=TRACKING_ALLOWED_HOSTS=lakshyaa.ai \
   --command=gunicorn \
-  --args=--bind=:8080,--workers=1,--threads=8,--timeout=15,outreach.tracker:app \
+  --args=--bind=:8080,--workers=1,--threads=8,--timeout=15,--max-requests=500,--max-requests-jitter=100,outreach.tracker:app \
   --quiet
