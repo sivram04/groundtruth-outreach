@@ -15,7 +15,7 @@ import os
 import re
 from datetime import datetime, timezone
 
-from outreach import gmail_drafts, job_draft, sequence, sync, tracking
+from outreach import drafting, followup, gmail_drafts, job_draft, sequence, sync, tracking
 from outreach.sheet import Store
 from outreach.tracking_job import TEST_LEAD
 
@@ -28,7 +28,24 @@ class CheckBlocked(ValueError):
     """The test draft cannot be made; nothing was written."""
 
 
-def create(to, *, store=None, gmail=None, settings=None, secret=None, now=None):
+def real_wording(settings, handbook):
+    """(subject, body) as a real outreach email reads, for a spam-folder check: the handbook's
+    own follow-up 1 words and the founder's signature, postal address and opt-out line, under the
+    handbook's own subject. Nothing here is written for the test (founder, 2026-09-28)."""
+    body, problems = followup.render(1, handbook["text"], settings, "there")
+    subject = str(settings.get("subject_template", "")).replace(
+        "[PRODUCT_NAME]", str(settings.get("product_name", "")).strip())
+    if not subject.strip() or drafting.TOKEN.search(subject):
+        problems = problems + ["the settings give no usable subject_template"]
+    if problems:
+        raise CheckBlocked("the real wording cannot be made: " + "; ".join(problems))
+    return subject, body
+
+
+def create(to, *, store=None, gmail=None, settings=None, secret=None, now=None, real=False,
+           handbook=None, drive=None):
+    """One tracked test draft. `real` uses the words a real outreach email would carry instead
+    of the plain test note, so the test also shows which folder real outreach lands in."""
     if os.environ.get("ENABLE_GMAIL_DRAFTS") != "true":
         raise CheckBlocked("Gmail draft creation is disabled")
     to = (to or "").strip().lower()
@@ -50,27 +67,36 @@ def create(to, *, store=None, gmail=None, settings=None, secret=None, now=None):
         raise CheckBlocked("the address is on Suppression, or Suppression cannot be read")
     now = now or datetime.now(timezone.utc)
     action = hashlib.sha256(f"test:{to}:{now.isoformat()}".encode()).hexdigest()[:32]
-    body = BODY.format(website=website)
+    subject, body = SUBJECT, BODY.format(website=website)
+    if real:
+        book, why = job_draft._handbook(settings, handbook, drive)
+        if not book:
+            raise CheckBlocked(why)
+        subject, body = real_wording(settings, book)
     html = tracking.tracked_html(body, action, secret or tracking.key())
     gmail = gmail or gmail_drafts.client()
     mailbox = gmail.users().getProfile(userId="me").execute().get("emailAddress", "").lower()
     if mailbox != sender:
         raise CheckBlocked("the signed-in mailbox is not the configured sender")
-    draft = gmail_drafts.create(gmail, to=to, from_address=sender, subject=SUBJECT, body=body,
+    draft = gmail_drafts.create(gmail, to=to, from_address=sender, subject=subject, body=body,
                                 action_id=action, html=html)
+    wording = "real email wording" if real else "test note"
     event = sync._event(TEST_LEAD, sequence.DRAFTED, "TEST", now, to, "DRAFT",
                         draft.get("message", {}).get("threadId", ""), "",
-                        f"tracking test draft {draft.get('id', '')}, {sequence.TRACKED}",
+                        f"tracking test draft {draft.get('id', '')}, {sequence.TRACKED}, {wording}",
                         key=f"test:{action}")
     event["Recorded at (UTC)"] = now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     store.append_events([event])
-    return {"draft_id": draft.get("id"), "action": action, "to": to}
+    return {"draft_id": draft.get("id"), "action": action, "to": to, "subject": subject}
 
 
 def main():
     parser = argparse.ArgumentParser(description="Make one tracked test draft to your own inbox")
     parser.add_argument("--to", required=True, help="another inbox of yours, never a lead")
-    print(json.dumps(create(parser.parse_args().to), indent=2))
+    parser.add_argument("--real", action="store_true",
+                        help="the words a real outreach email carries, from the Drive handbook")
+    args = parser.parse_args()
+    print(json.dumps(create(args.to, real=args.real), indent=2))
 
 
 if __name__ == "__main__":

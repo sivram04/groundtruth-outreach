@@ -237,6 +237,46 @@ def test_the_test_draft_never_goes_to_a_lead_or_the_sender(drafts_on, to, why):
         check(to)
 
 
+REAL_SETTINGS = {"product_name": "Example Product", "sender_name": "A Founder",
+                 "founder_title": "Founder", "sender_website": SITE,
+                 "postal_address": "1 Example St, Columbus, OH 43215",
+                 "sender_email": "admin@lakshyaa.ai",
+                 "subject_template": "A conversation about [PRODUCT_NAME] next week?"}
+
+
+def real_check(settings=None, handbook="book", store=None, gmail=None):
+    from test_followup import MARKDOWN
+    book = {"text": MARKDOWN, "content_hash": "h", "document_id": "d"} if handbook == "book" else handbook
+    return tracking_check.create("me@home.test", store=store or MemoryStore([lead()], suppression=[]),
+                                 gmail=gmail or FakeGmail(), settings=settings or REAL_SETTINGS,
+                                 secret=KEY, now=at("2026-09-28 20:00"), real=True, handbook=book)
+
+
+def test_the_real_wording_is_the_handbooks_follow_up_under_its_own_subject(drafts_on):
+    from outreach import drafting
+    store, gmail = MemoryStore([lead()], suppression=[]), FakeGmail()
+    made = real_check(store=store, gmail=gmail)
+    email = parsed(gmail.created[0])
+    assert email["Subject"] == made["subject"] == "A conversation about Example Product next week?"
+    plain = email.get_body(preferencelist=("plain",)).get_content().rstrip("\n")
+    assert plain.startswith("Hi there,") and "Following up on my note about Example Product." in plain
+    assert plain.endswith(drafting.OPT_OUT) and "1 Example St, Columbus, OH 43215" in plain
+    html = email.get_body(preferencelist=("html",)).get_content()
+    assert tracking.BASE + "/c/" in html and tracking.BASE + "/o/" in html
+    assert store.event_rows[-1]["Detail"].endswith(", tracked, real email wording")
+
+
+def test_the_real_wording_needs_the_handbook_and_a_subject(drafts_on, monkeypatch):
+    monkeypatch.delenv("HANDBOOK_DOC_ID", raising=False)
+    with pytest.raises(tracking_check.CheckBlocked, match="handbook"):
+        real_check(handbook=None)
+    without = {k: v for k, v in REAL_SETTINGS.items() if k != "subject_template"}
+    gmail = FakeGmail()
+    with pytest.raises(tracking_check.CheckBlocked, match="subject_template"):
+        real_check(settings=without, gmail=gmail)
+    assert gmail.created == []
+
+
 def test_the_test_draft_respects_suppression_and_the_drafting_switch(monkeypatch):
     listed = MemoryStore([lead()], suppression=[{"Address or domain": "me@home.test"}])
     monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
