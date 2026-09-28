@@ -18,8 +18,8 @@ moved on (the handbook was already in Drive and all 26 eligible leads were profi
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
 | 2 Research | **Bulk fit research paused; all 26 draft-eligible leads profiled** 2026-09-23 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible, all profiled: 25 READY, 1 REVIEW_NEEDED (A-0028). 396 pending, not to be resumed for now. No research schedule exists. |
-| 3 Drafts (pilot) | **Drive → Gemini → checks pipeline built and run read-only; not deployed; blocked only by the unapproved offer** 2026-09-23 | The handbook is a Google Doc in Drive and the sign-in holds `drive.readonly`. Read-only over all 26 eligible leads: 21 pass, 5 held. Every passing preview's only blocker is that the founder has not approved the offer wording, so no approval hash exists, Gmail drafting has never run and no draft exists. The draft endpoints are not deployed. |
-| 4 Sync and follow-ups | **Built; sync run for real once, locally (2026-09-28); not deployed, no schedule; no follow-up drafted** | 390 tests pass offline in the container with no network; 62 deliberate breaks of the new code, all caught. The real run recorded the 14 hand-sent emails (no reply, bounce or opt-out) in a new Events tab and 14 A rows; a second pass changed nothing. See "Stage 4" below. Its pass test (the founder sends real drafts; SENT, REPLIED and a bounce land correctly) has not been run. |
+| 3 Drafts (pilot) | **Drive → Gemini → checks pipeline built and run read-only; blocked only by the unapproved offer** 2026-09-23 | The handbook is a Google Doc in Drive and the sign-in holds `drive.readonly`. Read-only over all 26 eligible leads: 21 pass, 5 held. Every passing preview's only blocker is that the founder has not approved the offer wording, so no approval hash exists, Gmail drafting has never run and no draft exists. Since 2026-09-28 the draft endpoints are in the deployed revision, and draft creation is refused there (403): `ENABLE_GMAIL_DRAFTS` is not set on the service. |
+| 4 Sync and follow-ups | **Sync deployed and scheduled every 10 minutes** 2026-09-28; no follow-up drafted | 396 tests pass offline in the container with no network; 69 deliberate breaks of the new code, all caught. Revision `outreach-worker-00017-nin` serves 100%; Cloud Scheduler `outreach-sync` (`*/10`, America/New_York) is ENABLED, and its first run returned 200 in 2.4 s. The first real sync (run locally) recorded the 14 hand-sent emails in a new Events tab and 14 A rows. See "Stage 4" below. Its pass test (the founder sends real drafts; SENT, REPLIED and a bounce land correctly) has not been run. |
 | 5 Tracking | Not started | |
 | 6 Calls | Not started | |
 
@@ -28,15 +28,19 @@ moved on (the handbook was already in Drive and all 26 eligible leads were profi
 ```mermaid
 flowchart LR
   SCH[Cloud Scheduler<br/>outreach-check, every 30 min<br/>PAUSED] -->|OIDC as outreach-scheduler| W[Cloud Run outreach-worker<br/>private, us-central1<br/>max 1 instance, 1 request at a time]
+  SYN[Cloud Scheduler<br/>outreach-sync, every 10 min<br/>ENABLED] -->|OIDC as outreach-scheduler<br/>POST /jobs/sync| W
   SM[Secret Manager<br/>google-signin-token] -->|mounted as env var| W
   W <-->|Sheets API as admin@lakshyaa.ai| S[(Leads Sheet)]
+  W -->|reads only: list and get| G[Gmail admin@lakshyaa.ai]
   W -->|DNS via 8.8.8.8 / 8.8.4.4<br/>HTTP GET company sites, robots.txt honoured| NET[Public internet]
   W -->|gemini-2.5-flash, JSON only| V[Vertex AI]
 ```
 
-**The deployed worker does not touch Gmail.** Local Stage 3 code can read prior sends and
-drafts and create one guarded draft, but was not deployed or exercised against the live
-mailbox. `ENABLE_GMAIL_DRAFTS` defaults off, and no schedule was added.
+**The deployed worker reads Gmail, and writes nothing to it.** Since 2026-09-28 the scheduled
+sync lists and reads the mailbox every ten minutes. The draft and follow-up endpoints are in the
+same revision, but creating a draft is refused (403, tested on the deployed revision) because
+`ENABLE_GMAIL_DRAFTS` is not set on the service; the only environment value is the sign-in
+token. No code anywhere sends.
 
 ## GCP — project `lakshyaa-outreach`
 
@@ -44,16 +48,21 @@ Org `lakshyaa.ai` (787760867942). Billing: "My Billing Account" `01A2E0-CC6FD1-A
 
 | Resource | Setting |
 | --- | --- |
-| Cloud Run `outreach-worker` | `https://outreach-worker-30387157876.us-central1.run.app`; `--no-allow-unauthenticated` (unsigned call → 403, tested); max instances 1, concurrency 1, timeout 600 s; runs as `outreach-worker@` |
+| Cloud Run `outreach-worker` | `https://outreach-worker-30387157876.us-central1.run.app`; `--no-allow-unauthenticated` (unsigned call → 403, tested again 2026-09-28); max instances 1, concurrency 1, timeout 600 s; runs as `outreach-worker@`. **Serving: `outreach-worker-00017-nin` (tag `stage4`), 100%, since 2026-09-28.** `00016-rop` keeps its `profile-review` tag at 0%; `00013-6vx`, which served before, is kept for rollback. Traffic is pinned to a named revision, so a new deploy serves nothing until traffic is moved to it |
 | Service account `outreach-worker@` | `secretAccessor` on `google-signin-token`; `aiplatform.user` on the project (Gemini, added for stage 2) |
 | Service account `outreach-scheduler@` | `run.invoker` on `outreach-worker` only |
 | Cloud Scheduler `outreach-check` | `*/30 * * * *` America/New_York → `POST /jobs/check`; **paused** |
+| Cloud Scheduler `outreach-sync` | `*/10 * * * *` America/New_York → `POST /jobs/sync`; OIDC as `outreach-scheduler@`, audience the service URL; attempt deadline 600 s; **ENABLED** since 2026-09-28 (founder's instruction). Pause: `gcloud scheduler jobs pause outreach-sync --location=us-central1 --project=lakshyaa-outreach` |
 | Secret `google-signin-token` | JSON: account, OAuth client id/secret, refresh token, scopes |
 | OAuth app | Internal to `lakshyaa.ai`; Desktop client `outreach-local-signin`; scopes `gmail.compose`, `gmail.readonly`, `spreadsheets` |
 | Build | Default compute account holds `cloudbuild.builds.builder` (source deploys) |
 | Enabled APIs | Sheets, Gmail, Drive, Cloud Run, Scheduler, Pub/Sub, Secret Manager, Vertex AI, Artifact Registry, Cloud Build, IAM Credentials |
 
-Deploy: `sh deploy/deploy_worker.sh`.
+Deploy: `sh deploy/deploy_worker.sh` builds a new revision with **no traffic** under the tag
+`next`. Test it on `https://next---outreach-worker-z6borhtwoq-uc.a.run.app` (a POST needs
+`-d ''` or Google's front end answers 411), then move traffic:
+`gcloud run services update-traffic outreach-worker --region=us-central1 --project=lakshyaa-outreach --to-tags=next=100`.
+Roll back the same way with `--to-revisions=<revision>=100`.
 
 ## Worker endpoints
 
@@ -62,9 +71,10 @@ Deploy: `sh deploy/deploy_worker.sh`.
 | `POST /jobs/ping` | Counts leads in A and B, writes a Runs row |
 | `POST /jobs/check` | Stage 1 email check (below) |
 | `POST /jobs/research?limit=40` or `?ids=A-0001,B-0002` | Stage 2 company research (below). **Not scheduled.** |
-| `POST /jobs/profile?limit=5&ids=A-0001,...` (optional `dry_run=1`) | Pilot extraction of company offerings and markets for later drafts. Available on the private `profile-review` tag only; serving revision remains 00013. No schedule. |
+| `POST /jobs/profile?limit=5&ids=A-0001,...` (optional `dry_run=1`) | Pilot extraction of company offerings and markets for later drafts. In the serving revision since 2026-09-28 (before that only on the `profile-review` tag). No schedule. |
+| `POST /jobs/sync` (optional `dry_run=1`) | Stage 4 sync (below). **Scheduled every 10 minutes** (`outreach-sync`). |
 
-**Local code only, not deployed:** `POST /jobs/draft/preview` always uses Gemini with the
+**Deployed since 2026-09-28 (revision 00017), draft creation refused there:** `POST /jobs/draft/preview` always uses Gemini with the
 Drive handbook for 1–4 explicit Lead IDs. `POST /jobs/draft/create` requires the approved
 `written` payload and its exact preview hash; it reloads the Drive handbook and current
 quotes before creating a draft. The old fixed-template preview remains available only for
@@ -73,9 +83,9 @@ Draft creation also requires complete settings and `ENABLE_GMAIL_DRAFTS=true`; d
 `POST /jobs/draft/reconcile` looks for an existing reserved Gmail draft and never creates
 a replacement. These endpoints have no Scheduler job.
 
-**Stage 4, local code only, not deployed, no Scheduler job:** `POST /jobs/sync` (`?dry_run=1`
-reads and reports, writes nothing), `POST /jobs/followup` (`?dry_run=1` reports who is due and
-what blocks drafting; a real run is refused unless `ENABLE_GMAIL_DRAFTS=true`),
+**Stage 4 follow-ups, deployed since 2026-09-28, no Scheduler job:** `POST /jobs/followup`
+(`?dry_run=1` reports who is due and what blocks drafting; a real run is refused, 403, unless
+`ENABLE_GMAIL_DRAFTS=true`, which the service does not set — tested on the deployed revision),
 `POST /jobs/followup/preview` (both follow-ups as they would read, and the handbook hash to
 approve), `POST /jobs/followup/reconcile` (settles a RESERVED follow-up from its draft; never
 creates one).
@@ -1082,15 +1092,40 @@ Suppression row and no lead change.
 **What this still does not prove — needs a real send of a system draft:** that Gmail keeps a
 sent draft in the draft's thread (the DRAFT match rests on it; the action header is the
 fallback, and whether Gmail keeps custom headers on a web-UI send is unknown); how real bounce
-notices, automatic replies and replies from Outlook and phones look (none has arrived). Sync is
-not deployed or scheduled: it runs when someone runs `python -m outreach.sync`, so the Sheet is
-only as current as the last run.
+notices, automatic replies and replies from Outlook and phones look (none has arrived).
+
+**Deployed and scheduled, 2026-09-28 (founder: "deploy it and schedule sync every 10 minutes").**
+Two changes first, so a ten-minute schedule suits the Sheet: a run that records nothing writes
+**no Runs row unless the last one is six hours old** (six hours is this system's choice: the
+cursor moves only with a Runs row, and this bounds how much mail a quiet run re-reads), while a
+change to a lead row or to Suppression still writes at once; and Events are read once each by
+key, so two overlapping runs cannot make one follow-up count as two. 396 tests pass offline; 7
+more deliberate breaks, all caught after two added tests. Rollout: revision
+`outreach-worker-00017-nin` deployed with no traffic under the tag `stage4`; on its own URL an
+unsigned call got 403, a signed `/jobs/sync?dry_run=1` got 200 in 4.9 s with the same result as
+the local dry run (10 messages from the cursor less two days, nothing new), and
+`/jobs/followup` was refused (403, drafting disabled). Traffic then moved to it (100%); the
+invoker policy still lists only `outreach-scheduler@`; the only environment value is the sign-in
+token. Cloud Scheduler `outreach-sync` created ENABLED; a run forced through it at 17:18Z and the
+first scheduled run at 17:20Z both returned 200 (2.4 s, 3.7 s), no errors logged. **Do not run
+`python -m outreach.sync` locally while the schedule is on**: two syncs at once could append the
+same event twice (read once since this change, but still clutter). To sync now, run the job:
+`gcloud scheduler jobs run outreach-sync --location=us-central1 --project=lakshyaa-outreach`.
+An opt-out is permanent here: deleting its Suppression row by hand does not stick, because the
+next run puts it back from the event.
 
     python -m outreach.sync --dry-run        # read Gmail and the Sheet, print what would change
     python -m outreach.followup --preview    # both follow-ups from the Drive handbook, and the hash
     python -m outreach.followup --dry-run    # who is due and what blocks drafting
 
 ## Change log
+
+- **2026-09-28** Deployed and scheduled sync, on the founder's instruction: quiet runs write no
+  Runs row for six hours and Events are read once each by key (396 tests, 7 more breaks caught);
+  revision `outreach-worker-00017-nin` deployed with no traffic, tested on its tag, then given
+  100% of traffic; Cloud Scheduler `outreach-sync` every 10 minutes, ENABLED, first scheduled
+  run 200. Draft creation stays refused on the service. `deploy_worker.sh` now deploys with no
+  traffic under the tag `next` and says how to test and switch.
 
 - **2026-09-28** First real sync, with the founder's go: Events tab created with the 14 SENT
   events of 2026-09-22; seven stage 4 columns added to A_Contact_Now and filled for those 14
