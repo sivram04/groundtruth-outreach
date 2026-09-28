@@ -101,7 +101,7 @@ the Runs tab and make retries safe before enabling a recurring job.
 | **research** | 30 min | For CHECKED leads: read the company's own site (home plus a few linked pages like About, Services, Projects; respects robots.txt, page cap per company). Gemini proposes structured quotes; the worker keeps only quotes that appear on the named page. Fit: QUALIFIED / REVIEW_NEEDED / DISQUALIFIED with reasons. For a small draft pilot, a separate profile pass also records verified products/services and markets without changing fit. |
 | **draft** | weekdays, morning | For QUALIFIED leads in tier order, up to the daily cap: the worker reads the designated Drive handbook and its version, then Gemini writes from it and the stored quotes. The validator checks approved factual fields, length, postal address and opt-out line. A changed or unavailable handbook blocks creation. Passing drafts go to Gmail Drafts with the handbook version recorded in the Sheet; stage 3 drafts are untracked, and stage 5 may add tracking to new drafts. The row gets the draft link. Failing drafts go to REVIEW_NEEDED with why. |
 | **sync** | 10 min | Reads Gmail changes since the last check. Confidently associates a new sent message with the intended action using recipient, thread, time and content evidence; ambiguous matches go to review and do not start follow-up timers. Messages from the recipient → REPLIED (auto-replies flagged separately). Detected bounce notices → BOUNCED, address to Suppression, follow-ups cancelled. Replies asking to stop → OPTED_OUT, to Suppression. |
-| **followup** | weekdays, morning | After the founder actually sends the initial email, draft follow-up 1 on the third business day after its sent date, if there is no reply. After the founder sends follow-up 1, draft follow-up 2 on the third business day after that sent date. Use America/New_York dates; the next Monday–Friday date is day 1, and weekends do not count. Holiday exclusions still need a calendar decision. Keep drafts in the same thread, at most two; the founder sends each by hand. |
+| **followup** | weekdays, morning | After the founder actually sends the initial email, draft follow-up 1 on the third business day after its sent date, if there is no reply. After the founder sends follow-up 1, draft follow-up 2 on the third business day after that sent date. Use America/New_York dates; the next business day is day 1. Weekends and the major US holidays do not count (founder, 2026-09-28): New Year's Day, Memorial Day, Independence Day, Labor Day, Thanksgiving and the day after, Christmas Day. Keep drafts in the same thread, at most two; the founder sends each by hand. Only a sequence this system drafted gets follow-up drafts; a thread the founder started by hand gets a reminder in the lead row instead (founder, 2026-09-28). Follow-up wording is approved once per handbook version (founder, 2026-09-28). |
 | **tracking** | 5 min | Pulls buffered hits from Pub/Sub, turns them into OPEN / CLICK events, updates the lead's counts. |
 
 ## 6. Checking email addresses without sending
@@ -227,6 +227,10 @@ Each stage is usable on its own and must pass before the next starts.
 5. **Settings defaults** — daily draft cap, follow-up spacing, whether catch-all addresses get
    drafts, bounce-rate stop threshold.
 6. **DMARC record** for the sending domain (none existed for `lakshyaa.ai` on 2026-09-14).
+
+Decided 2026-09-28: the holiday calendar (major US holidays), follow-ups for hand-sent threads
+(reminders, never drafts) and how follow-up wording is approved (once per handbook version).
+See `AS_BUILT.md`, stage 4.
 
 ## 13. Not yet tested — to prove in the stages above
 

@@ -24,18 +24,25 @@ SIGNATURE_FIELDS = ("PRODUCT_NAME", "SENDER_NAME", "FOUNDER_TITLE", "SENDER_WEBS
 OPT_OUT = 'If you don\'t want further outreach from me, reply "no thanks" and I\'ll stop.'
 WITHHELD = "[draft withheld]"
 TOKEN = re.compile(r"\[[^\]\n]+\]")
+PHONE = re.compile(r"\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}")
 
 
-def assemble(written, values):
-    """Build the body around the model's sentences. Greeting, signature, postal address and
-    opt-out line are written here, never by the model."""
+def sign_off(values):
+    """"Best," and the signature, postal address and opt-out line. Written here, never by a
+    model; the initial email and the follow-ups end the same way."""
     signature = [f'{values["SENDER_NAME"]}', f'{values["FOUNDER_TITLE"]}, {values["PRODUCT_NAME"]}',
                  values["SENDER_WEBSITE"]]
     if values.get("SENDER_PHONE"):
         signature.append(values["SENDER_PHONE"])
     signature.append(values["POSTAL_ADDRESS"])
+    return "Best,\n" + "\n".join(signature) + "\n" + OPT_OUT
+
+
+def assemble(written, values):
+    """Build the body around the model's sentences. Greeting, signature, postal address and
+    opt-out line are written here, never by the model."""
     return "\n\n".join([f'Hi {values["FIRST_NAME"]},', written["company"], written["product"],
-                        written["ask"], "Best,\n" + "\n".join(signature) + "\n" + OPT_OUT])
+                        written["ask"], sign_off(values)])
 
 
 def initial_template(path=HANDBOOK):
@@ -408,7 +415,7 @@ def preview(lead, research_rows, settings, *, suppressed=None, subject_template=
     # Optional signature phone (founder, 2026-09-22). Absent: the line is dropped entirely.
     phone = str(settings.get("sender_phone", "")).strip()
     if phone:
-        if not re.fullmatch(r"\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}", phone):
+        if not PHONE.fullmatch(phone):
             blockers.append("sender phone is invalid")
         values["SENDER_PHONE"] = phone
     else:

@@ -4,7 +4,7 @@ import os
 
 from flask import Flask, jsonify, request
 
-from outreach import job_check, job_draft, job_profile, job_research, sheet
+from outreach import followup, job_check, job_draft, job_profile, job_research, sheet, sync
 
 app = Flask(__name__)
 
@@ -73,6 +73,44 @@ def draft_reconcile():
     try:
         return jsonify(ok=True, **job_draft.reconcile(body.get("lead_id", "")))
     except job_draft.DraftBlocked as exc:
+        return jsonify(ok=False, error=str(exc)), 400
+
+
+@app.post("/jobs/sync")
+def sync_job():
+    """Stage 4: record sends, replies, bounces and opt-outs. `?dry_run=1` writes nothing."""
+    try:
+        return jsonify(ok=True, **sync.run(where="cloud-run",
+                                           dry_run=request.args.get("dry_run") == "1"))
+    except sync.SyncBlocked as exc:
+        return jsonify(ok=False, error=str(exc)), 400
+
+
+@app.post("/jobs/followup")
+def followup_job():
+    """Stage 4: draft the follow-ups that are due. `?dry_run=1` only reports who is due."""
+    dry_run = request.args.get("dry_run") == "1"
+    if not dry_run and os.environ.get("ENABLE_GMAIL_DRAFTS") != "true":
+        return jsonify(ok=False, error="Gmail draft creation is disabled"), 403
+    try:
+        return jsonify(ok=True, **followup.run(where="cloud-run", dry_run=dry_run))
+    except followup.FollowupBlocked as exc:
+        return jsonify(ok=False, error=str(exc)), 400
+
+
+@app.post("/jobs/followup/preview")
+def followup_preview():
+    return jsonify(ok=True, **followup.preview())
+
+
+@app.post("/jobs/followup/reconcile")
+def followup_reconcile():
+    if os.environ.get("ENABLE_GMAIL_DRAFTS") != "true":
+        return jsonify(ok=False, error="Gmail draft reconciliation is disabled"), 403
+    body = request.get_json(silent=True) or {}
+    try:
+        return jsonify(ok=True, **followup.reconcile(body.get("lead_id", "")))
+    except followup.FollowupBlocked as exc:
         return jsonify(ok=False, error=str(exc)), 400
 
 

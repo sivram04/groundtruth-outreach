@@ -64,12 +64,22 @@ def drafts_for_action(gmail, action_id):
             return found
 
 
-def create(gmail, *, to, from_address, subject, body, action_id):
+def create(gmail, *, to, from_address, subject, body, action_id, thread_id=None,
+           in_reply_to=None, references=None):
+    """Create one draft. With `thread_id` it is an answer inside that thread: Gmail files it
+    there when the thread id, the In-Reply-To and References headers and the subject agree."""
     message = EmailMessage()
     message["To"] = to
     message["From"] = from_address
     message["Subject"] = subject
+    if in_reply_to:
+        message["In-Reply-To"] = in_reply_to
+    if references:
+        message["References"] = references
     message[ACTION_HEADER] = action_id
     message.set_content(body)
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode().rstrip("=")
-    return gmail.users().drafts().create(userId="me", body={"message": {"raw": raw}}).execute()
+    draft = {"raw": raw}
+    if thread_id:
+        draft["threadId"] = thread_id
+    return gmail.users().drafts().create(userId="me", body={"message": draft}).execute()

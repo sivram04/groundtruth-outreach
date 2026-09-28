@@ -182,17 +182,20 @@ def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
 
 
 def _actions_today(tabs):
+    """Draft actions taken today (New York). One daily cap covers initial and follow-up drafts."""
     today = datetime.now(ZoneInfo("America/New_York")).date()
     count = 0
     for tab in tabs:
         for _, lead in tab.rows:
-            if lead.get("Draft status") not in {"RESERVED", "CREATED"}:
-                continue
-            try:
-                stamp = datetime.fromisoformat(lead["Draft action at"].replace("Z", "+00:00"))
-                count += stamp.astimezone(ZoneInfo("America/New_York")).date() == today
-            except (ValueError, KeyError):
-                raise DraftBlocked("a draft action has no usable timestamp")
+            for status, stamp_column in (("Draft status", "Draft action at"),
+                                         ("Follow-up status", "Follow-up action at")):
+                if lead.get(status) not in {"RESERVED", "CREATED"}:
+                    continue
+                try:
+                    stamp = datetime.fromisoformat(lead[stamp_column].replace("Z", "+00:00"))
+                    count += stamp.astimezone(ZoneInfo("America/New_York")).date() == today
+                except (ValueError, KeyError):
+                    raise DraftBlocked("a draft action has no usable timestamp")
     return count
 
 
@@ -276,7 +279,9 @@ def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
     match = [(r, v) for r, v in fresh.rows if v.get("Lead ID") == lead_id]
     if len(match) != 1 or match[0][1].get("Draft action") != action_id:
         raise DraftBlocked("draft exists in Gmail but Sheet reservation changed; reconcile manually")
+    # The draft's thread lets sync tie the founder's send to this action for certain (stage 4).
     finalized = fresh.write({match[0][0]: {"Draft status": "CREATED", "Draft ID": draft_id,
+                                         "Draft thread ID": draft.get("message", {}).get("threadId", ""),
                                          "Drafted at": datetime.now(timezone.utc).isoformat()}})
     if finalized["written"] != 1 or finalized["skipped"]:
         raise DraftBlocked("draft exists in Gmail but Sheet finalization failed; reconcile manually")
@@ -299,6 +304,7 @@ def reconcile(lead_id, *, api=None, gmail=None):
         return {"lead_id": lead_id, "status": "UNRESOLVED", "matching_drafts": len(found)}
     draft_id = found[0]["id"]
     outcome = tab.write({row: {"Draft status": "CREATED", "Draft ID": draft_id,
+                               "Draft thread ID": found[0].get("message", {}).get("threadId", ""),
                                "Drafted at": datetime.now(timezone.utc).isoformat()}})
     if outcome["written"] != 1 or outcome["skipped"]:
         raise DraftBlocked("reservation changed before reconciliation")

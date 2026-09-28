@@ -3,20 +3,23 @@
 What exists and runs today. `ARCHITECTURE.md` is the plan; this file is the truth about what
 is actually built. **Updated after every change**, newest entry first in the change log.
 
-Last updated: 2026-09-22.
+Last updated: 2026-09-28.
 
-Pilot-readiness evidence and blockers: `docs/PILOT_READINESS_AUDIT.md`. The full
-draft-to-send-to-follow-up pipeline has not been built.
+Pilot-readiness evidence and blockers: `docs/PILOT_READINESS_AUDIT.md`. Nothing is sent by
+this system, ever; drafts wait for the founder's approval.
 
 ## Stage status
+
+Corrected 2026-09-28: rows 2 and 3 still read as of 2026-09-22 although the sections below had
+moved on (the handbook was already in Drive and all 26 eligible leads were profiled).
 
 | Stage | Status | Proof |
 | --- | --- | --- |
 | 0 Setup | **Done** 2026-09-22 | Cloud Run worker read 318 A + 174 B leads, wrote a Runs row |
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
-| 2 Research | **Bulk fit research paused; five company profiles READY** 2026-09-22 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible; 396 pending, not to be resumed for now. Five verified offerings/markets profiles are saved; four are in the pilot and Cincinnati Air remains READY but out of it. No research schedule exists. |
-| 3 Drafts (pilot) | **Drive → Gemini → checks pipeline built locally; waiting on the handbook; not deployed** | The writer, Drive loader and screening checks pass 255 tests offline in a container on synthetic inputs. Nothing is connected to a real handbook: the founder's document is not in Drive, the sign-in has no Drive scope, no offer or email is approved, no preview has an approval hash, no draft action exists in the Sheet, Gmail drafting has never run, and the draft endpoints are not deployed. |
-| 4 Gmail sync | Not started | Founder chose two follow-up drafts, each due on the third business day after the preceding email is actually sent; all emails are sent by hand |
+| 2 Research | **Bulk fit research paused; all 26 draft-eligible leads profiled** 2026-09-23 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible, all profiled: 25 READY, 1 REVIEW_NEEDED (A-0028). 396 pending, not to be resumed for now. No research schedule exists. |
+| 3 Drafts (pilot) | **Drive → Gemini → checks pipeline built and run read-only; not deployed; blocked only by the unapproved offer** 2026-09-23 | The handbook is a Google Doc in Drive and the sign-in holds `drive.readonly`. Read-only over all 26 eligible leads: 21 pass, 5 held. Every passing preview's only blocker is that the founder has not approved the offer wording, so no approval hash exists, Gmail drafting has never run and no draft exists. The draft endpoints are not deployed. |
+| 4 Sync and follow-ups | **Built locally, not deployed; never run against the live mailbox or Sheet** 2026-09-28 | 390 tests pass offline in the container with no network; 62 deliberate breaks of the new code, all caught. See "Stage 4" below. Its pass test (the founder sends real drafts; SENT, REPLIED and a bounce land correctly) has not been run. |
 | 5 Tracking | Not started | |
 | 6 Calls | Not started | |
 
@@ -70,6 +73,13 @@ Draft creation also requires complete settings and `ENABLE_GMAIL_DRAFTS=true`; d
 `POST /jobs/draft/reconcile` looks for an existing reserved Gmail draft and never creates
 a replacement. These endpoints have no Scheduler job.
 
+**Stage 4, local code only, not deployed, no Scheduler job:** `POST /jobs/sync` (`?dry_run=1`
+reads and reports, writes nothing), `POST /jobs/followup` (`?dry_run=1` reports who is due and
+what blocks drafting; a real run is refused unless `ENABLE_GMAIL_DRAFTS=true`),
+`POST /jobs/followup/preview` (both follow-ups as they would read, and the handbook hash to
+approve), `POST /jobs/followup/reconcile` (settles a RESERVED follow-up from its draft; never
+creates one).
+
 ## The Sheet
 
 `OCILB_A_and_B_Outreach_2026-09-21`, id `1eEVkxc0gJMFptYSr_u9prQ5O850TOX28AEq17CKaFiA`.
@@ -98,7 +108,16 @@ email copy.
 
 **Stage 3 columns in local code only, not added to the live Sheet:** `Draft action`,
 `Draft action at`, `Draft status`, `Draft hash`, `Draft quote ID`, `Draft ID`,
-`Draft link`, `Drafted at`.
+`Draft link`, `Drafted at`, and since 2026-09-28 `Draft thread ID` (the Gmail thread of the
+created draft, so sync can recognise its send for certain).
+
+**Stage 4 columns and tab in local code only, not added to the live Sheet** (the first real
+sync or follow-up write creates them): `Outreach status`, `Sent to`, `Sent at`, `Replied at`,
+`Follow-ups sent`, `Last event`, `Next action`; `Follow-up step`, `Follow-up action`,
+`Follow-up action at`, `Follow-up status`, `Follow-up draft ID`; and an append-only **Events**
+tab. "Outreach status", not the plan's "Status": a plain "Status" is too likely to be a column
+of the founder's own. Before writing, the code refuses if any of these names already appears to
+the left of `Lead ID` (where every column is the founder's).
 They are created only by an enabled draft write. A `RESERVED` action counts toward the
 daily cap and prevents automatic retry after an uncertain Gmail result.
 
@@ -949,7 +968,109 @@ Rendered read-only for the four pilot leads and the five held, with the line sub
 memory; the Drive document keeps hash `b1237580414fe948`. Emails run 128–132 words, up from
 97–111. Nothing approved, drafted or sent.
 
+## Stage 4 — sync and follow-up drafts (built 2026-09-28, not deployed)
+
+**Founder decisions, 2026-09-28:**
+1. **Threads the founder started by hand get reminders, never drafts.** The 14 emails of
+   2026-09-22 are tracked (reply, bounce, opt-out) and their row says when each follow-up is
+   due, but the system writes no follow-up for them: those emails asked for something different
+   from the handbook's follow-ups.
+2. **Business days skip weekends and the major US holidays:** New Year's Day, Memorial Day,
+   Independence Day, Labor Day, Thanksgiving and the day after, Christmas Day. Columbus Day,
+   Veterans Day and the other federal holidays count as business days. A holiday on a Saturday
+   is taken the Friday before and on a Sunday the Monday after — the usual US practice, chosen
+   here, not stated by the founder.
+3. **Follow-up wording is approved once per handbook version.** `followup_approved_handbook_hash`
+   in the settings must equal the Drive document's current content hash. Any edit to the
+   document withdraws the approval. Each draft is still reviewed in Gmail before the founder
+   presses Send.
+
+**Sync** (`outreach/sync.py`, reading through `outreach/mailbox.py`, which only lists and reads).
+Each run lists every message since two days before the last run's cursor (from 2026-09-21 on
+the first run), spam and trash included, and skips any message already in Events. What each
+message is:
+
+| Event | When |
+| --- | --- |
+| SENT | a message with Gmail's SENT label to an address tied to a lead |
+| REPLIED | a message from the lead after it was emailed |
+| AUTO_REPLY | an automatic answer (Auto-Submitted and similar headers, or an "Automatic reply" / "Out of office" subject); stops nothing; "says they may have left" when it says so |
+| OPT_OUT | the reply's own words, not the quoted email, ask to stop: "no thanks", "unsubscribe", "remove me/us", "not interested", "don't email", a bare "no" or "stop" … a word list, erring toward stopping |
+| BOUNCED | a delivery notice (mailer-daemon, postmaster, or a delivery-status report) with a permanent failure |
+| DELAYED | the same with a temporary failure (status 4.x.x or "(Delay)"); stops nothing |
+| DRAFTED | this system's initial draft, from the lead row |
+| FOLLOWUP_DRAFTED | this system's follow-up draft, written by the follow-up job |
+
+Tying a message to a lead, strongest first: **DRAFT** (in the thread of this system's draft),
+**ADDRESS** (an address written anywhere on exactly one lead's row: BEST EMAIL, Their email,
+Finance email, Emails we already had), **THREAD** (a thread already tied to one lead). A match on
+the company's domain alone is **DOMAIN**, and on more than one lead **SEVERAL**: both are recorded,
+start no follow-up, and mark the lead REVIEW_NEEDED ("Check the match: you emailed jeff@… which
+is not an address on this row" — the A-0005 case). A personal mailbox (gmail.com and the like)
+is never matched by its domain. Mail from a lead before anyone emailed them is not recorded.
+
+Which email of a sequence a send is: the first certain send is INITIAL; later sends in its
+thread are FOLLOWUP_1, FOLLOWUP_2, then LATER; a send after the lead replied is CONVERSATION; a
+send elsewhere is OTHER_THREAD. After the address bounced, the next send starts a new sequence.
+
+Writes, safety-critical first: Suppression (the bounced address; for an opt-out the address that
+asked and the address the thread went to; never a whole domain), then Events, then the lead's
+summary columns, then a Runs row with `cursor <time>`. Suppression and summaries are recomputed
+from the whole Events history, so a run that stops half-way is completed by the next one; a
+second run over the same mail changes nothing (tested). Next action, for example:
+"Follow-up 1 was due Fri 2026-09-25. You started this thread by hand, so write it yourself in
+the same thread."; "Replied on Thu 2026-09-24. Answer by hand."; "Asked to stop on … Never
+contact again."
+
+**Follow-ups** (`outreach/followup.py`). Only for a sequence whose initial email was one of this
+system's drafts (a DRAFT match), still running, due by today's New York date, with no follow-up
+already RESERVED or CREATED for that step. The words are the handbook's own "Follow-up 1" /
+"Follow-up 2" templates between "Hi [FIRST_NAME]," and "Best,", filled with the offer values
+the same document states (`[NEXT_WEEK_ACTION]: …`, `[CTA_QUESTION]: …`) and the product name;
+no model writes them. Greeting, signature, postal address and opt-out line are code, shared with
+the initial email (`drafting.sign_off`). The parser accepts the handbook as Markdown or as a
+Google Doc's text export; **the live document's export has not been read for this yet.** A
+missing section, a missing or twice-stated value, or an unfilled placeholder blocks.
+
+Before a draft: Gmail drafting switched on, offer approved, follow-up wording approved for the
+current handbook, daily cap (one cap for initial and follow-up drafts), the signed-in mailbox is
+the sender, Suppression readable. Then, against Gmail itself: no draft in the thread, the
+thread's last message is the send sync recorded, no message in it from anyone else, and the
+address is a recipient of its first email. Then the Sheet row is reserved, the draft is created
+**in that thread** (thread id, `In-Reply-To`, `References`, the first email's subject unchanged)
+**to the address the email actually went to** ("Hi there" when that is not the row's own
+address), and the row is finalised with an Events row. An uncertain Gmail result leaves the row
+RESERVED and is never retried; `reconcile` settles it from the draft's action header. A follow-up
+draft the founder deletes unsent is never drafted again.
+
+**Proof:** 390 tests pass offline in the container with no network (289 before; 101 new across
+`test_business_days`, `test_mailbox`, `test_sync`, `test_followup`, and two in
+`test_draft_pipeline`); `test_no_send` still passes over the new modules. 62 deliberate breaks of
+the new and changed code, each applied alone with the whole suite run: the first run left 2
+alive (quoted lines without a reply header; the second hand-sent guard in `due_now`), both
+now have tests, 62 of 62 caught.
+
+**What this does not prove — needs the live mailbox and a real send:** that Gmail keeps a sent
+draft in the draft's thread (the DRAFT match rests on it; the action header is the fallback, and
+whether Gmail keeps custom headers on a web-UI send is unknown); how real bounce notices, auto
+replies and replies from Outlook and phones look; that the live handbook's export splits the
+follow-up sections as parsed; that no founder column in the live Sheet shares a stage 4 name.
+Nothing has been run against the live mailbox or Sheet, nothing is deployed, no schedule exists.
+
+    python -m outreach.sync --dry-run        # read Gmail and the Sheet, print what would change
+    python -m outreach.followup --preview    # both follow-ups from the Drive handbook, and the hash
+    python -m outreach.followup --dry-run    # who is due and what blocks drafting
+
 ## Change log
+
+- **2026-09-28** Built stage 4 locally: sync (sends, replies, auto-replies, opt-outs, bounces into
+  an append-only Events tab, Suppression and seven lead columns) and follow-up drafts (the
+  handbook's own follow-up wording, in the original thread, only for sequences this system
+  started). Founder decisions: reminders only for hand-sent threads, major US holidays, follow-up
+  wording approved once per handbook version. The initial draft now records its Gmail thread,
+  and one daily cap covers initial and follow-up drafts. 390 tests pass offline; 62 of 62
+  deliberate breaks caught. Corrected the stale stage table. Nothing deployed, scheduled, or run
+  against the live mailbox or Sheet.
 
 - **2026-09-23** Added a repeatable generic-opening check on the produced copy and audited all
   25 passing openings against it: five were true but generic. Pipeline now 21 pass, 5 held.

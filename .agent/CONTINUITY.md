@@ -15,6 +15,12 @@
 
 ## [DECISIONS]
 
+- 2026-09-28 [USER] Stage 4 decisions: threads the founder started by hand (the 14 of
+  2026-09-22) get reminders in Next action, never follow-up drafts; business days skip weekends
+  and the major US holidays (New Year's, Memorial Day, July 4, Labor Day, Thanksgiving and the
+  day after, Christmas); follow-up wording is approved once per handbook version
+  (`followup_approved_handbook_hash` = the Drive document's content hash).
+
 - 2026-09-23T02:19Z [USER] Supersedes the generic "accounting and operational
   data" outreach phrasing below: name the actual inputs in prospective copy.
   The founder has not approved a replacement offer. [CODE] The product's
@@ -38,6 +44,13 @@
   refresh, so Codex continued the authorized local build.
 
 ## [PROGRESS]
+
+- 2026-09-28 [CODE] Stage 4 built locally: `outreach/sync.py` (Gmail read-only -> Events,
+  Suppression, lead summary columns), `outreach/followup.py` (the handbook's own follow-up
+  wording, drafted in the original thread), `mailbox.py`, `sequence.py`, `business_days.py`.
+  390 tests pass offline in the container; 62/62 deliberate breaks caught. Not deployed, not
+  scheduled, never run against the live mailbox or Sheet. Next: a read-only `sync --dry-run`
+  on the real mailbox, with the founder's go.
 
 - 2026-09-23T03:39Z [CODE] Stage 3 local audit closed the fixed-template Gmail-draft
   bypass: the live preview endpoint always uses the Drive writer, and `create` requires a

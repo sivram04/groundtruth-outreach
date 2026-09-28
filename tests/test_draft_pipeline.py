@@ -312,6 +312,28 @@ def test_a_reserved_action_counts_toward_the_daily_cap(ready):
     assert tab.writes == [] and created == []
 
 
+def test_the_draft_s_thread_is_recorded_so_its_send_can_be_recognised(ready, monkeypatch):
+    row, tab, created = ready
+    monkeypatch.setattr(gmail_drafts, "create", lambda gmail, **kw: created.append(kw) or
+                        {"id": "draft-1", "message": {"id": "m-1", "threadId": "thread-1"}})
+    written, digest = approved_written(row)
+    job_draft.create("A-0001", digest, written=written, settings=settings(),
+                     api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert tab.lead["Draft thread ID"] == "thread-1"
+
+
+def test_a_follow_up_drafted_today_counts_toward_the_same_daily_cap(ready):
+    row, tab, created = ready
+    tab.rows.append((4, lead(**{"Lead ID": "A-0002", "Follow-up status": "CREATED",
+                              "Follow-up action at": job_draft.datetime.now(
+                                  job_draft.timezone.utc).isoformat()})))
+    written, digest = approved_written(row)
+    with pytest.raises(job_draft.DraftBlocked, match="daily draft cap"):
+        job_draft.create("A-0001", digest, written=written, settings=settings(daily_cap=1),
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert created == []
+
+
 def test_an_uncertain_gmail_result_leaves_a_reservation_and_no_retry(ready, monkeypatch):
     row, tab, created = ready
     written, digest = approved_written(row)
