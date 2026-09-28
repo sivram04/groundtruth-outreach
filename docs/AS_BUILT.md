@@ -1201,7 +1201,10 @@ emails this system drafts can be tracked, and none exists yet (the offer wording
   reused, gunicorn replaces the worker process after 6-8 requests as a backstop, and the worker
   has 1 GiB. Also found: tracking (`*/5`) fired together with sync, and the one-at-a-time worker
   refused the sync once (429 at 20:30 UTC); tracking now runs at minutes 2, 7, 12 …
-  Worker `00023-rav` and tracker `00002-wvt` deployed and tested as before.
+  Worker `00023-rav` and tracker `00002-wvt` deployed and tested as before. **Verified over the
+  next three scheduled syncs (21:10-21:30 UTC):** memory held at 174 MB (five-minute p99: 174,
+  174, 102 when the process was replaced, 174, 174, 174) where the old revision had gone 235,
+  287, 348 in the same stretch; no error and no refused call since the switch.
 
 - **2026-09-28** Stage 5 tracking built and deployed on the founder's go: signed links and an
   HTML copy of the approved words (off for new drafts until the pass test), a public tracker at
