@@ -175,6 +175,27 @@ def test_only_the_tracked_emails_of_a_sequence_are_counted():
     assert cells == {"Tracked sends": "1", "Opens (est.)": "1", "Clicks": "0"}
 
 
+def test_the_queue_answers_at_once_and_acknowledges_in_batches(monkeypatch):
+    from outreach import pubsub
+    calls = []
+
+    class Answer:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"receivedMessages": [{"ackId": "a1", "message": {"data": "eyJoaXQiOiAiaDEifQ=="}},
+                                         {"ackId": "a2", "message": {"data": "!!"}}]}
+    monkeypatch.setattr(pubsub, "cloud_token", lambda: "token")
+    monkeypatch.setattr(pubsub.requests, "post", lambda url, json, timeout, headers:
+                        calls.append((url, json)) or Answer())
+    pulled = pubsub.Queue().pull(100)
+    assert calls[0][1] == {"maxMessages": 100, "returnImmediately": True}
+    assert pulled == [("a1", {"hit": "h1"}), ("a2", None)]
+    pubsub.Queue().ack([f"id{n}" for n in range(1200)])
+    assert [len(body["ackIds"]) for _, body in calls[1:]] == [500, 500, 200]
+
+
 # --- the pass-test draft ----------------------------------------------------------------------
 
 SETTINGS = {"sender_email": "admin@lakshyaa.ai", "sender_website": SITE}
@@ -239,6 +260,10 @@ def test_the_dashboard_is_formulas_whose_rates_use_the_right_rows():
         assert all(cell.startswith("=") for cell in row[1:]), row[0]
     assert table[2][3] == "=B3+C3" and "A_Contact_Now" in table[2][1] and "B_Contact_Now" in table[2][2]
     assert '"A-*"' in table[3][1] and "'Events'" in table[3][1]
+    # Every figure read from a lead column first checks the column exists: a missing one is 0.
+    for number in (2, 4, 6, 7, 8, 9, 11, 13):
+        for cell in table[number][1:3]:
+            assert "ISNUMBER(MATCH(" in cell and cell.count("COUNTIF") + cell.count("SUMPRODUCT") >= 1, table[number][0]
 
 
 class FakeSheets:

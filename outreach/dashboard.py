@@ -33,13 +33,21 @@ def column(tab, header):
     return f'INDIRECT("\'{tab}\'!R3C"&{found}&":C"&{found},FALSE)'
 
 
+def where(tab, header, formula):
+    """`formula` where the column exists, else 0. Checked first, because a count of non-empty
+    cells given a missing column counts the lookup's error as one filled cell (found on the live
+    B tab, 2026-09-28: "Leads emailed" read 1 with no one emailed)."""
+    return f'IFERROR(IF(ISNUMBER(MATCH("{header}",\'{tab}\'!$2:$2,0)),{formula},0),0)'
+
+
 def _positive(tab, header):
     """How many leads have a number above zero under `header` (the Sheet stores them as text)."""
-    return f'IFERROR(SUMPRODUCT(ARRAYFORMULA(--(IFERROR(VALUE({column(tab, header)}),0)>0))),0)'
+    return where(tab, header,
+                 f'SUMPRODUCT(ARRAYFORMULA(--(IFERROR(VALUE({column(tab, header)}),0)>0)))')
 
 
 def _status(tab, value):
-    return f'IFERROR(COUNTIF({column(tab, "Outreach status")},"{value}"),0)'
+    return where(tab, "Outreach status", f'COUNTIF({column(tab, "Outreach status")},"{value}")')
 
 
 def rows():
@@ -54,7 +62,8 @@ def rows():
         return f"=B{row}+C{row}"
 
     table = [
-        ("Leads emailed", per_tier(lambda t, p: f'=IFERROR(COUNTIF({column(t, "Sent at")},"<>"),0)')),
+        ("Leads emailed",
+         per_tier(lambda t, p: "=" + where(t, "Sent at", f'COUNTIF({column(t, "Sent at")},"<>")'))),
         ("Emails sent, initial and follow-ups",
          per_tier(lambda t, p: f'=IFERROR(COUNTIFS(\'{EVENTS_TAB}\'!$C:$C,"SENT",'
                                f'\'{EVENTS_TAB}\'!$B:$B,"{p}*"),0)')),

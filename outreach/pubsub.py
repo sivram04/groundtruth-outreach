@@ -36,8 +36,13 @@ class Queue:
         self.subscription = subscription
 
     def pull(self, max_messages=100):
-        """[(ack id, message data)] currently waiting; an unreadable message comes back as None."""
-        found = _post(f"subscriptions/{self.subscription}:pull", {"maxMessages": max_messages},
+        """[(ack id, message data)] currently waiting; an unreadable message comes back as None.
+
+        Answers at once instead of waiting for messages to arrive: an empty queue otherwise held
+        each five-minute run for about 20 seconds (measured on the first scheduled runs,
+        2026-09-28). A hit that arrives while this answers is simply taken by the next run."""
+        found = _post(f"subscriptions/{self.subscription}:pull",
+                      {"maxMessages": max_messages, "returnImmediately": True},
                       timeout=30).get("receivedMessages", [])
         out = []
         for item in found:
