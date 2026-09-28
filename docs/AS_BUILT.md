@@ -19,7 +19,7 @@ moved on (the handbook was already in Drive and all 26 eligible leads were profi
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
 | 2 Research | **Bulk fit research paused; all 26 draft-eligible leads profiled** 2026-09-23 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible, all profiled: 25 READY, 1 REVIEW_NEEDED (A-0028). 396 pending, not to be resumed for now. No research schedule exists. |
 | 3 Drafts (pilot) | **Drive → Gemini → checks pipeline built and run read-only; not deployed; blocked only by the unapproved offer** 2026-09-23 | The handbook is a Google Doc in Drive and the sign-in holds `drive.readonly`. Read-only over all 26 eligible leads: 21 pass, 5 held. Every passing preview's only blocker is that the founder has not approved the offer wording, so no approval hash exists, Gmail drafting has never run and no draft exists. The draft endpoints are not deployed. |
-| 4 Sync and follow-ups | **Built locally, not deployed; run read-only against the live mailbox, Sheet and handbook; nothing written** 2026-09-28 | 390 tests pass offline in the container with no network; 62 deliberate breaks of the new code, all caught. The read-only run found exactly the 14 hand-sent emails and no reply, bounce or opt-out. See "Stage 4" below. Its pass test (the founder sends real drafts; SENT, REPLIED and a bounce land correctly) has not been run. |
+| 4 Sync and follow-ups | **Built; sync run for real once, locally (2026-09-28); not deployed, no schedule; no follow-up drafted** | 390 tests pass offline in the container with no network; 62 deliberate breaks of the new code, all caught. The real run recorded the 14 hand-sent emails (no reply, bounce or opt-out) in a new Events tab and 14 A rows; a second pass changed nothing. See "Stage 4" below. Its pass test (the founder sends real drafts; SENT, REPLIED and a bounce land correctly) has not been run. |
 | 5 Tracking | Not started | |
 | 6 Calls | Not started | |
 
@@ -92,7 +92,8 @@ creates one).
 | C_Phone_Only | 242 | Not touched (no emails) |
 | Runs | 1 per job run | Written by the system |
 | Research | 1 per verified quote per research run | Written by the system; append-only history, so re-researched leads have older rows too — the lead row's `Researched at` names the current run |
-| Suppression | Header only; 0 entries | Created for future opt-outs and bounces; the 14 hand-sent threads had no matches at the recorded audit time |
+| Suppression | Header only; 0 entries | Created for future opt-outs and bounces; sync adds bounced and opted-out addresses (none so far, 2026-09-28) |
+| Events | 1 per observed event | Created by the first sync, 2026-09-28; append-only; written by sync and the follow-up job; 14 SENT rows so far |
 
 Row 1 of A and B is a description; **headers are in row 2**. Columns are found by header
 name, never by position — A and B have different layouts.
@@ -111,11 +112,12 @@ email copy.
 `Draft link`, `Drafted at`, and since 2026-09-28 `Draft thread ID` (the Gmail thread of the
 created draft, so sync can recognise its send for certain).
 
-**Stage 4 columns and tab in local code only, not added to the live Sheet** (the first real
-sync or follow-up write creates them): `Outreach status`, `Sent to`, `Sent at`, `Replied at`,
-`Follow-ups sent`, `Last event`, `Next action`; `Follow-up step`, `Follow-up action`,
-`Follow-up action at`, `Follow-up status`, `Follow-up draft ID`; and an append-only **Events**
-tab. "Outreach status", not the plan's "Status": a plain "Status" is too likely to be a column
+**Stage 4 columns and tab.** Added by the first real sync, 2026-09-28 (founder's go): the
+append-only **Events** tab, and on **A_Contact_Now only** (B has had no email yet) seven columns
+right of the founder's last one: `Outreach status`, `Sent to`, `Sent at`, `Replied at`,
+`Follow-ups sent`, `Last event`, `Next action`. Not yet in the live Sheet, added by the first
+write that needs them: the same seven on B, and `Follow-up step`, `Follow-up action`,
+`Follow-up action at`, `Follow-up status`, `Follow-up draft ID`. "Outreach status", not the plan's "Status": a plain "Status" is too likely to be a column
 of the founder's own. Before writing, the code refuses if any of these names already appears to
 the left of `Lead ID` (where every column is the founder's).
 They are created only by an enabled draft write. A `RESERVED` action counts toward the
@@ -1067,17 +1069,33 @@ now have tests, 62 of 62 caught.
 - The live A and B headers hold none of the stage 4 column names, left of `Lead ID` or anywhere;
   there is no Events tab yet.
 
+**The first real sync, 2026-09-28 16:06 UTC (founder's go, run locally):** before writing, a
+read-only check found no data right of the last header on A or B. The run read the same 68
+messages, appended the 14 SENT events to a new Events tab, added no Suppression row, and wrote
+the 14 A rows: 13 SENT with "Follow-up 1 was due Fri 2026-09-25. You started this thread by
+hand, so write it yourself in the same thread.", and A-0005 REVIEW_NEEDED. Runs row:
+`sync, local, OK, … cursor 2026-09-28T16:06:06Z`. Read back afterwards: Events header exact and
+14 rows, the seven columns at A's positions 38–44, B untouched. A dry run straight after read 10
+messages from 2026-09-26T16:06:06Z (the cursor less two days) and found no new event, no
+Suppression row and no lead change.
+
 **What this still does not prove — needs a real send of a system draft:** that Gmail keeps a
 sent draft in the draft's thread (the DRAFT match rests on it; the action header is the
 fallback, and whether Gmail keeps custom headers on a web-UI send is unknown); how real bounce
-notices, automatic replies and replies from Outlook and phones look (none has arrived). Nothing
-is deployed, no schedule exists, and sync has not yet written to the Sheet.
+notices, automatic replies and replies from Outlook and phones look (none has arrived). Sync is
+not deployed or scheduled: it runs when someone runs `python -m outreach.sync`, so the Sheet is
+only as current as the last run.
 
     python -m outreach.sync --dry-run        # read Gmail and the Sheet, print what would change
     python -m outreach.followup --preview    # both follow-ups from the Drive handbook, and the hash
     python -m outreach.followup --dry-run    # who is due and what blocks drafting
 
 ## Change log
+
+- **2026-09-28** First real sync, with the founder's go: Events tab created with the 14 SENT
+  events of 2026-09-22; seven stage 4 columns added to A_Contact_Now and filled for those 14
+  rows (13 SENT with the follow-up 1 reminder, A-0005 REVIEW_NEEDED); no Suppression row; Runs
+  row with the cursor. Read back and a second pass (no change) confirm it. B untouched.
 
 - **2026-09-28** Built stage 4 locally: sync (sends, replies, auto-replies, opt-outs, bounces into
   an append-only Events tab, Suppression and seven lead columns) and follow-up drafts (the
