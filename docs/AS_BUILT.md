@@ -20,7 +20,7 @@ moved on (the handbook was already in Drive and all 26 eligible leads were profi
 | 2 Research | **Bulk fit research paused; all 26 draft-eligible leads profiled** 2026-09-23 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible, all profiled: 25 READY, 1 REVIEW_NEEDED (A-0028). 396 pending, not to be resumed for now. No research schedule exists. |
 | 3 Drafts (pilot) | **Drive → Gemini → checks pipeline built and run read-only; blocked only by the unapproved offer** 2026-09-23 | The handbook is a Google Doc in Drive and the sign-in holds `drive.readonly`. Read-only over all 26 eligible leads: 21 pass, 5 held. Every passing preview's only blocker is that the founder has not approved the offer wording, so no approval hash exists, Gmail drafting has never run and no draft exists. Since 2026-09-28 the draft endpoints are in the deployed revision, and draft creation is refused there (403): `ENABLE_GMAIL_DRAFTS` is not set on the service. |
 | 4 Sync and follow-ups | **Sync deployed and scheduled every 10 minutes** 2026-09-28; no follow-up drafted | 396 tests pass offline in the container with no network; 69 deliberate breaks of the new code, all caught. Revision `outreach-worker-00017-nin` serves 100%; Cloud Scheduler `outreach-sync` (`*/10`, America/New_York) is ENABLED, and its first run returned 200 in 2.4 s. The first real sync (run locally) recorded the 14 hand-sent emails in a new Events tab and 14 A rows. See "Stage 4" below. Its pass test (the founder sends real drafts; SENT, REPLIED and a bounce land correctly) has not been run. |
-| 5 Tracking | Not started | |
+| 5 Tracking | **Built and deployed 2026-09-28; off for new drafts; t.lakshyaa.ai waits for the founder's DNS record** | 460 tests pass offline in the container; 49 deliberate breaks, 48 caught, 1 equivalent. Public tracker `outreach-tracker` smoke-tested live (forged links counted nothing, an off-site click was refused, genuine hits queued with no IP address); the worker picks up hits every 5 minutes (`outreach-tracking`); the Dashboard tab computes 14 emailed, 1 match to check. Its pass test (a test email to the founder's other inbox shows an open and a click) waits for the DNS record and certificate. See "Stage 5" below. |
 | 6 Calls | Not started | |
 
 ## What runs where
@@ -29,7 +29,12 @@ moved on (the handbook was already in Drive and all 26 eligible leads were profi
 flowchart LR
   SCH[Cloud Scheduler<br/>outreach-check, every 30 min<br/>PAUSED] -->|OIDC as outreach-scheduler| W[Cloud Run outreach-worker<br/>private, us-central1<br/>max 1 instance, 1 request at a time]
   SYN[Cloud Scheduler<br/>outreach-sync, every 10 min<br/>ENABLED] -->|OIDC as outreach-scheduler<br/>POST /jobs/sync| W
-  SM[Secret Manager<br/>google-signin-token] -->|mounted as env var| W
+  TRK[Cloud Scheduler<br/>outreach-tracking, every 5 min<br/>ENABLED] -->|OIDC as outreach-scheduler<br/>POST /jobs/tracking| W
+  R[Recipient's mail program<br/>image load or click] --> T[Cloud Run outreach-tracker<br/>public, t.lakshyaa.ai<br/>max 3 instances]
+  T -->|publish only, as outreach-tracker| Q[Pub/Sub outreach-tracking-hits]
+  Q -->|pull, as outreach-worker| W
+  SM[Secret Manager<br/>google-signin-token<br/>tracking-signing-key] -->|mounted as env vars| W
+  SM -->|tracking-signing-key only| T
   W <-->|Sheets API as admin@lakshyaa.ai| S[(Leads Sheet)]
   W -->|reads only: list and get| G[Gmail admin@lakshyaa.ai]
   W -->|DNS via 8.8.8.8 / 8.8.4.4<br/>HTTP GET company sites, robots.txt honoured| NET[Public internet]
@@ -48,11 +53,17 @@ Org `lakshyaa.ai` (787760867942). Billing: "My Billing Account" `01A2E0-CC6FD1-A
 
 | Resource | Setting |
 | --- | --- |
-| Cloud Run `outreach-worker` | `https://outreach-worker-30387157876.us-central1.run.app`; `--no-allow-unauthenticated` (unsigned call → 403, tested again 2026-09-28); max instances 1, concurrency 1, timeout 600 s; runs as `outreach-worker@`. **Serving: `outreach-worker-00017-nin` (tag `stage4`), 100%, since 2026-09-28.** `00016-rop` keeps its `profile-review` tag at 0%; `00013-6vx`, which served before, is kept for rollback. Traffic is pinned to a named revision, so a new deploy serves nothing until traffic is moved to it |
-| Service account `outreach-worker@` | `secretAccessor` on `google-signin-token`; `aiplatform.user` on the project (Gemini, added for stage 2) |
+| Cloud Run `outreach-worker` | `https://outreach-worker-30387157876.us-central1.run.app`; `--no-allow-unauthenticated` (unsigned call → 403, tested again 2026-09-28); max instances 1, concurrency 1, timeout 600 s; runs as `outreach-worker@`; secrets `GOOGLE_SIGNIN_TOKEN`, `TRACKING_KEY`. **Serving: `outreach-worker-00021-das` (tag `next`), 100%, since 2026-09-28 (stage 5).** Earlier: `00019-xow` (first stage 5), `00017-nin` (stage 4, tag `stage4`), `00016-rop` (tag `profile-review`), `00013-6vx`; all kept for rollback. Traffic is pinned to a named revision, so a new deploy serves nothing until traffic is moved to it |
+| Cloud Run `outreach-tracker` | **Public** (`--no-invoker-iam-check`: the organisation allows only lakshyaa.ai accounts in IAM policies, so `allUsers` cannot be granted; this switches off the invoker check on this one service). `https://outreach-tracker-30387157876.us-central1.run.app`, and `t.lakshyaa.ai` once DNS is set. Same image as the worker, run as `gunicorn outreach.tracker:app`; runs as `outreach-tracker@`; only secret `TRACKING_KEY`; `TRACKING_ALLOWED_HOSTS=lakshyaa.ai`; max 3 instances, timeout 15 s. Revision `outreach-tracker-00001-qzk` (image of worker `00019`; publishing is unchanged since) |
+| Domain mapping `t.lakshyaa.ai` | → `outreach-tracker`, created 2026-09-28. **Waits for the founder's DNS record at Squarespace: CNAME `t` → `ghs.googlehosted.com.`**; then Google issues the certificate |
+| Service account `outreach-tracker@` | `pubsub.publisher` on `outreach-tracking-hits`; `secretAccessor` on `tracking-signing-key`. Nothing else: no mailbox, no Sheet |
+| Pub/Sub | Topic `outreach-tracking-hits`; pull subscription `outreach-tracking-worker` (ack deadline 60 s, retention 7 days) |
+| Secret `tracking-signing-key` | 32 random bytes as hex, generated straight into Secret Manager 2026-09-28; never printed or on disk. Read by the tracker, the worker, and gcloud locally |
+| Service account `outreach-worker@` | `secretAccessor` on `google-signin-token` and `tracking-signing-key`; `pubsub.subscriber` on `outreach-tracking-worker`; `aiplatform.user` on the project (Gemini, added for stage 2) |
 | Service account `outreach-scheduler@` | `run.invoker` on `outreach-worker` only |
 | Cloud Scheduler `outreach-check` | `*/30 * * * *` America/New_York → `POST /jobs/check`; **paused** |
 | Cloud Scheduler `outreach-sync` | `*/10 * * * *` America/New_York → `POST /jobs/sync`; OIDC as `outreach-scheduler@`, audience the service URL; attempt deadline 600 s; **ENABLED** since 2026-09-28 (founder's instruction). Pause: `gcloud scheduler jobs pause outreach-sync --location=us-central1 --project=lakshyaa-outreach` |
+| Cloud Scheduler `outreach-tracking` | `*/5 * * * *` America/New_York → `POST /jobs/tracking`; same OIDC; attempt deadline 300 s; **ENABLED** since 2026-09-28 |
 | Secret `google-signin-token` | JSON: account, OAuth client id/secret, refresh token, scopes |
 | OAuth app | Internal to `lakshyaa.ai`; Desktop client `outreach-local-signin`; scopes `gmail.compose`, `gmail.readonly`, `spreadsheets` |
 | Build | Default compute account holds `cloudbuild.builds.builder` (source deploys) |
@@ -73,6 +84,7 @@ Roll back the same way with `--to-revisions=<revision>=100`.
 | `POST /jobs/research?limit=40` or `?ids=A-0001,B-0002` | Stage 2 company research (below). **Not scheduled.** |
 | `POST /jobs/profile?limit=5&ids=A-0001,...` (optional `dry_run=1`) | Pilot extraction of company offerings and markets for later drafts. In the serving revision since 2026-09-28 (before that only on the `profile-review` tag). No schedule. |
 | `POST /jobs/sync` (optional `dry_run=1`) | Stage 4 sync (below). **Scheduled every 10 minutes** (`outreach-sync`). |
+| `POST /jobs/tracking` | Stage 5: queued tracker hits become OPEN and CLICK events (below). **Scheduled every 5 minutes** (`outreach-tracking`). |
 
 **Deployed since 2026-09-28 (revision 00017), draft creation refused there:** `POST /jobs/draft/preview` always uses Gemini with the
 Drive handbook for 1–4 explicit Lead IDs. `POST /jobs/draft/create` requires the approved
@@ -103,7 +115,8 @@ creates one).
 | Runs | 1 per job run | Written by the system |
 | Research | 1 per verified quote per research run | Written by the system; append-only history, so re-researched leads have older rows too — the lead row's `Researched at` names the current run |
 | Suppression | Header only; 0 entries | Created for future opt-outs and bounces; sync adds bounced and opted-out addresses (none so far, 2026-09-28) |
-| Events | 1 per observed event | Created by the first sync, 2026-09-28; append-only; written by sync and the follow-up job; 14 SENT rows so far |
+| Events | 1 per observed event | Created by the first sync, 2026-09-28; append-only; written by sync, the follow-up job and the tracking job; 14 SENT rows so far |
+| Dashboard | 21 | Created 2026-09-28 by `python -m outreach.dashboard`; **formulas only**, per tier A, B and both: emailed, emails sent, replied, reply rate, asked to stop, bounced, match to check, tracked, coverage, opened (est.), open rate, clicked, click rate, and notes on what the numbers mean. Rerunning the command refreshes the formulas; it refuses a tab of that name that is not this one |
 
 Row 1 of A and B is a description; **headers are in row 2**. Columns are found by header
 name, never by position — A and B have different layouts.
@@ -1118,7 +1131,72 @@ next run puts it back from the event.
     python -m outreach.followup --preview    # both follow-ups from the Drive handbook, and the hash
     python -m outreach.followup --dry-run    # who is due and what blocks drafting
 
+## Stage 5 — tracking (built and deployed 2026-09-28, off for new drafts)
+
+**Founder decisions, 2026-09-28:** measure opens and clicks, as the plan says; create the cloud
+pieces and deploy once the offline tests pass. **Chosen here, stated to the founder:** tracking is
+off for new drafts (`tracking_enabled` absent or false) until the pass test succeeds and the
+founder switches it on; a click in the first minute after the send is a likely scanner; a burst
+of hits within a minute is recorded once.
+
+**How it works.** With tracking on, `job_draft.create` and the follow-up job give the draft an
+HTML copy of the approved words (`tracking.tracked_html`): the same paragraphs and line breaks,
+the website link (only `lakshyaa.ai`) routed through `t.lakshyaa.ai/c/…`, and a 1×1 image
+`t.lakshyaa.ai/o/…` at the end. Each link carries a signed (HMAC-SHA256, 128-bit tag), opaque
+draft ID and, for a click, the link's number and destination: nothing about the recipient. The
+plain text part stays exactly the approved body; the approval hash is unchanged. Tracking on and
+the key unreadable makes no draft. The lead row records `Draft tracked`; a follow-up's drafted
+event says `tracked`.
+
+The public tracker (`outreach/tracker.py`) answers every image request with the image, and queues
+only genuine open tokens; it redirects only genuine click tokens whose destination is allowed, and
+answers anything else "not found", so it is never an open redirect. It queues the token, the
+moment, the request method and the mail program's own name, never the IP address. The worker's
+`/jobs/tracking` pulls the queue, checks each signature again, ties the hit to its lead through
+the draft ID (lead rows, then the drafted events; `test:` IDs to lead TEST; an unknown ID is kept
+with no lead), and writes OPEN or CLICK to Events — once per hit, and once per burst within a
+minute — acknowledging the queue only after the Sheet has them.
+
+Counting (`sequence.tracking_cells`, the lead columns `Tracked sends`, `Opens (est.)`, `Clicks`):
+only emails of the running sequence whose draft was tracked; a hit counts only after its email
+was sent (the founder looking at the draft is not an open), and since sync may record the send
+after the hit, every hit is recorded and counted once the send is known; a click counts from a
+minute after the send and never as a HEAD request. A lead never tracked stays blank, never 0.
+
+**Live, 2026-09-28 (founder's go):** key, topic, subscription, `outreach-tracker@` and the narrow
+IAM bindings created (`deploy/setup_tracking.sh`); worker deployed with no traffic, tested on its
+tag (unsigned 403, sync dry run 200, tracking run 200 on an empty queue, follow-ups 403), then
+given 100%; tracker deployed public (`--no-invoker-iam-check`, accepted by the organisation).
+Tracker smoke test on its run.app address: root 404; a forged open still got the image and queued
+nothing; a forged click and a click to another site got 404 with no redirect; a genuine open got
+the image with no-store headers; a genuine click redirected to lakshyaa.ai. The queue then held
+exactly the 3 genuine hits (two opens, one click), with no IP field, and they were pulled and
+discarded by hand before any scheduled pickup, so nothing reached the Sheet. Domain mapping
+`t.lakshyaa.ai` created: waiting for the DNS record. Scheduler `outreach-tracking` created; its
+runs return 200. Dashboard written and read back: A 14 emailed, 14 emails sent, 0 replied, 1
+match to check, 0 tracked; B 0.
+
+**Two faults the live run found, both fixed:** the Dashboard counted a missing column's lookup
+error as one emailed lead (B read 1 with no one emailed): every lead-column figure now checks the
+column exists first; and the queue pull waited for messages to arrive, holding each run about
+20 seconds on an empty queue: it now answers at once (2.4 s warm, 6.6 s cold, tested on the
+tagged revision before it took traffic).
+
+**Not proven yet — the pass test:** t.lakshyaa.ai needs the DNS record and its certificate; then a
+tracked test draft to the founder's other inbox (`python -m outreach.tracking_check --to …`, lead
+TEST, never a lead's address or company), which the founder sends, opens and clicks. Also
+unproven: whether the image and links survive the founder editing a draft in the Gmail web editor
+(architecture §13), how real mail programs load the image, and the effect on deliverability. Only
+emails this system drafts can be tracked, and none exists yet (the offer wording is unapproved).
+
 ## Change log
+
+- **2026-09-28** Stage 5 tracking built and deployed on the founder's go: signed links and an
+  HTML copy of the approved words (off for new drafts until the pass test), a public tracker at
+  t.lakshyaa.ai behind a publish-only queue, a 5-minute pickup job, per-lead Tracked sends / Opens
+  (est.) / Clicks, a pass-test draft for the founder's own inbox, and a Dashboard tab of formulas.
+  460 tests; 48 of 49 breaks caught (1 equivalent). Live: smoke-tested, 3 test hits discarded
+  before reaching the Sheet, two faults found and fixed. Waiting: the founder's DNS record.
 
 - **2026-09-28** Deployed and scheduled sync, on the founder's instruction: quiet runs write no
   Runs row for six hours and Events are read once each by key (396 tests, 7 more breaks caught);
