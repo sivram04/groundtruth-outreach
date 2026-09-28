@@ -19,7 +19,7 @@ moved on (the handbook was already in Drive and all 26 eligible leads were profi
 | 1 Email checks | **Built, review fixes applied, awaiting founder spot-check** 2026-09-22 | All 492 leads checked from Cloud Run; 98 rows rechecked after review fixes; 45 tests pass in a container; schedule paused |
 | 2 Research | **Bulk fit research paused; all 26 draft-eligible leads profiled** 2026-09-23 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible, all profiled: 25 READY, 1 REVIEW_NEEDED (A-0028). 396 pending, not to be resumed for now. No research schedule exists. |
 | 3 Drafts (pilot) | **Drive → Gemini → checks pipeline built and run read-only; not deployed; blocked only by the unapproved offer** 2026-09-23 | The handbook is a Google Doc in Drive and the sign-in holds `drive.readonly`. Read-only over all 26 eligible leads: 21 pass, 5 held. Every passing preview's only blocker is that the founder has not approved the offer wording, so no approval hash exists, Gmail drafting has never run and no draft exists. The draft endpoints are not deployed. |
-| 4 Sync and follow-ups | **Built locally, not deployed; never run against the live mailbox or Sheet** 2026-09-28 | 390 tests pass offline in the container with no network; 62 deliberate breaks of the new code, all caught. See "Stage 4" below. Its pass test (the founder sends real drafts; SENT, REPLIED and a bounce land correctly) has not been run. |
+| 4 Sync and follow-ups | **Built locally, not deployed; run read-only against the live mailbox, Sheet and handbook; nothing written** 2026-09-28 | 390 tests pass offline in the container with no network; 62 deliberate breaks of the new code, all caught. The read-only run found exactly the 14 hand-sent emails and no reply, bounce or opt-out. See "Stage 4" below. Its pass test (the founder sends real drafts; SENT, REPLIED and a bounce land correctly) has not been run. |
 | 5 Tracking | Not started | |
 | 6 Calls | Not started | |
 
@@ -1050,12 +1050,28 @@ the new and changed code, each applied alone with the whole suite run: the first
 alive (quoted lines without a reply header; the second hand-sent guard in `due_now`), both
 now have tests, 62 of 62 caught.
 
-**What this does not prove — needs the live mailbox and a real send:** that Gmail keeps a sent
-draft in the draft's thread (the DRAFT match rests on it; the action header is the fallback, and
-whether Gmail keeps custom headers on a web-UI send is unknown); how real bounce notices, auto
-replies and replies from Outlook and phones look; that the live handbook's export splits the
-follow-up sections as parsed; that no founder column in the live Sheet shares a stage 4 name.
-Nothing has been run against the live mailbox or Sheet, nothing is deployed, no schedule exists.
+**Read-only live checks, 2026-09-28 (founder's go; nothing written to Gmail or the Sheet):**
+- `sync --dry-run` on `admin@lakshyaa.ai`: 68 messages since 2026-09-21 (17 sent, 51 received).
+  It found the **14 hand-sent emails of 2026-09-22 and nothing else**: 13 tied by exact
+  address, and A-0005 by domain only (sent to `jeff@approvedplumbing.com`, not the row's
+  address), so it would be REVIEW_NEEDED. **No replies, no bounces, no opt-outs.** A separate
+  header scan confirms it: none of the 51 received messages came from a lead's address or
+  domain (they are LinkedIn, Google, D&B and service notices). It would add 14 Events rows and
+  update 14 lead rows; every other row would read "Follow-up 1 was due Fri 2026-09-25. You
+  started this thread by hand, so write it yourself in the same thread."
+- `followup --preview` on the Drive handbook (hash `b1237580414fe948`, modified
+  2026-09-23T05:00Z, unchanged since the last record): both follow-ups parse from the live
+  export with no problems and read as the handbook's own templates with the offer values and the
+  founder's signature. **Not approved**; approving does nothing yet, since no initial email has
+  been drafted by this system.
+- The live A and B headers hold none of the stage 4 column names, left of `Lead ID` or anywhere;
+  there is no Events tab yet.
+
+**What this still does not prove — needs a real send of a system draft:** that Gmail keeps a
+sent draft in the draft's thread (the DRAFT match rests on it; the action header is the
+fallback, and whether Gmail keeps custom headers on a web-UI send is unknown); how real bounce
+notices, automatic replies and replies from Outlook and phones look (none has arrived). Nothing
+is deployed, no schedule exists, and sync has not yet written to the Sheet.
 
     python -m outreach.sync --dry-run        # read Gmail and the Sheet, print what would change
     python -m outreach.followup --preview    # both follow-ups from the Drive handbook, and the hash
@@ -1069,8 +1085,10 @@ Nothing has been run against the live mailbox or Sheet, nothing is deployed, no 
   started). Founder decisions: reminders only for hand-sent threads, major US holidays, follow-up
   wording approved once per handbook version. The initial draft now records its Gmail thread,
   and one daily cap covers initial and follow-up drafts. 390 tests pass offline; 62 of 62
-  deliberate breaks caught. Corrected the stale stage table. Nothing deployed, scheduled, or run
-  against the live mailbox or Sheet.
+  deliberate breaks caught. Corrected the stale stage table. Then, with the founder's go, read
+  only: sync found exactly the 14 hand-sent emails (A-0005 flagged for its address), no reply,
+  bounce or opt-out since 2026-09-22; both follow-ups render from the live Drive handbook; no
+  column clash. Nothing deployed, scheduled or written to Gmail or the Sheet.
 
 - **2026-09-23** Added a repeatable generic-opening check on the produced copy and audited all
   25 passing openings against it: five were true but generic. Pipeline now 21 pass, 5 held.
