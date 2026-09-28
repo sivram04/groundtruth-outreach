@@ -53,8 +53,8 @@ Org `lakshyaa.ai` (787760867942). Billing: "My Billing Account" `01A2E0-CC6FD1-A
 
 | Resource | Setting |
 | --- | --- |
-| Cloud Run `outreach-worker` | `https://outreach-worker-30387157876.us-central1.run.app`; `--no-allow-unauthenticated` (unsigned call → 403, tested again 2026-09-28); max instances 1, concurrency 1, timeout 600 s; runs as `outreach-worker@`; secrets `GOOGLE_SIGNIN_TOKEN`, `TRACKING_KEY`. **Serving: `outreach-worker-00021-das` (tag `next`), 100%, since 2026-09-28 (stage 5).** Earlier: `00019-xow` (first stage 5), `00017-nin` (stage 4, tag `stage4`), `00016-rop` (tag `profile-review`), `00013-6vx`; all kept for rollback. Traffic is pinned to a named revision, so a new deploy serves nothing until traffic is moved to it |
-| Cloud Run `outreach-tracker` | **Public** (`--no-invoker-iam-check`: the organisation allows only lakshyaa.ai accounts in IAM policies, so `allUsers` cannot be granted; this switches off the invoker check on this one service). `https://outreach-tracker-30387157876.us-central1.run.app`, and `t.lakshyaa.ai` once DNS is set. Same image as the worker, run as `gunicorn outreach.tracker:app`; runs as `outreach-tracker@`; only secret `TRACKING_KEY`; `TRACKING_ALLOWED_HOSTS=lakshyaa.ai`; max 3 instances, timeout 15 s. Revision `outreach-tracker-00001-qzk` (image of worker `00019`; publishing is unchanged since) |
+| Cloud Run `outreach-worker` | `https://outreach-worker-30387157876.us-central1.run.app`; `--no-allow-unauthenticated` (unsigned call → 403, tested again 2026-09-28); max instances 1, concurrency 1, timeout 600 s; runs as `outreach-worker@`; secrets `GOOGLE_SIGNIN_TOKEN`, `TRACKING_KEY`; **memory 1 GiB** (was the default 512 MiB); gunicorn replaces its process after 6-8 requests. **Serving: `outreach-worker-00023-rav` (tag `next`), 100%, since 2026-09-28 (the memory fix).** Earlier: `00021-das`, `00019-xow` (stage 5), `00017-nin` (stage 4, tag `stage4`), `00016-rop` (tag `profile-review`), `00013-6vx`; all kept for rollback. Traffic is pinned to a named revision, so a new deploy serves nothing until traffic is moved to it |
+| Cloud Run `outreach-tracker` | **Public** (`--no-invoker-iam-check`: the organisation allows only lakshyaa.ai accounts in IAM policies, so `allUsers` cannot be granted; this switches off the invoker check on this one service). `https://outreach-tracker-30387157876.us-central1.run.app`, and `t.lakshyaa.ai` once DNS is set. Same image as the worker, run as `gunicorn outreach.tracker:app`; runs as `outreach-tracker@`; only secret `TRACKING_KEY`; `TRACKING_ALLOWED_HOSTS=lakshyaa.ai`; max 3 instances, timeout 15 s; gunicorn replaces its process every 500-600 requests. Revision `outreach-tracker-00002-wvt` (image of worker `00023`: the queue connection is now reused) |
 | Domain mapping `t.lakshyaa.ai` | → `outreach-tracker`, created 2026-09-28. **Waits for the founder's DNS record at Squarespace: CNAME `t` → `ghs.googlehosted.com.`**; then Google issues the certificate |
 | Service account `outreach-tracker@` | `pubsub.publisher` on `outreach-tracking-hits`; `secretAccessor` on `tracking-signing-key`. Nothing else: no mailbox, no Sheet |
 | Pub/Sub | Topic `outreach-tracking-hits`; pull subscription `outreach-tracking-worker` (ack deadline 60 s, retention 7 days) |
@@ -63,7 +63,7 @@ Org `lakshyaa.ai` (787760867942). Billing: "My Billing Account" `01A2E0-CC6FD1-A
 | Service account `outreach-scheduler@` | `run.invoker` on `outreach-worker` only |
 | Cloud Scheduler `outreach-check` | `*/30 * * * *` America/New_York → `POST /jobs/check`; **paused** |
 | Cloud Scheduler `outreach-sync` | `*/10 * * * *` America/New_York → `POST /jobs/sync`; OIDC as `outreach-scheduler@`, audience the service URL; attempt deadline 600 s; **ENABLED** since 2026-09-28 (founder's instruction). Pause: `gcloud scheduler jobs pause outreach-sync --location=us-central1 --project=lakshyaa-outreach` |
-| Cloud Scheduler `outreach-tracking` | `*/5 * * * *` America/New_York → `POST /jobs/tracking`; same OIDC; attempt deadline 300 s; **ENABLED** since 2026-09-28 |
+| Cloud Scheduler `outreach-tracking` | `2-59/5 * * * *` America/New_York (minutes 2, 7, 12 …) → `POST /jobs/tracking`; same OIDC; attempt deadline 300 s; **ENABLED** since 2026-09-28. First set to `*/5`, which fired together with sync at every ten minutes: the worker takes one request at a time, and at 20:30 UTC it refused the sync (429). Moved off sync's minutes the same day |
 | Secret `google-signin-token` | JSON: account, OAuth client id/secret, refresh token, scopes |
 | OAuth app | Internal to `lakshyaa.ai`; Desktop client `outreach-local-signin`; scopes `gmail.compose`, `gmail.readonly`, `spreadsheets` |
 | Build | Default compute account holds `cloudbuild.builds.builder` (source deploys) |
@@ -1190,6 +1190,18 @@ unproven: whether the image and links survive the founder editing a draft in the
 emails this system drafts can be tracked, and none exists yet (the offer wording is unapproved).
 
 ## Change log
+
+- **2026-09-28** Found in the logs after stage 5 and fixed: **the worker grew by about 55 MB every
+  sync run** (Cloud Monitoring, 10-minute p99: 169 MB after a restart, then 282, 333, 394, 451,
+  507) until Cloud Run killed it at its 512 MB limit, about once an hour since sync was
+  scheduled (19:30 UTC logged "Memory limit of 512 MiB exceeded with 567 MiB used"); every run
+  finished before the kill, so nothing was lost. The Python heap does not grow (traced locally
+  over six runs); each run built fresh Gmail and Sheets clients with fresh encrypted
+  connections. Now those clients and the queue's connection pool are built once per process and
+  reused, gunicorn replaces the worker process after 6-8 requests as a backstop, and the worker
+  has 1 GiB. Also found: tracking (`*/5`) fired together with sync, and the one-at-a-time worker
+  refused the sync once (429 at 20:30 UTC); tracking now runs at minutes 2, 7, 12 …
+  Worker `00023-rav` and tracker `00002-wvt` deployed and tested as before.
 
 - **2026-09-28** Stage 5 tracking built and deployed on the founder's go: signed links and an
   HTML copy of the approved words (off for new drafts until the pass test), a public tracker at
