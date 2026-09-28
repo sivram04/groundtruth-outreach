@@ -11,14 +11,20 @@ Founder decisions this follows:
   drafts. A thread the founder started by hand gets a reminder in Next action, never a draft.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from outreach.business_days import FOLLOWUP_GAP, NEW_YORK, add_business_days, new_york_date
-from outreach.sheet import SYNC_COLUMNS
+from outreach.sheet import SYNC_COLUMNS, TRACKING_COLUMNS
 
 SENT, REPLIED, AUTO_REPLY, OPT_OUT, BOUNCED, DELAYED = (
     "SENT", "REPLIED", "AUTO_REPLY", "OPT_OUT", "BOUNCED", "DELAYED")
 DRAFTED, FOLLOWUP_DRAFTED = "DRAFTED", "FOLLOWUP_DRAFTED"
+OPEN, CLICK = "OPEN", "CLICK"
+TRACKED = "tracked"  # the word a drafted event's detail carries when its draft was tracked
+HEAD = "HEAD request"  # the word a click's detail carries when it was only a HEAD request
+# Mail scanners follow links as soon as a message arrives. A click this soon after the send is
+# taken as a scanner and not counted. One minute is this system's choice.
+SCANNER_WINDOW = timedelta(minutes=1)
 
 # How a message was tied to a lead. Only the first three can start or advance a sequence.
 CONFIDENT = ("DRAFT", "ADDRESS", "THREAD")
@@ -160,9 +166,39 @@ def lead_state(row, events, *, suppressed, today, draft_gone=None):
         "Last event": (f"{ordered[-1]['Event']} {moment_text(ordered[-1])}" if ordered else ""),
         "Next action": action,
     }
-    assert list(cells) == SYNC_COLUMNS
+    cells.update(tracking_cells(ordered))
+    assert list(cells) == SYNC_COLUMNS + TRACKING_COLUMNS
     return {"status": status, "cells": cells, "sequence": sequence, "due": due,
             "sends": len(sends)}
+
+
+def tracking_cells(events):
+    """Tracked sends, opens and clicks for one lead, from its events.
+
+    Blank when no email of the running sequence came from a tracked draft: a blank is "not
+    tracked", never "no opens". A hit counts only for the email its draft became, and only after
+    that email was sent — the founder looking at the draft first is not an open. An open is an
+    estimate. A click counts from a minute after the send, and never a HEAD request.
+    """
+    ordered = sorted(events, key=_order)
+    running = current_sequence(ordered)
+    tracked = {e["Step"] for e in ordered if e["Event"] in (DRAFTED, FOLLOWUP_DRAFTED)
+               and TRACKED in [part.strip() for part in e["Detail"].split(",")]}
+    sends = [s for s in (running["sends"] if running else []) if s["Step"] in tracked]
+    if not sends:
+        return dict.fromkeys(TRACKING_COLUMNS, "")
+    opens = clicks = 0
+    for send in sends:
+        sent_at = when(send)
+        for hit in ordered:
+            if hit["Step"] != send["Step"] or when(hit) < sent_at:
+                continue
+            if hit["Event"] == OPEN:
+                opens += 1
+            elif (hit["Event"] == CLICK and when(hit) - sent_at >= SCANNER_WINDOW
+                  and HEAD not in hit["Detail"]):
+                clicks += 1
+    return {"Tracked sends": str(len(sends)), "Opens (est.)": str(opens), "Clicks": str(clicks)}
 
 
 def _due_words(due, today):

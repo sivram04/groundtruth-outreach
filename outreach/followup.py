@@ -30,7 +30,7 @@ import re
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from outreach import drafting, gmail_drafts, job_draft, mailbox, sequence, sync
+from outreach import drafting, gmail_drafts, job_draft, mailbox, sequence, sync, tracking
 from outreach.business_days import new_york_date
 from outreach.sheet import FOLLOWUP_COLUMNS, Store
 
@@ -300,6 +300,12 @@ def _create(store, gmail, item, state, row, book, settings, now):
         raise FollowupBlocked("; ".join(problems))
     action_id = hashlib.sha256(
         f"followup:{lead_id}:{step}:{thread_id}:{last['id']}".encode()).hexdigest()[:32]
+    html = None
+    if settings.get("tracking_enabled") is True:
+        try:
+            html = tracking.tracked_html(body, action_id, tracking.key())
+        except tracking.TrackingUnavailable as exc:
+            raise FollowupBlocked(f"tracking is on but {exc}") from None
 
     tab, number, fresh = store.fresh_lead(lead_id)
     if any(fresh.get(c, "") != row.get(c, "") for c in FOLLOWUP_COLUMNS):
@@ -314,23 +320,26 @@ def _create(store, gmail, item, state, row, book, settings, now):
     # An exception here may still mean Gmail made the draft: the reservation stays for review.
     draft = gmail_drafts.create(gmail, to=address, from_address=settings["sender_email"],
                                 subject=subject, body=body, action_id=action_id,
-                                thread_id=thread_id, in_reply_to=reply_to, references=references)
+                                thread_id=thread_id, in_reply_to=reply_to, references=references,
+                                html=html)
     draft_id = draft.get("id")
     if not draft_id:
         raise FollowupBlocked("Gmail returned no draft ID; the action stays RESERVED")
-    return _finalize(store, lead_id, action_id, draft_id, step, thread_id, address, item, now)
+    return _finalize(store, lead_id, action_id, draft_id, step, thread_id, address, item, now,
+                     tracked=bool(html))
 
 
-def _finalize(store, lead_id, action_id, draft_id, step, thread_id, address, item, now):
+def _finalize(store, lead_id, action_id, draft_id, step, thread_id, address, item, now,
+              tracked=False):
     tab, number, fresh = store.fresh_lead(lead_id)
     if fresh.get("Follow-up action") != action_id:
         raise FollowupBlocked("the draft is in Gmail but the Sheet reservation changed; reconcile")
     done = tab.write({number: {"Follow-up status": "CREATED", "Follow-up draft ID": draft_id}})
     if done["written"] != 1 or done["skipped"]:
         raise FollowupBlocked("the draft is in Gmail but the Sheet was not updated; reconcile")
+    detail = f"draft {draft_id}" + (f", {sequence.TRACKED}" if tracked else "")
     event = sync._event(lead_id, sequence.FOLLOWUP_DRAFTED, sequence.FOLLOWUPS[step - 1], now,
-                        address, "DRAFT", thread_id, "", f"draft {draft_id}",
-                        key=f"followup:{action_id}")
+                        address, "DRAFT", thread_id, "", detail, key=f"followup:{action_id}")
     event["Recorded at (UTC)"] = now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     store.append_events([event])
     return {**item, "draft_id": draft_id, "action_id": action_id}
@@ -355,8 +364,12 @@ def reconcile(lead_id, *, store=None, gmail=None, now=None):
         raise FollowupBlocked("the reserved follow-up has no step")
     thread_id = draft.get("message", {}).get("threadId", "")
     item = {"lead_id": lead_id, "step": step}
+    # Whether the found draft was tracked: its HTML part, decoded, links to the tracker.
+    raw = draft.get("message", {}).get("raw", "")
+    part = gmail_drafts._message(raw).get_body(preferencelist=("html",)) if raw else None
+    tracked = part is not None and tracking.BASE in part.get_content()
     _finalize(store, lead_id, row["Follow-up action"], draft["id"], step, thread_id,
-              row.get("Sent to", ""), item, now)
+              row.get("Sent to", ""), item, now, tracked=tracked)
     return {"lead_id": lead_id, "status": "CREATED", "draft_id": draft["id"]}
 
 

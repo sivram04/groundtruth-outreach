@@ -26,15 +26,18 @@ CHECK_COLUMNS = ["Lead ID", "Email check", "Reason", "Checked at"]
 RESEARCH_COLUMNS = ["Fit", "Work mix", "Fit reason", "Fit evidence", "Researched at"]
 PROFILE_COLUMNS = ["Profile status", "Offerings evidence", "Markets evidence", "Profile reason", "Profiled at"]
 DRAFT_COLUMNS = ["Draft action", "Draft action at", "Draft status", "Draft hash",
-                 "Draft quote ID", "Draft ID", "Draft link", "Drafted at", "Draft thread ID"]
+                 "Draft quote ID", "Draft ID", "Draft link", "Drafted at", "Draft thread ID",
+                 "Draft tracked"]
 # Stage 4. "Outreach status", not "Status": a plain "Status" is too likely to be the name of a
 # column of the founder's own.
 SYNC_COLUMNS = ["Outreach status", "Sent to", "Sent at", "Replied at", "Follow-ups sent",
                 "Last event", "Next action"]
 FOLLOWUP_COLUMNS = ["Follow-up step", "Follow-up action", "Follow-up action at",
                     "Follow-up status", "Follow-up draft ID"]
+# Stage 5. Blank until the lead has had an email this system drafted with tracking on.
+TRACKING_COLUMNS = ["Tracked sends", "Opens (est.)", "Clicks"]
 SYSTEM_COLUMNS = (CHECK_COLUMNS + RESEARCH_COLUMNS + PROFILE_COLUMNS + DRAFT_COLUMNS
-                  + SYNC_COLUMNS + FOLLOWUP_COLUMNS)
+                  + SYNC_COLUMNS + FOLLOWUP_COLUMNS + TRACKING_COLUMNS)
 EVENTS_TAB = "Events"
 EVENTS_HEADER = ["Recorded at (UTC)", "Lead ID", "Event", "Step", "Occurred at (UTC)", "Address",
                  "Match", "Detail", "Thread ID", "Gmail message ID", "Event key"]

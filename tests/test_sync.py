@@ -213,6 +213,13 @@ def test_a_sent_system_draft_is_tied_to_its_action_and_waits_for_follow_up_one()
     assert store.rows["A-0001"]["Next action"] == "Follow-up 1 was due Fri 2026-09-25; waiting to be drafted."
 
 
+def test_a_tracked_system_draft_is_recorded_as_tracked():
+    store = MemoryStore([lead(**{**drafted_lead(), "Draft tracked": "yes"})], suppression=[])
+    report = run(store, FakeGmail([sent("m1", thread="t-sys", when=at("2026-09-22 13:18"), to=SAM)]))
+    assert report["events"][0]["Detail"] == "draft draft-9, tracked"
+    assert store.rows["A-0001"]["Tracked sends"] == "1" and store.rows["A-0001"]["Opens (est.)"] == "0"
+
+
 def test_an_unsent_system_draft_that_was_deleted_is_reported():
     store = MemoryStore([drafted_lead()], suppression=[])
     run(store, FakeGmail([]))

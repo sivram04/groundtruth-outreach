@@ -36,7 +36,7 @@ from datetime import datetime, time, timedelta, timezone
 from outreach import checks, gmail_drafts, job_draft, mailbox, sequence
 from outreach.business_days import NEW_YORK, new_york_date
 from outreach.gmail_drafts import ACTION_HEADER
-from outreach.sheet import SYNC_COLUMNS, Store, now_utc
+from outreach.sheet import SYNC_COLUMNS, TRACKING_COLUMNS, Store, now_utc
 
 SYNC_START = "2026-09-21"  # the day before the first outreach emails (14 sent by hand, 2026-09-22)
 OVERLAP = timedelta(days=2)  # each run re-reads two days before the last one stopped
@@ -195,9 +195,12 @@ def plan(gmail, index, events, *, since, sender):
     for lead_id, row in sorted(index.rows.items()):
         drafted = _stamp(row.get("Drafted at"))
         if row.get("Draft status") == "CREATED" and row.get("Draft action") and drafted:
+            detail = f"draft {row.get('Draft ID', '')}"
+            if row.get("Draft tracked") == "yes":
+                detail += f", {sequence.TRACKED}"
             add(_event(lead_id, sequence.DRAFTED, sequence.INITIAL, drafted,
                        row.get("BEST EMAIL", "").strip().lower(), "DRAFT",
-                       row.get("Draft thread ID", ""), "", f"draft {row.get('Draft ID', '')}",
+                       row.get("Draft thread ID", ""), "", detail,
                        key=f"draft:{row['Draft action']}"))
 
     messages = [m for m in (mailbox.get(gmail, message_id)
@@ -374,7 +377,7 @@ def run(where="local", *, dry_run=False, store=None, gmail=None, settings=None, 
         event["Recorded at (UTC)"] = stamp
     store.append_suppression(suppress)
     store.append_events(new)
-    written, skipped = store.write_leads(updates, SYNC_COLUMNS)
+    written, skipped = store.write_leads(updates, SYNC_COLUMNS + TRACKING_COLUMNS)
     counts = ", ".join(f"{kind} {n}" for kind, n in sorted(report["new_events"].items())) or "none"
     detail = (f"read {read} messages since {_iso(since)}; new events: {counts}; "
               f"suppressed {len(suppress)}; lead rows updated {written}")

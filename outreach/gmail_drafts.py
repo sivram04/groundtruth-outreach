@@ -65,9 +65,11 @@ def drafts_for_action(gmail, action_id):
 
 
 def create(gmail, *, to, from_address, subject, body, action_id, thread_id=None,
-           in_reply_to=None, references=None):
+           in_reply_to=None, references=None, html=None):
     """Create one draft. With `thread_id` it is an answer inside that thread: Gmail files it
-    there when the thread id, the In-Reply-To and References headers and the subject agree."""
+    there when the thread id, the In-Reply-To and References headers and the subject agree.
+    With `html` (the tracked copy of the same words) the draft carries both versions; the plain
+    text stays exactly the approved body."""
     message = EmailMessage()
     message["To"] = to
     message["From"] = from_address
@@ -78,6 +80,8 @@ def create(gmail, *, to, from_address, subject, body, action_id, thread_id=None,
         message["References"] = references
     message[ACTION_HEADER] = action_id
     message.set_content(body)
+    if html:
+        message.add_alternative(html, subtype="html")
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode().rstrip("=")
     draft = {"raw": raw}
     if thread_id:

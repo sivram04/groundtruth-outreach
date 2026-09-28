@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from outreach import drafting, gemini, gmail_drafts, handbook_drive, research, writer
+from outreach import drafting, gemini, gmail_drafts, handbook_drive, research, tracking, writer
 from outreach.sheet import DRAFT_COLUMNS, LEAD_TABS, SHEET_ID, SYSTEM_COLUMNS, Tab, _api
 
 MAX_PILOT = 4
@@ -260,18 +260,27 @@ def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
         raise DraftBlocked("a Gmail draft already exists for this recipient")
 
     action_id = hashlib.sha256(("initial:" + approved_hash).encode()).hexdigest()[:32]
+    # Stage 5: tracking only when the founder has switched it on, and never an untracked
+    # draft in its place when the signing key cannot be read.
+    html = None
+    if settings.get("tracking_enabled") is True:
+        try:
+            html = tracking.tracked_html(result["body"], action_id, tracking.key())
+        except tracking.TrackingUnavailable as exc:
+            raise DraftBlocked(f"tracking is on but {exc}") from None
     tab.ensure_columns(DRAFT_COLUMNS)
     reserved = tab.write({row: {"Draft action": action_id,
                                 "Draft action at": datetime.now(timezone.utc).isoformat(),
                                 "Draft status": "RESERVED", "Draft hash": approved_hash,
-                                "Draft quote ID": result["selected_quote_id"]}})
+                                "Draft quote ID": result["selected_quote_id"],
+                                "Draft tracked": "yes" if html else ""}})
     if reserved["written"] != 1 or reserved["skipped"]:
         raise DraftBlocked("lead changed before reservation; no Gmail write attempted")
 
     # A create exception may still mean Gmail committed. Leave RESERVED for reconciliation.
     draft = gmail_drafts.create(gmail, to=result["to"], from_address=settings["sender_email"],
                                 subject=result["subject"], body=result["body"],
-                                action_id=action_id)
+                                action_id=action_id, html=html)
     draft_id = draft.get("id")
     if not draft_id:
         raise DraftBlocked("Gmail did not return a draft ID; action remains RESERVED")

@@ -4,7 +4,8 @@ import os
 
 from flask import Flask, jsonify, request
 
-from outreach import followup, job_check, job_draft, job_profile, job_research, sheet, sync
+from outreach import (followup, job_check, job_draft, job_profile, job_research, sheet, sync,
+                      tracking_job)
 
 app = Flask(__name__)
 
@@ -84,6 +85,12 @@ def sync_job():
                                            dry_run=request.args.get("dry_run") == "1"))
     except sync.SyncBlocked as exc:
         return jsonify(ok=False, error=str(exc)), 400
+
+
+@app.post("/jobs/tracking")
+def tracking_run():
+    """Stage 5: queued tracker hits become OPEN and CLICK events. Acknowledged after writing."""
+    return jsonify(ok=True, **tracking_job.run(where="cloud-run"))
 
 
 @app.post("/jobs/followup")

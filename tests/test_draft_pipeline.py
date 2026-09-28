@@ -322,6 +322,43 @@ def test_the_draft_s_thread_is_recorded_so_its_send_can_be_recognised(ready, mon
     assert tab.lead["Draft thread ID"] == "thread-1"
 
 
+def test_with_tracking_on_the_draft_carries_a_tracked_copy_of_the_same_words(ready, monkeypatch):
+    from outreach import tracking
+    row, tab, created = ready
+    monkeypatch.setattr(tracking, "key", lambda: bytes(range(32)))
+    written, digest = approved_written(row)
+    job_draft.create("A-0001", digest, written=written, settings=settings(tracking_enabled=True),
+                     api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    html = created[0]["html"]
+    assert tracking.BASE + "/o/" in html
+    # The website in these settings is not the allowed site, so its link stays as it is.
+    assert 'href="https://example.test"' in html and tracking.BASE + "/c/" not in html
+    assert created[0]["body"].endswith(drafting.OPT_OUT) and "t.lakshyaa.ai" not in created[0]["body"]
+    assert tab.lead["Draft tracked"] == "yes" and tab.lead["Draft hash"] == digest
+
+
+def test_with_tracking_off_the_draft_is_plain_text(ready):
+    row, tab, created = ready
+    written, digest = approved_written(row)
+    job_draft.create("A-0001", digest, written=written, settings=settings(),
+                     api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert created[0]["html"] is None and tab.lead["Draft tracked"] == ""
+
+
+def test_tracking_on_without_its_key_makes_no_draft_at_all(ready, monkeypatch):
+    from outreach import tracking
+    row, tab, created = ready
+
+    def missing():
+        raise tracking.TrackingUnavailable("the tracking signing key is not available")
+    monkeypatch.setattr(tracking, "key", missing)
+    written, digest = approved_written(row)
+    with pytest.raises(job_draft.DraftBlocked, match="tracking is on"):
+        job_draft.create("A-0001", digest, written=written, settings=settings(tracking_enabled=True),
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert created == [] and tab.writes == []
+
+
 def test_a_follow_up_drafted_today_counts_toward_the_same_daily_cap(ready):
     row, tab, created = ready
     tab.rows.append((4, lead(**{"Lead ID": "A-0002", "Follow-up status": "CREATED",

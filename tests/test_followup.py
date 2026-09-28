@@ -239,6 +239,42 @@ def test_the_follow_up_is_drafted_in_the_thread_to_the_address_actually_used(ena
     assert store.runs[-1]["Result"] == "OK"
 
 
+def test_with_tracking_on_the_follow_up_is_tracked_and_says_so(enabled, monkeypatch):
+    from outreach import tracking
+    monkeypatch.setattr(tracking, "key", lambda: bytes(range(32)))
+    store, gmail = system_store(), gmail_with()
+    run(store, gmail, config=settings(tracking_enabled=True))
+    email = parsed(gmail.created[0])
+    assert email.get_body(preferencelist=("plain",)).get_content().rstrip("\n") == FOLLOWUP_1
+    assert tracking.BASE + "/o/" in email.get_body(preferencelist=("html",)).get_content()
+    assert store.event_rows[-1]["Detail"].endswith(", tracked")
+
+
+def test_tracking_on_without_its_key_drafts_no_follow_up(enabled, monkeypatch):
+    from outreach import tracking
+
+    def missing():
+        raise tracking.TrackingUnavailable("the tracking signing key is not available")
+    monkeypatch.setattr(tracking, "key", missing)
+    store, gmail = system_store(), gmail_with()
+    report = run(store, gmail, config=settings(tracking_enabled=True))
+    assert "tracking is on" in report["blocked"][0]["why"][0]
+    assert gmail.created == [] and store.lead_writes == []
+
+
+def test_a_reconciled_follow_up_knows_whether_it_was_tracked(enabled):
+    from outreach import tracking
+    store = system_store(row=lead(**{"Follow-up step": "1", "Follow-up action": "act-f1",
+                                     "Follow-up status": "RESERVED", "Sent to": SAM,
+                                     "Follow-up action at": NOW.isoformat()}))
+    gmail = gmail_with()
+    gmail_drafts.create(gmail, to=SAM, from_address="admin@lakshyaa.ai", subject="A question",
+                        body="x", action_id="act-f1", thread_id="t-sys",
+                        html=tracking.tracked_html("x https://lakshyaa.ai", "a" * 32, bytes(range(32))))
+    followup.reconcile("A-0001", store=store, gmail=gmail, now=NOW)
+    assert store.event_rows[-1]["Detail"] == "draft draft-1, tracked"
+
+
 def test_running_again_does_not_draft_the_same_follow_up_twice(enabled):
     store, gmail = system_store(), gmail_with()
     run(store, gmail)
