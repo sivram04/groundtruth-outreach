@@ -40,6 +40,11 @@ from outreach.sheet import SYNC_COLUMNS, Store, now_utc
 
 SYNC_START = "2026-09-21"  # the day before the first outreach emails (14 sent by hand, 2026-09-22)
 OVERLAP = timedelta(days=2)  # each run re-reads two days before the last one stopped
+# On a ten-minute schedule most runs find nothing. Such a run writes no Runs row unless the last
+# one is this old, so the Runs tab gains a row when something happened and four a day otherwise.
+# Six hours is this system's choice: it bounds how much mail a quiet run re-reads (the cursor
+# moves only with a Runs row), and it is not a founder decision.
+QUIET_RUNS_ROW_EVERY = timedelta(hours=6)
 ADDRESS_COLUMNS = ("BEST EMAIL", "Their email", "Finance email", "Emails we already had")
 RANK = {"DRAFT": 4, "ADDRESS": 3, "THREAD": 2, "DOMAIN": 1, "SEVERAL": 0}
 
@@ -152,6 +157,17 @@ def _stamp(text):
 
 def _emailed_before(events, at):
     return any(e["Event"] == sequence.SENT and sequence.when(e) <= at for e in events)
+
+
+def unique(events):
+    """Each event once, by its key. Two runs at the same moment could both append the same
+    event; reading it twice would make it look like two emails."""
+    seen, out = set(), []
+    for event in events:
+        if event.get("Event key") not in seen:
+            seen.add(event.get("Event key"))
+            out.append(event)
+    return out
 
 
 def plan(gmail, index, events, *, since, sender):
@@ -336,7 +352,7 @@ def run(where="local", *, dry_run=False, store=None, gmail=None, settings=None, 
     cursor = store.last_cursor()
     since = max(start, cursor - OVERLAP) if cursor else start
     index = LeadIndex(store.leads())
-    events = store.events()
+    events = unique(store.events())
     entries = store.suppression()
     new, by_lead, read = plan(gmail, index, events, since=since, sender=address)
     gone = drafts_gone(gmail, index, by_lead)
@@ -347,6 +363,11 @@ def run(where="local", *, dry_run=False, store=None, gmail=None, settings=None, 
               "messages_read": read, "new_events": dict(Counter(e["Event"] for e in new)),
               "events": new, "suppression": suppress, "lead_updates": updates, "cursor": _iso(now)}
     if dry_run:
+        return report
+    if not (new or suppress or updates) and cursor and now - cursor < QUIET_RUNS_ROW_EVERY:
+        # Nothing happened: the Sheet is left alone. The cursor stays where it was, so the next
+        # run reads a little more mail again, and skips what it has already recorded.
+        report.update(written=0, skipped=[], runs_row=False)
         return report
 
     for event in new:
@@ -360,7 +381,7 @@ def run(where="local", *, dry_run=False, store=None, gmail=None, settings=None, 
     if skipped:
         detail += f"; skipped {len(skipped)} rows that changed during the run: " + "; ".join(skipped[:5])
     store.run_row("sync", where, "PARTIAL" if skipped else "OK", f"{detail}; cursor {_iso(now)}")
-    report.update(written=written, skipped=skipped)
+    report.update(written=written, skipped=skipped, runs_row=True)
     return report
 
 

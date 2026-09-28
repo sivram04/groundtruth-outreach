@@ -227,7 +227,7 @@ def run(where="local", *, dry_run=True, store=None, gmail=None, settings=None, h
     today = new_york_date(now)
     settings = job_draft.load_settings() if settings is None else settings
     store = store or Store()
-    leads, events, entries = store.leads(), store.events(), store.suppression()
+    leads, events, entries = store.leads(), sync.unique(store.events()), store.suppression()
     report = {"dry_run": dry_run, "today": today.isoformat(), "due": [], "later": [],
               "created": [], "blocked": [], "gates": []}
     if entries is None:

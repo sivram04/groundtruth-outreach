@@ -258,6 +258,58 @@ def test_the_next_run_reads_from_two_days_before_the_last_cursor():
     assert later.queries[0].startswith(f"after:{int(at('2026-09-26 09:00').timestamp())} ")
 
 
+def test_a_run_that_finds_nothing_leaves_the_runs_tab_alone_for_six_hours():
+    store = MemoryStore([lead()], suppression=[])
+    run(store, FakeGmail([first_send()]))
+    assert len(store.runs) == 1
+    quiet = run(store, FakeGmail([first_send()]), now=at("2026-09-28 14:59"))
+    assert quiet["runs_row"] is False and len(store.runs) == 1
+    beat = run(store, FakeGmail([first_send()]), now=at("2026-09-28 15:01"))
+    assert beat["runs_row"] is True and len(store.runs) == 2
+    assert "cursor 2026-09-28T19:01:00Z" in store.runs[-1]["Detail"]
+
+
+def test_a_run_that_records_something_always_writes_its_runs_row():
+    store = MemoryStore([lead()], suppression=[])
+    run(store, FakeGmail([first_send()]))
+    reply = message("r1", thread="t1", when=at("2026-09-28 09:05"), sender=SAM,
+                    to="admin@lakshyaa.ai", body="Call me.")
+    report = run(store, FakeGmail([first_send(), reply]), now=at("2026-09-28 09:10"))
+    assert report["runs_row"] is True and len(store.runs) == 2
+
+
+def test_a_suppression_row_deleted_by_hand_is_put_back_on_the_next_run():
+    """An opt-out is permanent here: the event stays, so the address goes back on the list."""
+    store = MemoryStore([lead()], suppression=[])
+    mail = [first_send(), message("r1", thread="t1", when=at("2026-09-23 08:00"), sender=SAM,
+                                  to="admin@lakshyaa.ai", body="No thanks.")]
+    run(store, FakeGmail(mail))
+    store.entries = []
+    report = run(store, FakeGmail(mail), now=at("2026-09-28 09:10"))
+    assert report["runs_row"] is True and [e["Address or domain"] for e in store.entries] == [SAM]
+
+
+def test_a_change_on_the_lead_row_alone_is_written_straight_away():
+    """The founder marks HOLD between two runs: no new mail, but the row must say so now."""
+    store = MemoryStore([lead()], suppression=[])
+    run(store, FakeGmail([first_send()]))
+    store.rows["A-0001"]["HOLD"] = "yes"
+    report = run(store, FakeGmail([first_send()]), now=at("2026-09-28 09:10"))
+    assert report["runs_row"] is True and store.rows["A-0001"]["Next action"] == "On hold: no follow-ups."
+
+
+def test_an_event_appended_twice_is_read_once():
+    """Read twice, one follow-up would count as two and end the sequence early."""
+    store = MemoryStore([lead()], suppression=[])
+    mail = [first_send(), sent("m2", thread="t1", when=at("2026-09-25 09:00"), to=SAM)]
+    run(store, FakeGmail(mail))
+    assert store.rows["A-0001"]["Follow-ups sent"] == "1"
+    store.event_rows.append(dict(store.event_rows[-1]))  # two runs at the same moment
+    report = run(store, FakeGmail(mail), now=at("2026-09-28 09:10"))
+    assert report["lead_updates"] == {} and store.rows["A-0001"]["Follow-ups sent"] == "1"
+    assert sync.unique(store.event_rows) == store.event_rows[:2]
+
+
 def test_a_dry_run_writes_nothing():
     store = MemoryStore([lead()], suppression=[])
     report = run(store, FakeGmail([first_send()]), dry_run=True)

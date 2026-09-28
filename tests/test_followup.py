@@ -382,6 +382,13 @@ def test_follow_up_two_answers_follow_up_one(enabled):
     assert store.rows["A-0001"]["Follow-up step"] == "2"
 
 
+def test_a_follow_up_event_recorded_twice_counts_once():
+    once = event(sequence.SENT, "FOLLOWUP_1", at("2026-09-28 10:00"), message_id="m2")
+    store = system_store(initial_sent(), once, dict(once))
+    report = run(store, dry_run=True, now=at("2026-10-01 09:00"))
+    assert [(d["step"], d["due"]) for d in report["due"]] == [(2, "2026-10-01")]
+
+
 def test_nothing_after_the_second_follow_up(enabled):
     events = [initial_sent(), event(sequence.SENT, "FOLLOWUP_1", at("2026-09-28 10:00"), message_id="m2"),
               event(sequence.SENT, "FOLLOWUP_2", at("2026-10-01 10:00"), message_id="m3")]
