@@ -40,19 +40,20 @@ const NUMBERS: [keyof TierCounts, string][] = [
   ["click_rate", "Click rate"],
 ];
 
+const SHORT: Record<string, string> = { READY: "Ready", WAITING: "Waiting", HELD: "Held" };
+
 /** A draft to read: who it is to, the line it opens from, and what it waits for. */
 function DraftCard({ draft }: { draft: Draft }) {
   const tone = draftTone(draft.status);
   return (
     <article className={`match ${tone}`}>
       <div className="match-top">
-        <div className="match-meta">
-          <span>{draft.tier === "A" ? "Proven commercial" : draft.tier === "B" ? "Likely commercial" : "Lead"}</span>
-          <span className="muted">{draft.prepared_at ? `written ${draft.prepared_at}` : "not written yet"}</span>
-        </div>
-        <Status tone={tone}>{draft.status_label}</Status>
+        <span className="match-when" title={draft.prepared_at}>
+          {draft.prepared_ago ? `written ${draft.prepared_ago}` : "written"}
+        </span>
+        <Status tone={tone}>{SHORT[draft.status] ?? draft.status_label}</Status>
       </div>
-      <h3>{draft.company}</h3>
+      <h3 title={draft.company}>{draft.company}</h3>
       <p className="match-line">{draft.quote ? `“${draft.quote}”` : draft.why[0] || "No opening line"}</p>
       <div className="match-foot">
         <span className="match-who">
@@ -231,8 +232,12 @@ export function Dashboard({ data }: { data: Snapshot }) {
                       <td>
                         <Status tone={leadTone(lead.status)}>{lead.status_label}</Status>
                       </td>
-                      <td className="small next">{lead.action}</td>
-                      <td className="nowrap small muted">{lead.cells["Sent at"] || "—"}</td>
+                      <td className="small next" title={lead.action}>
+                        {lead.action || "—"}
+                      </td>
+                      <td className="nowrap small muted" title={lead.cells["Sent at"] ?? ""}>
+                        {lead.sent_ago || lead.cells["Sent at"] || "—"}
+                      </td>
                     </tr>
                   );
                 })}

@@ -38,6 +38,7 @@ export interface Draft {
   status_label: string;
   why: string[];
   prepared_at: string;
+  prepared_ago: string;
 }
 
 export interface Lead {
@@ -65,6 +66,7 @@ export interface Lead {
   suppressed: boolean | null;
   gmail_drafts: GmailDraft[];
   draft: DraftStatus | string | null;
+  sent_ago: string;
   ready: boolean;
   blockers: string[];
   error: string | null;

@@ -217,7 +217,7 @@ def test_a_draft_never_carries_its_approval_hash_or_the_writers_output(data):
         assert "Approval hash" not in draft and "Written" not in draft
         assert set(draft) == {"lead_id", "kind", "to", "company", "contact", "tier", "subject",
                               "body", "quote", "quote_page", "quote_href", "status",
-                              "status_label", "why", "prepared_at"}
+                              "status_label", "why", "prepared_at", "prepared_ago"}
 
 
 def test_each_lead_knows_its_drafts_status(data):
@@ -249,3 +249,24 @@ def test_drafts_that_can_be_approved_come_first_then_waiting_then_held():
         ("A-0007", "READY"), ("A-0008", "WAITING"), ("A-0013", "HELD")]
     # Waiting only for a name to be checked is not waiting for the offer approval.
     assert data["drafts_summary"] == {"ready": 1, "waiting": 1, "held": 1, "waiting_for_offer": 0}
+
+
+def test_how_long_ago_is_said_in_words():
+    from datetime import timedelta
+    now = fx.NOW
+    said = lambda minutes: console_model.ago((now - timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M:%S"), now)
+    assert said(0) == "just now" and said(1) == "1 minute ago" and said(45) == "45 minutes ago"
+    assert said(60) == "1 hour ago" and said(300) == "5 hours ago"
+    assert said(60 * 24) == "1 day ago" and said(60 * 24 * 3) == "3 days ago"
+    assert said(60 * 24 * 21) == "3 weeks ago"
+    assert console_model.ago("", now) == "" and console_model.ago("soon", now) == ""
+    # A moment in the future is not "in -2 hours"; it says nothing.
+    assert console_model.ago((now + timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S"), now) == ""
+
+
+def test_a_draft_and_a_lead_say_how_long_ago_beside_the_exact_time(data):
+    draft = data["drafts"][0]
+    assert draft["prepared_at"] == "2026-09-28 08:40 ET" and draft["prepared_ago"].endswith("ago")
+    lead = leads(data)["A-0001"]
+    assert lead["cells"]["Sent at"] == "2026-09-22 13:18 ET" and lead["sent_ago"] == "5 days ago"
+    assert leads(data)["A-0007"]["sent_ago"] == ""  # never emailed

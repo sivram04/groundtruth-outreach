@@ -105,6 +105,31 @@ def moment(text):
     return parsed.astimezone(NEW_YORK).strftime("%Y-%m-%d %H:%M ET")
 
 
+def ago(text, now):
+    """How long ago a moment this system recorded was, in words: "2 hours ago", "3 days ago".
+
+    Rounded down to the largest whole unit, because an exact figure adds nothing here; the exact
+    time is still shown beside it. A moment that cannot be read gives nothing."""
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    try:
+        moment = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    seconds = (now - moment).total_seconds()
+    if seconds < 0:
+        return ""
+    for length, one, many in ((86400 * 7, "week", "weeks"), (86400, "day", "days"),
+                              (3600, "hour", "hours"), (60, "minute", "minutes")):
+        if seconds >= length:
+            count = int(seconds // length)
+            return f"{count} {one if count == 1 else many} ago"
+    return "just now"
+
+
 def safe_href(url):
     """The address itself when it is an http(s) link, else "": a cell reading 'javascript:...'
     must never become a link on the page."""
@@ -147,7 +172,7 @@ def _drafts_of(row, sends, sent_steps):
     return found
 
 
-def _lead(lead_id, row, events, entries, today):
+def _lead(lead_id, row, events, entries, today, now=None):
     """(what the pages show about one lead, its next follow-up as (step, date) or None)."""
     tier = tier_of(lead_id)
     view = {
@@ -161,7 +186,7 @@ def _lead(lead_id, row, events, entries, today):
         "sent_by_hand": row.get("Sent by hand", "").strip(),
         "status": "", "status_label": STATUS_LABELS[""], "action": "", "cells": {},
         "origin": None, "next_followup": None, "suppressed": None, "gmail_drafts": [],
-        "ready": False, "blockers": [], "error": None, "draft": None,
+        "ready": False, "blockers": [], "error": None, "draft": None, "sent_ago": "",
         "events": [event_view(e) for e in _in_order(events)],
         "columns": [[column, value] for column, value in row.items()],
     }
@@ -174,6 +199,8 @@ def _lead(lead_id, row, events, entries, today):
         return view, None
     running = state["sequence"]
     upcoming = sequence.next_followup(running) if running else None
+    first = running["sends"][0] if running else None
+    view["sent_ago"] = ago(first[sequence.OCCURRED], now) if first and now else ""
     view.update(
         status=state["status"], status_label=STATUS_LABELS.get(state["status"], state["status"]),
         action=state["cells"]["Next action"], cells=state["cells"], suppressed=suppressed,
@@ -264,7 +291,7 @@ OFFER_NOT_APPROVED_SAID = "You have not approved the offer wording yet"
 REASONS_SAID = {drafts_tab.OFFER_NOT_APPROVED: OFFER_NOT_APPROVED_SAID}
 
 
-def draft_view(row, lead):
+def draft_view(row, lead, now=None):
     """One row of the Drafts tab as the pages show it. Never the approval hash or the stored
     writer output: the pages only show the words."""
     status = row.get("Status", "")
@@ -279,6 +306,7 @@ def draft_view(row, lead):
         "status": status, "status_label": DRAFT_LABELS.get(status, status or "Unknown"),
         "why": [REASONS_SAID.get(reason, reason) for reason in reasons],
         "prepared_at": moment(row.get("Prepared at (UTC)")),
+        "prepared_ago": ago(row.get("Prepared at (UTC)"), now) if now else "",
     }
 
 
@@ -295,7 +323,7 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", dr
     views, needs_you, coming_up = [], [], []
     horizon = add_business_days(today, COMING_UP_BUSINESS_DAYS)
     for lead_id, row in sorted(leads.items(), key=lambda item: _lead_order(item[0])):
-        view, upcoming = _lead(lead_id, row, by_lead.get(lead_id, []), entries, today)
+        view, upcoming = _lead(lead_id, row, by_lead.get(lead_id, []), entries, today, now)
         views.append(view)
         need = _needs_you(view, upcoming, today)
         if need:
@@ -324,7 +352,7 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", dr
                         + ", ".join(broken) + ".")
 
     by_id = {v["id"]: v for v in views}
-    drafts = [draft_view(row, by_id.get(row.get("Lead ID"))) for row in (draft_rows or [])]
+    drafts = [draft_view(row, by_id.get(row.get("Lead ID")), now) for row in (draft_rows or [])]
     drafts.sort(key=lambda d: (DRAFT_ORDER.get(d["status"], 3), _lead_order(d["lead_id"])))
     for draft in drafts:
         if draft["lead_id"] in by_id and by_id[draft["lead_id"]]["draft"] is None:

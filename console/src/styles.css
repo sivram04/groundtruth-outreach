@@ -232,9 +232,9 @@ ul.plain {
 }
 
 main {
-  padding: 20px 20px 26px;
+  /* The pages fill the window, as the founder's reference does. */
+  padding: 16px 18px 26px;
   width: 100%;
-  max-width: 1240px;
 }
 
 footer {
@@ -830,7 +830,7 @@ a.metric:hover {
 .matches {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(230px, 1fr);
+  grid-auto-columns: minmax(250px, 1fr);
   gap: 12px;
   overflow-x: auto;
   padding-bottom: 2px;
@@ -867,17 +867,9 @@ a.metric:hover {
   gap: 8px;
 }
 
-.match-meta {
-  display: flex;
-  flex-direction: column;
+.match-when {
   font-size: 11.5px;
   color: var(--soft);
-  min-width: 0;
-}
-
-.match-meta span {
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -894,6 +886,7 @@ a.metric:hover {
 .match-line {
   margin: 0;
   font-size: 12.5px;
+  font-style: italic;
   line-height: 1.45;
   color: var(--soft);
   display: -webkit-box;
@@ -1218,12 +1211,28 @@ th {
   display: flex;
   gap: 9px;
   align-items: center;
-  min-width: 180px;
+  min-width: 240px;
+}
+
+/* A company and who it is: one line each, cut with an ellipsis rather than wrapped. */
+.who-cell > div {
+  min-width: 0;
+}
+
+.who-cell .strong,
+.who-cell .block {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 td.next {
-  max-width: 320px;
   color: var(--muted);
+  max-width: 460px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---------- search and filters ---------- */
