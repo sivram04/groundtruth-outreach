@@ -20,7 +20,7 @@ moved on (the handbook was already in Drive and all 26 eligible leads were profi
 | 2 Research | **Bulk fit research paused; all 26 draft-eligible leads profiled** 2026-09-23 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible, all profiled: 25 READY, 1 REVIEW_NEEDED (A-0028). 396 pending, not to be resumed for now. No research schedule exists. |
 | 3 Drafts (pilot) | **Drive → Gemini → checks pipeline built and run read-only; blocked only by the unapproved offer** 2026-09-23 | The handbook is a Google Doc in Drive and the sign-in holds `drive.readonly`. Read-only over all 26 eligible leads: 21 pass, 5 held. Every passing preview's only blocker is that the founder has not approved the offer wording, so no approval hash exists, Gmail drafting has never run and no draft exists. Since 2026-09-28 the draft endpoints are in the deployed revision, and draft creation is refused there (403): `ENABLE_GMAIL_DRAFTS` is not set on the service. |
 | 4 Sync and follow-ups | **Sync deployed and scheduled every 10 minutes** 2026-09-28; no follow-up drafted | 396 tests pass offline in the container with no network; 69 deliberate breaks of the new code, all caught. Revision `outreach-worker-00017-nin` serves 100%; Cloud Scheduler `outreach-sync` (`*/10`, America/New_York) is ENABLED, and its first run returned 200 in 2.4 s. The first real sync (run locally) recorded the 14 hand-sent emails in a new Events tab and 14 A rows. See "Stage 4" below. Its pass test (the founder sends real drafts; SENT, REPLIED and a bounce land correctly) has not been run. |
-| 5 Tracking | **Built and deployed 2026-09-28; off for new drafts; t.lakshyaa.ai waits for the founder's DNS record** | 460 tests pass offline in the container; 49 deliberate breaks, 48 caught, 1 equivalent. Public tracker `outreach-tracker` smoke-tested live (forged links counted nothing, an off-site click was refused, genuine hits queued with no IP address); the worker picks up hits every 5 minutes (`outreach-tracking`); the Dashboard tab computes 14 emailed, 1 match to check. Its pass test (a test email to the founder's other inbox shows an open and a click) waits for the DNS record and certificate. See "Stage 5" below. |
+| 5 Tracking | **Built and deployed 2026-09-28; off for new drafts; t.lakshyaa.ai live over HTTPS (DNS added by the founder, certificate issued 23:55 UTC); pass-test drafts made, waiting for the founder to send, open and click** | 460 tests pass offline in the container; 49 deliberate breaks, 48 caught, 1 equivalent. Public tracker `outreach-tracker` smoke-tested live (forged links counted nothing, an off-site click was refused, genuine hits queued with no IP address); the worker picks up hits every 5 minutes (`outreach-tracking`); the Dashboard tab computes 14 emailed, 1 match to check. Its pass test (a test email to the founder's other inbox shows an open and a click) waits for the DNS record and certificate. See "Stage 5" below. |
 | 6 Calls | Not started | |
 
 ## What runs where
@@ -1190,6 +1190,20 @@ unproven: whether the image and links survive the founder editing a draft in the
 emails this system drafts can be tracked, and none exists yet (the offer wording is unapproved).
 
 ## Change log
+
+- **2026-09-29** t.lakshyaa.ai is live: the founder added the CNAME at Squarespace (seen on
+  Squarespace's own server and Google's public DNS at 23:38 UTC), Google issued the certificate
+  at 23:55, and Google's servers served it from 00:01 (a forged image link over https gets the
+  image and queues nothing). No record restricts certificate issuers. lakshyaa.ai mail: MX
+  Google, SPF and DKIM present, **no DMARC** (recommended to the founder: TXT `_dmarc`,
+  `v=DMARC1; p=none`). **Pass test, on the founder's instruction** ("check with personal email and
+  company email ... write something with links"): `tracking_check --real` (new: the handbook's
+  own follow-up 1 words, signature, postal address and opt-out line under the handbook's own
+  subject, one tracked link and the image, so the same test shows which folder real outreach
+  lands in) made two drafts, to the founder's personal Gmail and to their bettersnap.ai inbox
+  (Google Workspace): read back, each has one tracked link and the image, and Events has two
+  TEST DRAFTED rows. Both inboxes are Google's, so Microsoft's filtering is not tested.
+  Waiting: the founder sends both, says which folder each landed in, opens and clicks.
 
 - **2026-09-28** Found in the logs after stage 5 and fixed: **the worker grew by about 55 MB every
   sync run** (Cloud Monitoring, 10-minute p99: 169 MB after a restart, then 282, 333, 394, 451,
