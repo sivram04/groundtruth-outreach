@@ -180,6 +180,13 @@ Severity: this is the product's central promise. Mitigation today: the model is 
 is given one quote at temperature 0. **I checked all 25 real drafts: 0 contain a negation in the
 company sentence.** Nothing has escaped; the hole is real.
 
+**What that count does and does not show (added 2026-09-29, on an external reviewer's correction).**
+It shows that nothing has escaped *yet*, on 25 drafts written in one run, from one model at one
+temperature, against one prompt. It does **not** establish that the validator is reliable, and it is
+not a pass rate: 25 is too small a sample, and too uniform, to measure either the check or the
+model's tendency to negate. Treat the count as "no known escape", never as evidence the check works.
+Measuring it needs a written set of adversarial sentences (§8.1).
+
 ### 3.2 Prompt injection
 
 **Partially defended, on the output side only.** Fetched page text is placed into the research and
@@ -255,6 +262,36 @@ files; anything about indirect calls (`getattr(svc, "se"+"nd")`, a bound method,
 Google boundary — **`gmail.compose` permits sending**, which `docs/ARCHITECTURE.md:31` states
 plainly. The real guarantees today are: no send code exists, drafting is disabled by a deployment
 setting, and the founder's Sent folder is the check.
+
+**Correction, 2026-09-29.** An earlier draft of this review offered "`/jobs/followup` returned 403
+twice in 24 h" as evidence that nothing has ever been sent. That is wrong, and an external reviewer
+was right to reject it: two refusals prove those two requests were refused, nothing more. The
+historical claim needs mailbox evidence, so I took it (read-only; the scheduled sync already reads
+this mailbox every ten minutes):
+
+| Read | Result |
+|---|---|
+| Messages in `Sent` since 2026-09-01 | 21 |
+| Of those, to lead domains | 14, all on 2026-09-22 |
+| `DRAFTED` events this system has ever written | **2**, both 2026-09-29, both `Lead ID = TEST`, both to the founder's own addresses |
+| How the 14 `SENT` events were matched | **13 `ADDRESS`, 1 `DOMAIN`, 0 `DRAFT`** (`sync.py:115-119` writes this itself) |
+| Lead rows marked `Sent by hand` | 14 — exactly those leads |
+
+**The narrowed claim this supports:** this system has never created a Gmail draft for a lead and has
+never sent a message. The only two drafts it has ever created were the tracking tests of 2026-09-29,
+addressed to the founder. The 14 lead emails in `Sent` were written and sent by the founder by hand
+and discovered afterwards by address match — the system's own match column says so, and it is the
+column that would read `DRAFT` had a draft of its own been sent.
+
+**What the probe also settled — and one piece of evidence it retires.** `gmail_drafts.py:12` stamps
+every draft this system makes with `X-Lakshyaa-Draft-Action`. Sending such a draft from the Gmail
+interface **strips it**: both 2026-09-29 test messages reached `Sent` carrying no `X-` header at all.
+So the header's absence from the 14 lead emails is *not* evidence about their origin, and this review
+does not rely on it. The **thread id does survive** — both test messages' threads match their
+`DRAFTED` events exactly — and `match_sent` tries the thread before the header (`sync.py:115`), so
+the DRAFT match works. `docs/AS_BUILT.md` lists "Gmail keeping a sent draft in its thread" as
+unproven; **it is now proven live**, and the header is a fallback that will never fire. Not a defect;
+worth recording, because a later change that matched on the header alone would silently never match.
 
 ### 4.2 The assistant's checks — correcting an overclaim
 
@@ -430,7 +467,8 @@ sync, a repeated 429, or a cost spike would be noticed only by eye.
 | 25 drafts: 21 WAITING, 4 HELD | **yes**, all written 2026-09-29 02:29 UTC, **0 carry an approval hash** | live read |
 | 14 emails sent, all by hand on 2026-09-22 | **yes** — 14 `SENT` events, all `Sent by hand` | live read |
 | 0 replies, 0 bounces, 0 opt-outs | **yes** — `Events` holds only SENT 14, DRAFTED 2, OPEN 4, CLICK 1; Suppression is empty | live read |
-| Nothing has been sent by this system | **yes** — no send code; `/jobs/followup` refused 403 twice in 24 h | test + live logs |
+| This system has never created a Gmail draft for a lead, and has never sent a message | **yes**, on the narrowed claim and the mailbox evidence of §4.1 — 2 `DRAFTED` events ever, both `TEST`, both to the founder; the 14 `SENT` events matched 13 `ADDRESS` / 1 `DOMAIN` / 0 `DRAFT`; `Sent` holds 21 messages since 2026-09-01 | live mailbox + live Sheet + code |
+| ~~Nothing has been sent by this system, because `/jobs/followup` refused 403 twice in 24 h~~ | **withdrawn** — two refusals prove only that those two requests were refused; see §4.1 | — |
 
 **Not visible to the system:** a `C_Phone_Only` tab holds **242 companies with no email address**.
 `LEAD_TABS` names only A and B (`sheet.py:17`), so those 242 are invisible to every job.
@@ -472,6 +510,17 @@ given one.
 ## 8. Remaining work and risks
 
 ### 8.1 Defects to fix in what exists (ordered)
+
+**The bar each fix has to clear, and a withdrawn estimate.** On 2026-09-29 I told the founder the
+first four might take "maybe an hour". **I withdraw that.** An hour is roughly the editing time;
+it is not the time to prove the guarantee, and offering it as one estimate conflates changing a
+condition with establishing that it holds. The honest split: changing the four conditions is
+short work; proving them is the longer half, and for items 1 and 2 the proof needs a set of
+adversarial cases that does not exist yet. No fix below is finished until (a) a named test fails
+without it and passes with it, (b) a deliberate break of the new condition is caught, and (c) for
+items 1 and 2, it is measured against a written set of cases — not against the 25 drafts now in
+the Sheet, which an external reviewer rightly points out is a sample too small and too uniform to
+establish a validator's reliability either way.
 
 1. **The negation hole** (§3.1). A sentence that reverses its quote is accepted. Fix: treat negation
    and hedging words as content rather than stopwords, and extend `_polarity_reversed` to the

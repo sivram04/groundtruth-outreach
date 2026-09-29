@@ -1112,10 +1112,21 @@ hand, so write it yourself in the same thread.", and A-0005 REVIEW_NEEDED. Runs 
 messages from 2026-09-26T16:06:06Z (the cursor less two days) and found no new event, no
 Suppression row and no lead change.
 
-**What this still does not prove — needs a real send of a system draft:** that Gmail keeps a
+**What this still does not prove — needs a real send of a system draft:** ~~that Gmail keeps a
 sent draft in the draft's thread (the DRAFT match rests on it; the action header is the
-fallback, and whether Gmail keeps custom headers on a web-UI send is unknown); how real bounce
+fallback, and whether Gmail keeps custom headers on a web-UI send is unknown);~~ how real bounce
 notices, automatic replies and replies from Outlook and phones look (none has arrived).
+
+**Settled 2026-09-29, by the two tracking-test drafts the founder sent by hand** (a read-only
+mailbox probe; both were addressed to the founder's own addresses, not to a lead). Gmail **keeps
+the thread**: each sent message's thread id equals the thread recorded on its `DRAFTED` event, so
+the DRAFT match works — and `match_sent` tries the thread first (`sync.py:115`). Gmail **strips
+the custom header**: neither message reached `Sent` carrying `X-Lakshyaa-Draft-Action`, or any
+`X-` header at all. So the action header is a fallback that will never fire on a web-UI send, and
+its absence from a sent message says nothing about that message's origin. No change is needed —
+the order in `match_sent` is already the working one — but a later change that matched on the
+header alone would silently never match, and a draft sent from the API (rather than the web
+interface) has not been tested.
 
 **Deployed and scheduled, 2026-09-28 (founder: "deploy it and schedule sync every 10 minutes").**
 Two changes first, so a ten-minute schedule suits the Sheet: a run that records nothing writes
