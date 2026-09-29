@@ -1405,8 +1405,18 @@ Sheet — and how often the checks refuse it — is unknown.
   address columns, failed read, malformed row, valid empty list, short row, blank line, address and
   whole-domain suppression, and each of the five consumers — and **23 deliberate breaks, all 23
   caught by the new tests alone**, including the fail-open and the header mismatch reintroduced
-  separately. Suite 615 Python (was 575) and 46 React. **Not deployed: the running Cloud Run
-  services still carry the old behaviour until `deploy_console.sh` / the worker image is rebuilt.**
+  separately. Suite 615 Python (was 575) and 46 React.
+
+  **Deployed the same day.** `deploy/deploy_worker.sh` built `outreach-worker-00025-qax` untrafficked
+  (`--no-traffic --tag=next`, `ENABLE_GMAIL_DRAFTS` still unset). A dry-run sync against its tag URL
+  read the live Sheet under the new strict contract before any traffic moved: `ok: true`, 13 messages
+  read, 0 new events, 0 suppression rows, 0 lead updates — **the live Suppression tab reads clean
+  under the stricter contract**, so nothing was ever at risk of being blocked by this change on the
+  data as it stands today. Traffic was then moved to it (`update-traffic --to-tags=next=100`); the
+  default URL confirmed serving it (a further dry-run OK, cursor advancing) and the two other tagged
+  revisions (`profile-review`, `stage4`) remain reachable at 0% by their own URLs but no longer take
+  the scheduler's calls. **The console (`deploy_console.sh`) was not redeployed**, so its warning text
+  still reads the pre-fix wording; that is display only and blocks nothing.
 
 - **2026-09-29** The console gets an assistant (grounded in the Sheet, refuses any answer whose
   figures the data does not carry, can change nothing) and the pages are rebuilt light in the

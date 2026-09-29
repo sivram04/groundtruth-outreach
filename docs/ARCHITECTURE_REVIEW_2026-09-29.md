@@ -338,9 +338,9 @@ and nothing else.
 ### Findings
 
 1. **Finding 2 — the sync treats an unreadable suppression list as an empty one. CONFIRMED by
-   reading `sync.py:363-364`. FIXED 2026-09-29 in the working tree; see the end of this finding,
-   and `docs/AS_BUILT.md`'s change log for what was built. NOT DEPLOYED: the running services
-   still carry the behaviour described below.** `drafts.py:99` and `followup.py:237` fail closed on
+   reading `sync.py:363-364`. FIXED and DEPLOYED 2026-09-29; see the end of this finding, and
+   `docs/AS_BUILT.md`'s change log for what was built and deployed.** `drafts.py:99` and
+   `followup.py:237` fail closed on
    `entries is None`; `sync.run` uses `entries or []`. If the tab is renamed or its header changed,
    the sync recomputes every historical bounce and opt-out as missing and re-appends them — and
    because `append_suppression` maps by the *existing* header (`sheet.py:314-317`), the appended
@@ -386,8 +386,18 @@ and nothing else.
    header with no address column is refused rather than written to. 40 new tests in
    `tests/test_suppression.py` cover every case across all five consumers, and **23 deliberate
    breaks are all caught by those tests alone**, the fail-open and the header mismatch reintroduced
-   separately. **The deployed services are unchanged until the worker and console images are
-   rebuilt**, so everything stated above about the *running* system still holds today.
+   separately.
+
+   **DEPLOYED 2026-09-29.** `outreach-worker-00025-qax` was built with `deploy/deploy_worker.sh`,
+   which never sets `ENABLE_GMAIL_DRAFTS` and shipped `--no-traffic --tag=next`. A dry-run sync
+   against that tag read the **live** Sheet under the new strict contract before any traffic moved:
+   `ok: true`, 13 messages read, 0 new events, 0 suppression rows, 0 lead updates — the live
+   Suppression tab reads clean under the stricter rules, so nothing was ever at risk of being
+   blocked by this change on the data as it stands. Traffic was then moved to the new revision
+   (`gcloud run services update-traffic … --to-tags=next=100`) and the default URL confirmed
+   serving it. **The console was not redeployed**; its displayed warning still reads the pre-fix
+   wording, which is a display-only gap, not a functional one — `Store.suppression()` itself is
+   fixed regardless of which process calls it.
 2. **A follow-up can still be drafted to someone who has replied**, if the reply arrives in a
    *different* thread, or between the thread check (`followup.py:284`) and the draft call (`:321`),
    or via a concurrent sync after the run's snapshot (`:230`). The in-thread case is blocked and
@@ -573,11 +583,12 @@ sending mechanism. Items 2 and 3 change what the founder reads and can correct a
 Items 1 and 5 are now one piece of work, because fixing the fail-open without settling the column
 name leaves a path that parses rows and suppresses nobody (§5, finding 1).
 
-1. ~~**The sync's `entries or []`, with the column names**~~ (§5, finding 1). **DONE 2026-09-29,
-   not deployed.** `sync.run` fails closed as its siblings do, one contract
-   (`outreach/suppression.py`) serves all five readers, and a blocked run records `BLOCKED` with the
-   reason and no cursor. 40 tests, 23 deliberate breaks all caught. The running services keep the old
-   behaviour until their images are rebuilt.
+1. ~~**The sync's `entries or []`, with the column names**~~ (§5, finding 1). **DONE and DEPLOYED
+   2026-09-29** (`outreach-worker-00025-qax`, serving 100% of traffic). `sync.run` fails closed as
+   its siblings do, one contract (`outreach/suppression.py`) serves all five readers, and a blocked
+   run records `BLOCKED` with the reason and no cursor. 40 tests, 23 deliberate breaks all caught. A
+   dry-run against the live Sheet before traffic moved read clean under the stricter contract. The
+   console's own displayed wording was not redeployed (cosmetic only).
 2. **The negation hole** (§3.1). A sentence that reverses its quote is accepted. Fix: treat negation
    and hedging words as content rather than stopwords, and extend `_polarity_reversed` to the
    sentence side. 0 of 25 current drafts are affected — see §3.1 for why that is not a pass rate.
