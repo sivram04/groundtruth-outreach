@@ -1,28 +1,33 @@
 """An adversarial set for `outreach.writer`'s grounding check, written BEFORE it was changed.
 
-Every case here was written before `writer.py` was touched for this work, from reading the
+Both lists here were written before `writer.py` was touched for this work, from reading the
 module's own code and the founder's real fixture (`examples/synthetic_handbook.txt`, the same
-quote `test_writer.py` uses) — never from watching what a draft candidate rule already does or
-does not catch. `TUNING_CASES` were the ones read while the new checks were being written;
-`HELD_OUT_CASES` were set aside and looked at only once, after the implementation was finished,
-to measure it rather than to shape it. Both lists are recorded before the code change so the
-"before" and "after" runs are honest: the case, its evidence, its expected verdict and the reason
-for that verdict are fixed points nothing in this file's history was allowed to move.
+quote `test_writer.py` uses) - never from watching what a candidate rule already does or does not
+catch. The case, its evidence, its expected verdict and the reason are recorded before the code
+change so the "before" and "after" runs are honest.
+
+CORRECTION (2026-09-29, on the founder's review): both lists became DEVELOPMENT evidence. An
+earlier version of this file, and the results doc, said the HELD_OUT cases were "looked at only
+once, after the implementation was finished." That claim is withdrawn: the eval runner runs both
+lists together, and it was run repeatedly during implementation while the checks were iterated, so
+the held-out list informed the work. Treat every case here as development data. The genuinely
+untouched measurement is in `tests/grounding_eval_fresh.py`, written after the implementation was
+frozen and run once; that is the only set whose "held out" claim holds.
 
 Each case is one dict:
   id        a short, stable name
-  category  one of the seven kinds the audit named: baseline, negation, reversed_subject,
-            wrong_number, wrong_date, exaggerated_scope, removed_qualifier, unsupported_combination
+  category  the kind of error: baseline, negation, reversed_subject, wrong_number, wrong_date,
+            exaggerated_scope, removed_qualifier, unsupported_combination, delegated_actor
   kind      "COMPANY", "PRODUCT", "ASK" or "SUBJECT" — which part of the email this exercises
   source    the quote (COMPANY) or handbook text (everything else) the sentence is judged against
   text      the candidate sentence (or subject line)
   company   the company name, when a COMPANY sentence needs one to be stripped before judging
-  expect    "accept" or "reject" — the fact of the matter, decided independently of the code
+  expect    "accept", "reject" (the words are wrong) or "review" (the validator cannot tell and
+            must hand the sentence to a person); the fact of the matter, decided independently
   because   why a person would call it that, in one sentence
 
-A case with expect="reject" and a category is not a claim that today's code, or even the
-improved one, catches it: `docs/testing/grounding-eval/RESULTS.md` records exactly which do and
-do not, both before and after, and says so where a case is expected to remain uncaught.
+An expect of "reject" or "review" is not a claim the code catches the case; the results doc
+records which it does, and names every case left uncaught with its false-accept count.
 """
 
 QUOTE = "We install electrical distribution systems for commercial buildings."
@@ -227,21 +232,18 @@ HELD_OUT_CASES = [
      "company": COMPANY, "expect": "reject",
      "because": "makes an unnamed third party the installer; 'contractors' and 'project-manages' "
                 "are not in the quote, so ordinary grounding is expected to catch this on its own"},
-    {"id": "held-reversed-subject-delegation-kept-under-name", "category": "reversed_subject",
+    {"id": "held-reversed-subject-delegation-kept-under-name", "category": "delegated_actor",
      "kind": "COMPANY",
      "source": "We install and maintain electrical distribution systems for commercial "
               "buildings, working with trusted subcontractors and vendors.",
      "text": f"{COMPANY}'s trusted subcontractors install and maintain electrical distribution "
              "systems for commercial buildings.",
-     "company": COMPANY, "expect": "reject",
-     "because": "every word here — trusted, subcontractors, install, maintain, electrical, "
-                "distribution, systems, commercial, buildings — is already in this quote, "
-                "because the quote itself mentions working with subcontractors; the candidate "
-                "keeps the company's own name as the grammatical subject while quietly making "
-                "the subcontractors, not the company, the one who installs. This is the class "
-                "of reversal a leading-subject-marker screen cannot see, and it is EXPECTED "
-                "still to be wrongly accepted; the results record it as a known open gap, not "
-                "a pass"},
+     "company": COMPANY, "expect": "review",
+     "because": "every word here is already in this quote, so word grounding cannot see that the "
+                "candidate keeps the company's own name as the subject while making the "
+                "SUBCONTRACTORS, not the company, the ones who install. Not decidable by word "
+                "overlap; the '<Company>'s ... subcontractors' possessive shape IS visible, so "
+                "the sentence is held for a person to confirm who performs the work"},
 
     # --- wrong quantities or dates, held out ----------------------------------------------------
     {"id": "held-wrong-number-transposed", "category": "wrong_number", "kind": "COMPANY",
@@ -268,20 +270,24 @@ HELD_OUT_CASES = [
      "because": "the existing case this module's own tests already cover; kept here as a "
                 "held-out control that the refactor must not have broken"},
 
-    # --- unsupported combination of facts, held out: one caught, one honestly not --------------
+    # --- unsupported combination of facts, held out: one held for review, one honestly not -------
     {"id": "held-combination-cross-paragraph", "category": "unsupported_combination", "kind": "PRODUCT",
      "source": HANDBOOK, "text": "Example Product is still being finished, and other contractors "
                                  "already promise a faster payment with it.",
-     "expect": "reject",
-     "because": "stitches the state paragraph's own words with the very claims the state "
-                "paragraph says never to make; also independently caught by BANNED, so this "
-                "case is a weak test of localisation on its own and is read as informational"},
+     "expect": "review",
+     "because": "two independent claims joined by ', and', whose halves point at different "
+                "handbook clauses (the state clause and the 'never claim other contractors' "
+                "clause); the recombination is not visible to word overlap but the two-claim shape "
+                "IS, so it is held for a person. (Confirmed NOT caught by BANNED: 'already "
+                "promise' and 'a faster payment' match none of the banned phrases.)"},
     {"id": "held-combination-same-paragraph", "category": "unsupported_combination", "kind": "PRODUCT",
      "source": HANDBOOK, "text": "Example Product uses your bank balance to explain recommended payroll.",
      "expect": "reject",
-     "because": "'bank', 'balance', 'explain', 'recommended' and 'payroll' all sit in the one "
-                "paragraph the handbook uses to describe the product, so no word-overlap check, "
-                "localised or not, can tell this fabricated compound claim from a true one; this "
-                "case is EXPECTED to remain wrongly accepted, and the results record it as an "
-                "open limitation of grounding by word overlap, not a defect introduced here"},
+     "because": "THE ONE RESIDUAL. 'bank', 'balance', 'explain', 'recommended' and 'payroll' all "
+                "sit in the ONE handbook clause describing the product, in a single clause with no "
+                "joiner, so neither the stitch check nor any word-overlap check can tell this "
+                "recombination from a true paraphrase without also rejecting honest ones that skip "
+                "enumerated middle items. EXPECTED to remain wrongly ACCEPTED; the results doc "
+                "measures it and names it as the gap word overlap cannot close. `_KNOWN_RESIDUAL` "
+                "in test_writer.py pins that it is the ONLY such case"},
 ]

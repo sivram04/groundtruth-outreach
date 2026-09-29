@@ -3,6 +3,23 @@
     "label": "TUNING_CASES",
     "total": 22,
     "correct": 22,
+    "rejected": [
+      "negation-company-does-not",
+      "negation-company-never",
+      "negation-company-cannot",
+      "negation-company-fabricated-exclusion",
+      "negation-product-explains-nothing",
+      "reversed-subject-easy-customers",
+      "reversed-subject-we-for-them",
+      "wrong-number-count",
+      "wrong-date-year",
+      "wrong-number-added",
+      "exaggerated-scope-every-state",
+      "exaggerated-scope-nationwide-any",
+      "removed-qualifier-pilot",
+      "removed-qualifier-integration"
+    ],
+    "reviewed": [],
     "false_accept": [],
     "false_reject": [],
     "wrong_reason": []
@@ -10,10 +27,21 @@
   "held_out_summary": {
     "label": "HELD_OUT_CASES",
     "total": 13,
-    "correct": 10,
-    "false_accept": [
+    "correct": 12,
+    "rejected": [
+      "held-negation-wont",
+      "held-negation-doesnt-handbook",
+      "held-reversed-subject-other-contractors",
+      "held-wrong-number-transposed",
+      "held-wrong-date-handbook",
+      "held-exaggerated-scope-product-audience",
+      "held-removed-qualifier-still-being-finished"
+    ],
+    "reviewed": [
       "held-reversed-subject-delegation-kept-under-name",
-      "held-combination-cross-paragraph",
+      "held-combination-cross-paragraph"
+    ],
+    "false_accept": [
       "held-combination-same-paragraph"
     ],
     "false_reject": [],
@@ -311,12 +339,14 @@
       },
       {
         "id": "held-reversed-subject-delegation-kept-under-name",
-        "category": "reversed_subject",
+        "category": "delegated_actor",
         "kind": "COMPANY",
-        "expect": "reject",
-        "verdict": "accept",
-        "correct": false,
-        "problems": []
+        "expect": "review",
+        "verdict": "review",
+        "correct": true,
+        "problems": [
+          "needs human review: the company sentence may credit the work to a subcontractor or third party rather than the company; confirm who performs it"
+        ]
       },
       {
         "id": "held-wrong-number-transposed",
@@ -366,10 +396,12 @@
         "id": "held-combination-cross-paragraph",
         "category": "unsupported_combination",
         "kind": "PRODUCT",
-        "expect": "reject",
-        "verdict": "accept",
-        "correct": false,
-        "problems": []
+        "expect": "review",
+        "verdict": "review",
+        "correct": true,
+        "problems": [
+          "needs human review: the product sentence joins claims from different parts of the handbook; confirm the combined claim"
+        ]
       },
       {
         "id": "held-combination-same-paragraph",

@@ -187,25 +187,35 @@ not a pass rate: 25 is too small a sample, and too uniform, to measure either th
 model's tendency to negate. Treat the count as "no known escape", never as evidence the check works.
 Measuring it needs a written set of adversarial sentences (§8.1).
 
-**FIXED and measured, 2026-09-29 — `docs/testing/grounding-eval/RESULTS.md` has the full record.**
-A 35-case adversarial set (22 tuning, 13 held-out, written before any code change) put the exact
-gap above, and five more named by the founder — reversed subjects, wrong quantities or dates,
-exaggerated scope, removed qualifications, unsupported combinations — to the unmodified code
-first: 15/22 tuning, 7/13 held-out, **zero false rejects on either**. Four new checks were added
-(an added negation, an absolute scope word, a dropped qualifier, an ungrounded digit run — `_words`
-never matched a digit before this) plus one narrow subject check, applied to the company sentence,
-every product and ask sentence, and the subject line alike. Checked against the founder's real
-handbook read-only, a first version **flagged 21 of 21 real drafts** — two real bugs, not one:
-localisation was a no-op on the real handbook (it has no blank lines) and, once fixed, the
-company's own name ("All Phase Power & Lighting") collided with a trigger word before its name was
-stripped, exactly the protection `names_specific_work` already had and these checks had not been
-given. After both fixes: **22/22 tuning, 10/13 held-out, 0 of 21 real drafts newly rejected, zero
-false rejects throughout.** The three held-out misses are exactly the three the case comments
-predicted in advance as out of scope for a word-presence check (a reversal kept under the
-company's own name; a fabricated claim built from words that genuinely co-occur in one source) and
-were not patched after being seen, to keep the held-out measurement honest. 19 deliberate breaks,
-all caught. **Not deployed**: `outreach/writer.py` runs inside both `outreach-worker` and
-`outreach-console`, neither rebuilt with this.
+**FIXED, MEASURED, and CORRECTED, 2026-09-29 — `docs/testing/grounding-eval/RESULTS.md` is the
+authoritative record with every number.** A 35-case adversarial set put the gap above and five more
+categories to the unmodified code first: 15/22 tuning, 7/13 held-out. Word-level checks were added
+(an added negation, an absolute scope word, a dropped qualifier, an ungrounded digit run) plus, this
+session, two **review** outcomes for classes word overlap cannot judge — work credited to a third
+party under the company's own name, and two claims stitched across source clauses. A review is
+blocking and marked, so no flagged sentence can mint an approval hash.
+
+Three corrections an external review required, all reflected in the results doc:
+
+- **"Zero false rejects throughout" was wrong.** There was an intermediate stage with **21 false
+  rejects on real data**: the first checks, run read-only against the real handbook and all 25 real
+  Drafts-tab rows, flagged 21 of 21, from two real bugs (localisation was a no-op on the real
+  single-block handbook; the company's own name collided with a trigger word). Both fixed; the real
+  drafts then came back 0 newly blocked.
+- **"Held-out cases looked at only once" was wrong** and is withdrawn: the eval runner runs both
+  lists together and was run repeatedly while iterating, so both are development evidence. A
+  genuinely reserved set (`grounding_eval_fresh.py`) was written after the freeze and run once:
+  16/18, **0 false rejects**, 2 review (delegation, both caught), 2 false accepts.
+- **The 21-draft recheck is compatibility evidence**, not proof the drafts' claims are true.
+
+**Two of the three out-of-scope classes are now held for review; one is not closed.** Delegation and
+the cross-paragraph stitch are caught. A single-clause recombination whose words all sit in one
+source clause ("uses your bank balance to explain recommended payroll") is **not** caught, and cannot
+be by word overlap without rejecting honest paraphrases; it is measured, named as the sole residual,
+and left to human review, not claimed as closed. The fresh run also surfaced one stitch the detector
+misses (both halves sharing the subject noun), reported and not patched, to keep the fresh set honest.
+29 deliberate breaks across both sessions, all caught. **Not deployed**: `outreach/writer.py` runs
+inside both `outreach-worker` and `outreach-console`, neither rebuilt with this.
 
 ### 3.2 Prompt injection
 
@@ -645,11 +655,14 @@ name leaves a path that parses rows and suppresses nobody (§5, finding 1).
    revision and bundled code confirmed live afterward. See §4.1's finding and `AS_BUILT.md` for the
    evidence; an authenticated dashboard load is the one thing not verified, because that needs a
    real sign-in as an allow-listed account.
-2. ~~**The negation hole**~~ (§3.1). **DONE 2026-09-29, not deployed.** Not the one-line fix first
-   proposed ("treat negation as content") — that alone would have missed reversed scope, dropped
-   qualifiers and wrong numbers, and checking it against the real handbook found two further bugs
-   a purely synthetic test never would have. See §3.1 and `docs/testing/grounding-eval/RESULTS.md`
-   for the adversarial set, the before/after counts, and what still is not caught.
+2. **The negation hole and its family** (§3.1). **MOSTLY DONE 2026-09-29, not deployed; one class
+   deliberately left open.** The negation, scope, qualifier and number checks are in and route to
+   plain rejection; delegation and cross-paragraph stitching route to review (no approval hash). The
+   third out-of-scope class — a single-clause recombination of words that co-occur in one source
+   clause — is **not closed** and cannot be by word overlap without false rejects; it is measured,
+   named as the sole residual, and left to human review. See §3.1 and
+   `docs/testing/grounding-eval/RESULTS.md` for the adversarial and reserved sets, the corrected
+   before/intermediate/after counts, and the two remaining false accepts.
 3. **The assistant's number check** (§4.2). Either compute each figure from the named field before
    presenting it, or say plainly on screen that the assistant's prose is not verified. The claim
    made to the founder on 2026-09-28 should be corrected in writing — it is corrected here.

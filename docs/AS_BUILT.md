@@ -1375,11 +1375,26 @@ Sheet — and how often the checks refuse it — is unknown.
 - **2026-09-29** **Grounding catches an added negation, a wrong number or date, an exaggerated
   scope, a dropped qualifier, and one narrow reversed-subject pattern - and two real bugs the real
   handbook found before this shipped.** `docs/testing/grounding-eval/RESULTS.md` has the full
-  record; this is the summary. The audit's finding (§3.1) was that a purely positive quote turned
+  record; this is the summary.
+
+  **CORRECTED 2026-09-29 (a second review), and extended with a review outcome - see the results
+  doc for the authoritative numbers.** Two claims first written here are withdrawn: (a) the held-out
+  cases were NOT "looked at only once" - the eval runner runs both lists together and was run
+  repeatedly while iterating, so `grounding_eval.py` is all development evidence; the genuinely
+  reserved set is `tests/grounding_eval_fresh.py`, written after the freeze and run once (16/18, 0
+  false rejects, 2 review, 2 false accepts). (b) "Zero false rejects throughout" was wrong - there
+  was an intermediate stage with 21 false rejects on real data (below), corrected before commit.
+  And this session added a **review** outcome (blocking, marked, no approval hash) for two classes
+  word overlap cannot judge - work credited to a third party under the company's own name
+  (`delegated_actor`), and two claims stitched across source clauses (`stitched_claim`); a third
+  class (a single-clause recombination of co-occurring words) is measured, named as the sole
+  residual, and left to human review, not closed.
+
+  The audit's finding (§3.1) was that a purely positive quote turned
   into a denial still passed, because negation words are stopwords. Following an external review's
-  method: `tests/grounding_eval.py` wrote 35 adversarial cases (22 to tune against, 13 held out and
-  looked at only once, after) BEFORE `outreach/writer.py` was touched, covering the negation gap
-  plus five more the founder named - reversed subjects, wrong quantities or dates, exaggerated
+  method: `tests/grounding_eval.py` wrote 35 adversarial cases (22 tuning, 13 held-out, all now
+  understood as development evidence) BEFORE `outreach/writer.py` was touched, covering the negation
+  gap plus five more the founder named - reversed subjects, wrong quantities or dates, exaggerated
   scope, removed qualifications, unsupported combinations of facts. **Baseline (unmodified code):
   15/22 tuning, 7/13 held-out, zero false rejects on either** - the existing checks were
   conservative, not broken, just missing this family. Running the baseline also corrected two of
@@ -1412,21 +1427,22 @@ Sheet — and how often the checks refuse it — is unknown.
   qualifier-word list itself was narrowed (dropping `specific`, `certain`, `particular`, `limited`,
   `some`, bare `select`/`pilot`/`currently` - all common enough to collide with ordinary prose, as
   `specific` did inside the handbook's own "sender-specific values") to distinctive multi-word
-  phrases only. **After both fixes: 22/22 tuning, 10/13 held-out, 0 of 21 real drafts newly
-  rejected, zero false rejects throughout.** The three held-out misses - a reversal kept under the
-  company's own name, and two fabricated claims built from words that genuinely co-occur in one
-  source - are exactly the three the case comments predicted in advance as out of scope for a
-  word-presence check, and were not patched after being seen, to keep the held-out measurement
-  honest.
+  phrases only. **After the word-level fixes: 22/22 tuning, 0 of 21 real drafts newly rejected.**
+  This session then added the two review outcomes above. **On the development held-out set: 12/13**
+  (delegation and cross-paragraph now held for review; the single-clause residual the one false
+  accept). **On the reserved fresh set (run once, frozen code): 16/18, 0 false rejects, 2 review, 2
+  false accepts** - the residual, and one stitch whose halves share the subject noun (found on fresh
+  data, reported, not patched to keep the fresh set honest). The residual is not closeable by word
+  overlap without rejecting honest paraphrases, so it is measured and left to human review, not
+  claimed as solved.
 
-  Proof: `tests/test_writer.py`, 117 tests (was 54) - every existing test unchanged and passing,
-  all 35 eval cases run as permanent regression tests, plus targeted tests for each new function
-  and each of the two real bugs; 19 deliberate breaks, all 19 caught by these tests alone (a first
-  run left 6 alive - not defects, but tests that looked like they exercised a protection without
-  requiring it; each replaced with a case that genuinely needs it, and the second run left 0
-  alive). Whole suite 678 Python (was 615), 46 React, unaffected. **Not deployed**:
-  `outreach/writer.py` runs inside both `outreach-worker` and `outreach-console`; neither image has
-  been rebuilt with this. Quote freshness (§3.3 of the audit) is untouched, as instructed.
+  Proof: `tests/test_writer.py` (part of a 706-test suite, was 615/678 across the two sessions) -
+  every existing test unchanged, all development and fresh eval cases run as permanent regressions,
+  targeted unit tests for delegation, stitch and the two real bugs, and "a review-flagged company
+  sentence or subject mints no approval hash" tests; 29 deliberate breaks across the two sessions
+  (10 of the review machinery this session), all caught. Whole suite 706 Python, 46 React. **Not
+  deployed**: `outreach/writer.py` runs inside both `outreach-worker` and `outreach-console`;
+  neither image has been rebuilt with this. Quote freshness (§3.3 of the audit) is untouched.
 
 - **2026-09-29** **One reading of the Suppression tab, and the sync stops instead of guessing.**
   `outreach/suppression.py` is now the single contract: `FIELD` (`Address or domain`) is canonical,

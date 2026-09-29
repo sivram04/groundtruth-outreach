@@ -12,35 +12,41 @@ Website text reaches this module only as previously verified quotes. It is untru
 never instruction: the prompt says so, and the output checks reject any address, link or
 phone number that is not the founder's own.
 
-Beyond plain word presence, four narrower checks catch specific ways a sentence can use only
-grounded words and still say something its source did not (`_reversed_or_unqualified`,
-`wrong_actor_subject`, `numbers_ungrounded`; see each for exactly what it compares):
+Beyond plain word presence, several narrower checks catch specific ways a sentence can use only
+grounded words and still say something its source did not. Some are a plain rejection (the words
+are wrong); two route the sentence to human review (the words may be right, but the check cannot
+tell) - `delegated_actor` and `stitched_claim`, whose problems carry REVIEW_PREFIX. Every one
+makes `verify` return no draft, so no approval hash can be minted for a flagged sentence.
 
   - a negation the source does not carry ("does not install" against a purely positive quote)
   - an absolute scope word ("every", "nationwide") the source does not use
-  - a qualifier the source states ("select", "currently", "on a pilot basis") that the
-    sentence quietly drops, generalising a limited claim into a standing one
+  - a qualifier the source states ("on a pilot basis") that the sentence quietly drops,
+    generalising a limited claim into a standing one
   - a digit run - a count, a year - that does not appear, digit for digit, anywhere in the
     source; `_words` never sees a number, so this was previously unchecked entirely
   - one narrow class of reversed subject: an explicit alternative actor (the reader, "we", a
     named substitute) LEADING the sentence once the company's own name is removed
+  - REVIEW: work credited to a third party under the company's own name ("<Company>'s
+    subcontractors install ...", "... relies on subcontractors to install ...")
+  - REVIEW: two independent claims joined by a coordinating conjunction whose closest source
+    clauses differ - a recombination each half of which is separately grounded
 
-None of this proves the claim true, and each is a bounded, documented gap, not a hidden one:
+None of this proves the claim true, and each remaining gap is bounded and documented, not hidden:
 
-  - a reversal that keeps the company's own name as the grammatical subject while quietly
-    changing who performs the verb ("relies on subcontractors to install") is not caught
-  - a fabricated claim built entirely from words that already sit together in the ONE
-    paragraph a sentence is checked against is not caught; paragraph localisation (below)
-    narrows this from "anywhere in the handbook" to "the one matching paragraph", nothing more
-  - a subtle scope widening using no absolute word ("across the region" against a source
-    naming one city) is not caught
-  - a legitimate paraphrase that happens to introduce a NEW negation word for a fact the
-    source states only affirmatively (rather than restating an existing negation) would be
-    flagged; the module has not needed to write one to see this, because the model is asked
-    for affirmative observations, but it is a real, bounded cost of the rule, not a null one
+  - a fabricated claim built entirely from words that legitimately sit together in ONE source
+    clause ("uses your bank balance to explain recommended payroll") is NOT caught, and cannot
+    be by any word-based method without also rejecting honest paraphrases that skip enumerated
+    middle items ("uses bank balances to compare scenarios"); measured in the results doc, left
+    to human review, not claimed as closed
+  - a subtle scope widening using no absolute word ("across the region" against a source naming
+    one city) is not caught
+  - a legitimate paraphrase that introduces a NEW negation word for a fact the source states
+    only affirmatively (rather than restating an existing negation) would be flagged; a real,
+    bounded cost of the rule, not a null one
 
-`docs/testing/grounding-eval/RESULTS.md` measures all of this against a written adversarial
-set, before and after, including the cases these checks are known not to solve.
+`docs/testing/grounding-eval/RESULTS.md` measures all of this against written adversarial sets -
+a development set and a separate frozen evaluation set - before and after, and names, with its
+false-accept, false-reject and review counts, exactly which cases these checks do not solve.
 """
 
 import re
@@ -391,6 +397,129 @@ def _reversed_or_unqualified(text, source, company=""):
     return None
 
 
+# --- claims the word checks cannot adjudicate, held for a person to judge ---------------------
+# Every check above catches a sentence that ADDS a word-level signal the source lacks (a negation,
+# an absolute word, a dropped qualifier, a stray digit). A different family uses only grounded
+# words in a grammatical shape the source never had, so no word-presence test can see it. Two such
+# shapes are structurally visible and are routed to review below; a third - a single clause that
+# recombines words which legitimately sit together in one source clause ("uses your bank balance
+# to explain recommended payroll", every word in the one handbook clause) - is not visible to any
+# word-based method, is measured in docs/testing/grounding-eval, and is left to human review, not
+# claimed as solved here.
+#
+# A review outcome is realised as a BLOCKING problem carrying REVIEW_PREFIX: like every problem it
+# makes `verify` return no draft, so no approval hash can ever be minted (the property the founder
+# asked to be able to verify); the prefix lets a caller and the evaluation tell "held for a person
+# to look at" apart from "the words are wrong". Surfacing the exact words in a distinct on-screen
+# review state, rather than blocking, is a possible refinement, recorded as not built.
+REVIEW_PREFIX = "needs human review: "
+
+# A performer that is NOT the lead company - someone the work might be handed to. A company
+# sentence is meant to be one observation of what THIS company does; when the installer of record
+# is a third party, who does the work is a claim the quote's own words cannot settle. Bare
+# "contractors" is deliberately absent: the lead company is itself a contractor.
+_THIRD_PARTY = (r"(?:sub-?contractors?|subs|vendors?|suppliers?|affiliates?|"
+                r"other (?:contractors?|firms?|companies|trades?|builders?)|"
+                r"outside (?:contractors?|firms?|crews?|trades?|builders?))")
+THIRD_PARTY_PERFORMER = re.compile(r"\b" + _THIRD_PARTY + r"\b", re.I)
+# Verbs that hand the work to someone else. "works with" and "partners with" are deliberately NOT
+# here: a company works with owners and general contractors as clients, so a delegation verb only
+# counts when a third-party performer is named in the same sentence.
+DELEGATION_VERB = re.compile(
+    r"\b(?:relies? on|rely on|subcontracts?(?: out)?|out-?sources?|"
+    r"delegates?|farms? out|hands? (?:it|them|the work) off)\b", re.I)
+# Coordinating joiners that link two INDEPENDENT claims. Narrow on purpose - a comma alone, or a
+# bare "and" with no comma ("scenarios and explain recommended next steps"), does not split, so an
+# ordinary list or a single compound predicate is left whole; only ", and" / ", but" / ", yet" /
+# ", while" / "; " joins two claims worth checking came from the same place.
+_CLAUSE_JOINER = re.compile(r",\s+(?:and|but|yet|while)\s+|;\s+", re.I)
+
+
+def delegated_actor(text, company=""):
+    """True when a company sentence makes a THIRD PARTY, not the company, the one who does the work.
+
+    Two visible shapes: the company's own possessive followed within a few words by a third-party
+    performer ("<Company>'s trusted subcontractors install ..."), or a delegation verb naming a
+    third-party performer anywhere in the sentence ("... relies on subcontractors to install ...").
+
+    A quote that merely MENTIONS working with subcontractors, the company still the subject of the
+    verb ("We install X, working with trusted subcontractors"), is not caught: there is no
+    "<Company>'s subcontractors" possessive and no delegation verb. This reads the grammatical
+    shape, never the meaning; a person confirms who actually performs the work."""
+    if company:
+        name = r"\s+".join(re.escape(w) for w in company.split())
+        if re.search(name + r"'s\b(?:\s+\w+){0,3}\s+" + _THIRD_PARTY + r"\b", text, re.I):
+            return True
+    return bool(DELEGATION_VERB.search(text) and THIRD_PARTY_PERFORMER.search(text))
+
+
+def _best_clause_index(text, clauses):
+    """Which source clause shares the most content-word stems with `text`, or -1 for none."""
+    wanted = set()
+    for word in _words(text):
+        wanted |= _stem(word)
+    best_index, best_score = -1, 0
+    for index, clause in enumerate(clauses):
+        stems = set()
+        for word in _words(clause):
+            stems |= _stem(word)
+        score = len(wanted & stems)
+        if score > best_score:
+            best_index, best_score = index, score
+    return best_index
+
+
+# Finite verbs and auxiliaries common to what a company or the product is said to DO. Used only to
+# tell an independent clause ("... and other contractors already PROMISE ...") from a list's final
+# item ("... production equipment, and sheet metal"), which has no verb of its own. Conservative on
+# purpose: a joined part with no recognisable verb is read as a list item, NOT a second claim, so a
+# faithful Oxford-comma list is never split - the false positive a real draft ("... production
+# equipment, and sheet metal") showed on the first version of this check.
+_FINITE_VERB = re.compile(
+    r"\b(?:is|are|was|were|be|been|being|has|have|had|do|does|did|can|could|will|would|should|"
+    r"may|might|must|installs?|installed|builds?|built|provides?|provided|offers?|offered|"
+    r"delivers?|delivered|serves?|served|maintains?|maintained|repairs?|repaired|designs?|"
+    r"designed|performs?|performed|handles?|handled|promises?|promised|helps?|helped|uses?|used|"
+    r"reads?|compares?|compared|explains?|explained|supports?|supported|makes?|made|gives?|gave|"
+    r"works?|worked|specializes?|specialises?|completes?|completed|manages?|managed|runs?|ran)\b",
+    re.I)
+
+
+def _has_predicate(text):
+    """True when `text` reads like an independent clause with its own verb, not a bare noun phrase.
+
+    The stitch check below uses this to keep a list's final item ("and sheet metal") from being
+    read as a second claim. It errs toward "not a clause" (no recognised verb -> not a claim ->
+    nothing is split), so the safe direction is accept, never a false reject of a real list."""
+    return bool(_FINITE_VERB.search(text))
+
+
+def stitched_claim(text, source):
+    """True when a sentence joins two independent CLAUSES that draw on DIFFERENT parts of the source.
+
+    Each half can be separately grounded while their combination is a claim the source never made
+    ("[the product] is still being finished, and other contractors already promise a faster
+    payment") - a recombination no word-presence check can see, because every word is present. The
+    signal is structural: two parts, EACH with its own verb (`_has_predicate`, so a list's final
+    ", and X" tail does not count), joined by a coordinating conjunction, whose closest source
+    clauses differ. A single claim, a list, or two halves pointing at the same source clause is not
+    flagged. A source of one clause (a single quote) cannot stitch and returns False.
+
+    It errs toward accept: a real stitch whose second half uses a verb this does not recognise is
+    missed rather than a faithful list wrongly held. That is the direction the founder set - never a
+    false reject of a real draft - and the residual is measured in the results doc."""
+    parts = [part for part in _CLAUSE_JOINER.split(text)
+             if len(_words(part)) >= 2 and _has_predicate(part)]
+    if len(parts) < 2:
+        return False
+    source_clauses = _clauses(source)
+    if len(source_clauses) < 2:
+        return False
+    mapped = {_best_clause_index(part, source_clauses) for part in parts}
+    mapped.discard(-1)
+    return len(mapped) >= 2
+
+
 def _words(text):
     """Content words only. Contractions and possessives fold to their stem ("I'm" -> "i"), and
     a slash separates alternatives, so "sewage/wastewater" supports either word on its own."""
@@ -474,6 +603,15 @@ def verify(handbook_text, company, facts, sentences, subject):
                 problems.append("company sentence's own subject may not be the company; check "
                                 "who the sentence says performs the work")
                 continue
+            if delegated_actor(text, company):
+                problems.append(REVIEW_PREFIX + "the company sentence may credit the work to a "
+                                "subcontractor or third party rather than the company; confirm "
+                                "who performs it")
+                continue
+            if stitched_claim(text, fact["quote"]):
+                problems.append(REVIEW_PREFIX + "the company sentence joins two claims; confirm "
+                                "the quote makes the combined claim")
+                continue
             reversal = _reversed_or_unqualified(text, fact["quote"], company)
             if reversal:
                 problems.append(f"company sentence {reversal}")
@@ -502,6 +640,10 @@ def verify(handbook_text, company, facts, sentences, subject):
             if kind == "PRODUCT" and _polarity_reversed(text, handbook_text):
                 problems.append("product sentence reverses or omits a handbook qualifier")
                 continue
+            if stitched_claim(text, handbook_text):
+                problems.append(REVIEW_PREFIX + f"the {kind.lower()} sentence joins claims from "
+                                "different parts of the handbook; confirm the combined claim")
+                continue
             reversal = _reversed_or_unqualified(text, handbook_text, company)
             if reversal:
                 problems.append(f"{kind.lower()} sentence {reversal}")
@@ -528,6 +670,8 @@ def verify(handbook_text, company, facts, sentences, subject):
     elif _reversed_or_unqualified(subject, handbook_text, company):
         problems.append(f"the subject line "
                         f"{_reversed_or_unqualified(subject, handbook_text, company)}")
+    elif stitched_claim(subject, handbook_text):
+        problems.append(REVIEW_PREFIX + "the subject line joins two claims; confirm it")
     elif numbers_ungrounded(subject, [handbook_text] + [f["quote"] for f in facts], company):
         problems.append("the subject line states a number nothing here supports")
     elif ungrounded(subject, [handbook_text, company, " ".join(f["quote"] for f in facts)]):

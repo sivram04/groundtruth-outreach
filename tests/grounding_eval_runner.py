@@ -41,9 +41,19 @@ NAME_FOR_KIND = {"COMPANY": "company sentence", "PRODUCT": "product sentence",
 
 
 def judge(case):
-    """(verdict, matters) where verdict is "accept" | "reject" | "reject-wrong-reason"."""
+    """(verdict, problems) where verdict is accept | reject | review | reject-wrong-reason.
+
+    Only the case's OWN kind of sentence carries the tested text; the other three parts of the
+    email are known-good fillers. For a COMPANY case the tested sentence uses the case's own
+    company; for a PRODUCT / ASK / SUBJECT case, the tested text stands on the handbook and the
+    company name is irrelevant to it, so the WHOLE email (filler company sentence included) uses
+    the default company/quote, which keeps the filler internally valid whatever company a fresh
+    case happens to name. A first run of the fresh set fed the default filler sentence with the
+    case's company and the filler - not the tested subject - failed grounding; that was a harness
+    bug, fixed here, with the validator untouched."""
     kind = case["kind"]
     if kind == "COMPANY":
+        company = case.get("company", COMPANY)
         handbook_text = HANDBOOK
         facts = [{"quote_id": "q1", "category": "OFFERING", "quote": case["source"], "url": "https://example.test"},
                  {"quote_id": DEFAULT_COMPANY_QUOTE_ID, "category": "OFFERING", "quote": QUOTE,
@@ -52,6 +62,7 @@ def judge(case):
                     DEFAULT_PRODUCT, DEFAULT_ASK]
         subject = DEFAULT_SUBJECT
     elif kind in ("PRODUCT", "ASK"):
+        company = COMPANY
         handbook_text = case["source"]
         facts = [{"quote_id": DEFAULT_COMPANY_QUOTE_ID, "category": "OFFERING", "quote": QUOTE,
                   "url": "https://example.test"}]
@@ -64,6 +75,7 @@ def judge(case):
                         {"text": case["text"], "kind": "ASK", "quote_id": ""}]
         subject = DEFAULT_SUBJECT
     elif kind == "SUBJECT":
+        company = COMPANY
         handbook_text = case["source"]
         facts = [{"quote_id": DEFAULT_COMPANY_QUOTE_ID, "category": "OFFERING", "quote": QUOTE,
                   "url": "https://example.test"}]
@@ -72,38 +84,59 @@ def judge(case):
     else:
         raise ValueError(f"unknown kind {kind!r}")
 
-    draft, problems = writer.verify(handbook_text, case.get("company", COMPANY), facts, sentences, subject)
+    draft, problems = writer.verify(handbook_text, company, facts, sentences, subject)
     if draft is not None:
         return "accept", problems
     marker = NAME_FOR_KIND[kind]
-    if any(marker in p for p in problems):
-        return "reject", problems
-    return "reject-wrong-reason", problems
+    named = [p for p in problems if marker in p or (kind == "SUBJECT" and "subject line" in p)]
+    if not named:
+        return "reject-wrong-reason", problems
+    # A "review" outcome is a blocking problem the validator marks as "cannot tell - a person must
+    # look" (writer.REVIEW_PREFIX), distinct from a plain rejection where the words are wrong.
+    if any(p.startswith(writer.REVIEW_PREFIX) for p in named):
+        return "review", problems
+    return "reject", problems
+
+
+def _correct(verdict, expect):
+    """accept only satisfies accept; a case that expects rejection is satisfied by a plain reject
+    OR a review (both block an approval hash); a case that expects review wants exactly review."""
+    if expect == "accept":
+        return verdict == "accept"
+    if expect == "review":
+        return verdict == "review"
+    return verdict in ("reject", "review")
 
 
 def run(cases):
     rows = []
     for case in cases:
         verdict, problems = judge(case)
-        correct = (verdict == "accept" and case["expect"] == "accept") or \
-                  (verdict == "reject" and case["expect"] == "reject")
         rows.append({"id": case["id"], "category": case["category"], "kind": case["kind"],
-                    "expect": case["expect"], "verdict": verdict, "correct": correct,
-                    "problems": problems})
+                    "expect": case["expect"], "verdict": verdict,
+                    "correct": _correct(verdict, case["expect"]), "problems": problems})
     return rows
 
 
 def summarize(rows, label):
     total = len(rows)
     correct = sum(1 for r in rows if r["correct"])
-    false_accept = [r for r in rows if r["expect"] == "reject" and r["verdict"] == "accept"]
+    # False accept / false reject / review reported SEPARATELY (the founder's criterion 5). A
+    # review is not a reject: the words may be right; the validator says a person must look.
+    false_accept = [r for r in rows if r["expect"] in ("reject", "review") and r["verdict"] == "accept"]
     false_reject = [r for r in rows if r["expect"] == "accept" and r["verdict"] != "accept"]
+    reviewed = [r for r in rows if r["verdict"] == "review"]
+    rejected = [r for r in rows if r["verdict"] == "reject"]
     wrong_reason = [r for r in rows if r["verdict"] == "reject-wrong-reason"]
     print(f"\n=== {label}: {correct}/{total} correct ===")
+    print(f"  plainly REJECTED (words wrong): {len(rejected)}")
+    print(f"  held for REVIEW (validator cannot tell; no approval hash): {len(reviewed)}")
+    for r in reviewed:
+        print(f"    - {r['id']} [{r['category']}]")
     print(f"  unsupported claims wrongly ACCEPTED (false accept): {len(false_accept)}")
     for r in false_accept:
         print(f"    - {r['id']} [{r['category']}]")
-    print(f"  supported claims wrongly REJECTED (false reject): {len(false_reject)}")
+    print(f"  supported claims wrongly REJECTED or sent to review (false reject): {len(false_reject)}")
     for r in false_reject:
         print(f"    - {r['id']} [{r['category']}] -> {r['problems']}")
     if wrong_reason:
@@ -119,6 +152,8 @@ def summarize(rows, label):
         ok = sum(1 for r in group if r["correct"])
         print(f"    {category:26} {ok}/{len(group)}")
     return {"label": label, "total": total, "correct": correct,
+           "rejected": [r["id"] for r in rejected],
+           "reviewed": [r["id"] for r in reviewed],
            "false_accept": [r["id"] for r in false_accept],
            "false_reject": [r["id"] for r in false_reject],
            "wrong_reason": [r["id"] for r in wrong_reason]}

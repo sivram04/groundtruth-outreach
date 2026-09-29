@@ -1,0 +1,205 @@
+{
+  "summary": {
+    "label": "FRESH_CASES",
+    "total": 18,
+    "correct": 16,
+    "rejected": [
+      "fresh-negation",
+      "fresh-wrong-number",
+      "fresh-wrong-date",
+      "fresh-scope",
+      "fresh-dropped-qualifier",
+      "fresh-invented-capability"
+    ],
+    "reviewed": [
+      "fresh-delegation-possessive",
+      "fresh-delegation-verb"
+    ],
+    "false_accept": [
+      "fresh-stitch-product",
+      "fresh-residual-recombination"
+    ],
+    "false_reject": [],
+    "wrong_reason": []
+  },
+  "rows": [
+    {
+      "id": "fresh-company-verbatim",
+      "category": "baseline",
+      "kind": "COMPANY",
+      "expect": "accept",
+      "verdict": "accept",
+      "correct": true,
+      "problems": []
+    },
+    {
+      "id": "fresh-company-paraphrase",
+      "category": "baseline",
+      "kind": "COMPANY",
+      "expect": "accept",
+      "verdict": "accept",
+      "correct": true,
+      "problems": []
+    },
+    {
+      "id": "fresh-oxford-list",
+      "category": "baseline",
+      "kind": "COMPANY",
+      "expect": "accept",
+      "verdict": "accept",
+      "correct": true,
+      "problems": []
+    },
+    {
+      "id": "fresh-product-paraphrase",
+      "category": "baseline",
+      "kind": "PRODUCT",
+      "expect": "accept",
+      "verdict": "accept",
+      "correct": true,
+      "problems": []
+    },
+    {
+      "id": "fresh-negative-restated",
+      "category": "baseline",
+      "kind": "PRODUCT",
+      "expect": "accept",
+      "verdict": "accept",
+      "correct": true,
+      "problems": []
+    },
+    {
+      "id": "fresh-numbers-kept",
+      "category": "baseline",
+      "kind": "COMPANY",
+      "expect": "accept",
+      "verdict": "accept",
+      "correct": true,
+      "problems": []
+    },
+    {
+      "id": "fresh-qualifier-kept",
+      "category": "baseline",
+      "kind": "COMPANY",
+      "expect": "accept",
+      "verdict": "accept",
+      "correct": true,
+      "problems": []
+    },
+    {
+      "id": "fresh-subject",
+      "category": "baseline",
+      "kind": "SUBJECT",
+      "expect": "accept",
+      "verdict": "accept",
+      "correct": true,
+      "problems": []
+    },
+    {
+      "id": "fresh-negation",
+      "category": "negation",
+      "kind": "COMPANY",
+      "expect": "reject",
+      "verdict": "reject",
+      "correct": true,
+      "problems": [
+        "company sentence adds a negation the source does not state"
+      ]
+    },
+    {
+      "id": "fresh-wrong-number",
+      "category": "wrong_number",
+      "kind": "COMPANY",
+      "expect": "reject",
+      "verdict": "reject",
+      "correct": true,
+      "problems": [
+        "company sentence states a number its quote does not: 500"
+      ]
+    },
+    {
+      "id": "fresh-wrong-date",
+      "category": "wrong_date",
+      "kind": "COMPANY",
+      "expect": "reject",
+      "verdict": "reject",
+      "correct": true,
+      "problems": [
+        "company sentence states a number its quote does not: 1995"
+      ]
+    },
+    {
+      "id": "fresh-scope",
+      "category": "exaggerated_scope",
+      "kind": "COMPANY",
+      "expect": "reject",
+      "verdict": "reject",
+      "correct": true,
+      "problems": [
+        "company sentence claims a broader scope than the source states"
+      ]
+    },
+    {
+      "id": "fresh-dropped-qualifier",
+      "category": "removed_qualifier",
+      "kind": "COMPANY",
+      "expect": "reject",
+      "verdict": "reject",
+      "correct": true,
+      "problems": [
+        "company sentence drops a qualifier the source states"
+      ]
+    },
+    {
+      "id": "fresh-invented-capability",
+      "category": "unsupported_combination",
+      "kind": "PRODUCT",
+      "expect": "reject",
+      "verdict": "reject",
+      "correct": true,
+      "problems": [
+        "product sentence adds words the handbook does not use: automatically, files, quarterly, taxes"
+      ]
+    },
+    {
+      "id": "fresh-delegation-possessive",
+      "category": "delegated_actor",
+      "kind": "COMPANY",
+      "expect": "review",
+      "verdict": "review",
+      "correct": true,
+      "problems": [
+        "needs human review: the company sentence may credit the work to a subcontractor or third party rather than the company; confirm who performs it"
+      ]
+    },
+    {
+      "id": "fresh-delegation-verb",
+      "category": "delegated_actor",
+      "kind": "COMPANY",
+      "expect": "review",
+      "verdict": "review",
+      "correct": true,
+      "problems": [
+        "needs human review: the company sentence may credit the work to a subcontractor or third party rather than the company; confirm who performs it"
+      ]
+    },
+    {
+      "id": "fresh-stitch-product",
+      "category": "unsupported_combination",
+      "kind": "PRODUCT",
+      "expect": "review",
+      "verdict": "accept",
+      "correct": false,
+      "problems": []
+    },
+    {
+      "id": "fresh-residual-recombination",
+      "category": "unsupported_combination",
+      "kind": "PRODUCT",
+      "expect": "reject",
+      "verdict": "accept",
+      "correct": false,
+      "problems": []
+    }
+  ]
+}

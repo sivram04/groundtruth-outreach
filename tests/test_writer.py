@@ -9,7 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from outreach import drafting, job_draft, writer
 from grounding_eval import HELD_OUT_CASES, TUNING_CASES
-from grounding_eval_runner import judge
+from grounding_eval_fresh import FRESH_CASES
+from grounding_eval_runner import _correct, judge
 
 HANDBOOK = Path(__file__).resolve().parent.parent / "examples" / "synthetic_handbook.txt"
 TEXT = HANDBOOK.read_text(encoding="utf-8")
@@ -505,20 +506,118 @@ def test_a_subject_who_is_the_founders_own_voice_is_refused_even_with_every_word
     assert draft is None and any("own subject may not be the company" in p for p in problems)
 
 
-def test_a_delegation_kept_under_the_companys_own_name_is_a_known_open_gap():
-    """Documented, not hidden: keeping the company's own name as the subject while changing who
-    performs the verb ("relies on subcontractors") passes every check here unnoticed. This test
-    pins that it is still unnoticed, so a future change that silently narrows coverage here is
-    visible, rather than recording an accidental pass as if it were a solved case."""
-    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL,
-              "quote": "We install and maintain electrical distribution systems for commercial "
-                       "buildings, working with trusted subcontractors and vendors."}]
-    draft, problems = writer.verify(
-        TEXT, "Example Electric", facts,
-        [{"text": "Example Electric's trusted subcontractors install and maintain electrical "
-                  "distribution systems for commercial buildings.", "kind": "COMPANY",
-          "quote_id": "q1"}] + sentences()[1:], "A conversation next week")
-    assert problems == [] and draft is not None  # known gap: see the module docstring
+_DELEGATION_QUOTE = ("We install and maintain electrical distribution systems for commercial "
+                     "buildings, working with trusted subcontractors and vendors.")
+
+
+def _company_email(company_text, quote, company="Example Electric"):
+    """A whole email with `company_text` as the company sentence; the rest known-good fillers."""
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL, "quote": quote}]
+    return writer.verify(TEXT, company, facts,
+                         [{"text": company_text, "kind": "COMPANY", "quote_id": "q1"}]
+                         + sentences()[1:], "A conversation about Example Product next week")
+
+
+def test_work_credited_to_a_subcontractor_under_the_companys_name_is_held_for_review():
+    """The delegation case: every word is in the quote, so word grounding cannot see that the
+    company's possessive makes the subcontractors, not the company, the installers. It is now HELD
+    FOR REVIEW - a blocking, marked outcome, never an approval-ready draft. Was a documented open
+    gap; the module docstring and grounding_eval.py are updated to match."""
+    draft, problems = _company_email(
+        "Example Electric's trusted subcontractors install and maintain electrical distribution "
+        "systems for commercial buildings.", _DELEGATION_QUOTE)
+    assert draft is None
+    assert any(p.startswith(writer.REVIEW_PREFIX) and "subcontractor or third party" in p
+               for p in problems)
+
+
+def test_a_delegation_verb_naming_a_third_party_is_held_for_review():
+    draft, problems = _company_email(
+        "Example Electric relies on outside subcontractors to install electrical distribution "
+        "systems for commercial buildings.", _DELEGATION_QUOTE)
+    assert draft is None
+    assert any(p.startswith(writer.REVIEW_PREFIX) for p in problems)
+
+
+def test_a_company_working_with_subcontractors_but_still_the_installer_is_not_flagged():
+    """The precise line: the company is the subject of the verb; the quote merely mentions working
+    with subcontractors. This must still pass, or the review outcome would be a false reject."""
+    draft, problems = _company_email(
+        "Example Electric installs electrical distribution systems for commercial buildings, "
+        "working with trusted subcontractors.", _DELEGATION_QUOTE)
+    assert problems == [] and draft is not None
+
+
+def test_an_oxford_comma_list_is_not_read_as_a_stitched_claim():
+    """The real-draft false positive that the stitch check's predicate requirement fixes: a
+    faithful list whose final item follows ', and' is one claim, not two."""
+    quote = "Installation, repair, and maintenance of commercial roofing, gutters, and skylights."
+    draft, problems = _company_email(
+        "Summit Roofing provides installation, repair, and maintenance of commercial roofing, "
+        "gutters, and skylights.", quote, company="Summit Roofing")
+    assert problems == [] and draft is not None
+
+
+def test_two_claims_from_different_handbook_clauses_are_held_for_review():
+    """The cross-paragraph stitch: each half grounded, joined by ', and', pointing at different
+    handbook clauses. Held for review, not accepted."""
+    draft, problems = verify(product={
+        "text": "Example Product is still being finished, and other contractors already rely on "
+                "trusted vendors.", "kind": "PRODUCT", "quote_id": ""})
+    # (Uses vendors/rely, both grounded nowhere -> would also fail grounding; the point is the
+    # stitch fires first. A cleaner all-grounded stitch is exercised in the eval sets.)
+    assert draft is None and problems
+
+
+def test_a_review_flagged_sentence_cannot_produce_an_approval_hash():
+    """The property the founder asked to be able to verify: an uncertain claim reaches no
+    approval-ready draft. compose() returns no draft for a delegation company sentence and for a
+    stitched subject, so nothing downstream can mint a hash."""
+    def model_delegation(prompt, schema):
+        return {"subject": "A conversation about Example Product next week",
+                "sentences": [{"text": "Example Electric's subcontractors install electrical "
+                                       "distribution systems for commercial buildings.",
+                               "kind": "COMPANY", "quote_id": "q1"}] + sentences()[1:]}, {}
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL, "quote": _DELEGATION_QUOTE}]
+    draft, problems = writer.compose(TEXT, "Example Electric", facts, model_delegation)
+    assert draft is None and any(p.startswith(writer.REVIEW_PREFIX) for p in problems)
+
+
+def test_a_stitched_subject_is_held_for_review_and_mints_no_hash():
+    draft, problems = verify(subject="The MVP is still being finished, and it compares scenarios")
+    assert draft is None
+    assert any(p.startswith(writer.REVIEW_PREFIX) and "subject line" in p for p in problems)
+
+
+def test_a_delegation_verb_needs_a_third_party_to_fire():
+    """The verb form counts only when a third-party performer is named too - a company relying on
+    its own experience or its own crew is not delegating the work."""
+    assert not writer.delegated_actor(
+        "Example Electric relies on decades of hands-on experience.", "Example Electric")
+    assert writer.delegated_actor(
+        "Example Electric relies on outside subcontractors.", "Example Electric")
+
+
+def test_stitched_claim_ignores_a_list_tail_but_catches_a_real_two_clause_stitch():
+    """Against a multi-sentence quote (periods make several clauses), a list whose final item
+    follows ', and' must NOT count - the item has no verb of its own; two real clauses, each with a
+    verb and pointing at different quote sentences, must."""
+    quote = "Installation and repair of: Heating systems. Cooling systems. Sheet metal."
+    assert not writer.stitched_claim(
+        "Reliant performs installation and repair of heating systems, cooling systems, and sheet "
+        "metal.", quote)
+    assert writer.stitched_claim(
+        "It installs heating systems, and it maintains cooling systems.", quote)
+
+
+def test_the_review_marker_is_distinct_from_a_plain_rejection():
+    """A review must be tellable from a reject; and a plain grounding failure (an added negation)
+    must classify as reject, never review, so emptying the marker is caught."""
+    assert writer.REVIEW_PREFIX
+    plain_reject = {"id": "marker-check", "category": "negation", "kind": "COMPANY", "source": QUOTE,
+                    "text": "Example Electric does not install electrical distribution systems for "
+                            "commercial buildings.", "company": "Example Electric", "expect": "reject"}
+    assert judge(plain_reject)[0] == "reject"
 
 
 def test_a_mid_sentence_line_wrap_is_not_a_clause_boundary():
@@ -539,30 +638,57 @@ def test_a_blank_line_still_separates_clauses_after_the_wrap_fix():
 
 @pytest.mark.parametrize("case", TUNING_CASES, ids=lambda c: c["id"])
 def test_tuning_case_matches_its_expected_verdict(case):
-    """Every case the improved checks were built against. Written, and run against the
-    unmodified code, before writer.py was touched for this work."""
+    """Every development case. `_correct` treats a review as satisfying a reject expectation (both
+    block an approval hash) and a review expectation as needing exactly review."""
     verdict, problems = judge(case)
-    assert verdict == case["expect"], f"{case['id']}: {case['because']} -> {problems}"
+    assert _correct(verdict, case["expect"]), f"{case['id']}: {verdict} -> {problems}"
 
 
-_HELD_OUT_KNOWN_GAPS = {
-    "held-reversed-subject-delegation-kept-under-name", "held-combination-cross-paragraph",
-    "held-combination-same-paragraph"}
+# The ONE residual: a single-clause recombination whose words all sit in one source clause. No
+# word-overlap check can catch it without also rejecting honest paraphrases (measured in the
+# results doc). Its test asserts it STILL wrongly accepts, so if a future change either closes it
+# (good - update this) or, worse, starts catching it by over-rejecting real drafts, this is visible.
+_KNOWN_RESIDUAL = {"held-combination-same-paragraph"}
 
 
 @pytest.mark.parametrize("case", HELD_OUT_CASES, ids=lambda c: c["id"])
-def test_held_out_case_matches_its_expected_verdict_or_is_a_named_gap(case):
-    """Set aside and looked at only once, after the implementation was finished, to measure it
-    rather than shape it. Three remain wrong, exactly the three predicted uncaught when the case
-    was written (grounding_eval.py says why for each); this pins that the count of open gaps
-    does not grow without the change being visible here."""
+def test_held_out_case_is_correct_or_is_the_named_residual(case):
+    """Held-out development cases. Delegation and the cross-paragraph stitch, once documented gaps,
+    are now held for review; only the single-clause recombination remains wrongly accepted, and it
+    is pinned as the sole residual so the count of open gaps cannot grow unnoticed."""
     verdict, problems = judge(case)
-    if case["id"] in _HELD_OUT_KNOWN_GAPS:
-        assert verdict != case["expect"], (
-            f"{case['id']} now passes - a real improvement, not a regression, but the module "
-            "docstring and grounding_eval.py both call this an open gap and should be updated")
+    if case["id"] in _KNOWN_RESIDUAL:
+        assert verdict == "accept", (
+            f"{case['id']} is no longer accepted ({verdict}) - if this is a real close, update the "
+            "residual set and the results doc; if it is a new over-rejection, that is a regression")
     else:
-        assert verdict == case["expect"], f"{case['id']}: {case['because']} -> {problems}"
+        assert _correct(verdict, case["expect"]), f"{case['id']}: {verdict} -> {problems}"
+
+
+# The reserved fresh set (grounding_eval_fresh.py), run once after the code was frozen and now
+# pinned as a permanent regression. Two cases are the measured false accepts of the
+# unsupported_combination family (the single-clause residual, and a stitch whose halves share the
+# subject noun so both localise to one clause); the rest, crucially every SUPPORTED case, must hold.
+_FRESH_FALSE_ACCEPTS = {"fresh-residual-recombination", "fresh-stitch-product"}
+
+
+@pytest.mark.parametrize("case", FRESH_CASES, ids=lambda c: c["id"])
+def test_fresh_case_is_correct_or_a_measured_false_accept(case):
+    verdict, problems = judge(case)
+    if case["id"] in _FRESH_FALSE_ACCEPTS:
+        assert verdict == "accept", (
+            f"{case['id']} changed ({verdict}); the fresh-set measurement in the results doc no "
+            "longer holds and must be re-stated")
+    else:
+        assert _correct(verdict, case["expect"]), f"{case['id']}: {verdict} -> {problems}"
+
+
+def test_the_fresh_set_has_no_false_rejects():
+    """The cardinal requirement, pinned on the reserved set: no supported claim is rejected or sent
+    to review."""
+    bad = [c["id"] for c in FRESH_CASES
+           if c["expect"] == "accept" and judge(c)[0] != "accept"]
+    assert bad == [], f"fresh supported claims wrongly blocked: {bad}"
 
 
 # --- six gaps a mutation run found in the tests above, each pinned on its own -------------------
