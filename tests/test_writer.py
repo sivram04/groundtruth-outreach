@@ -644,43 +644,34 @@ def test_tuning_case_matches_its_expected_verdict(case):
     assert _correct(verdict, case["expect"]), f"{case['id']}: {verdict} -> {problems}"
 
 
-# The ONE residual: a single-clause recombination whose words all sit in one source clause. No
-# word-overlap check can catch it without also rejecting honest paraphrases (measured in the
-# results doc). Its test asserts it STILL wrongly accepts, so if a future change either closes it
-# (good - update this) or, worse, starts catching it by over-rejecting real drafts, this is visible.
-_KNOWN_RESIDUAL = {"held-combination-same-paragraph"}
+# The two UNRESOLVED false accepts, both of the unsupported-combination family: a single-clause
+# recombination whose words all sit in one source clause, and a two-clause stitch whose halves
+# share the subject noun. Measured three ways (RESULTS.md): NO word-overlap or shallow-structural
+# rule blocks either without reviewing 20+ of ~36 real supported product/company sentences,
+# including the founder's own approved copy. They are NOT "left to review" - the validator does
+# not detect them - and are pinned as strict-xfail cases below, NOT asserted as acceptable here.
+# Every OTHER case must be correct; the parametrized tests exclude these two ids so no green
+# assertion depends on their defective acceptance.
+_UNRESOLVED_FALSE_ACCEPTS = {"held-combination-same-paragraph", "fresh-residual-recombination",
+                             "fresh-stitch-product"}
 
 
-@pytest.mark.parametrize("case", HELD_OUT_CASES, ids=lambda c: c["id"])
-def test_held_out_case_is_correct_or_is_the_named_residual(case):
-    """Held-out development cases. Delegation and the cross-paragraph stitch, once documented gaps,
-    are now held for review; only the single-clause recombination remains wrongly accepted, and it
-    is pinned as the sole residual so the count of open gaps cannot grow unnoticed."""
+@pytest.mark.parametrize("case", [c for c in HELD_OUT_CASES if c["id"] not in _UNRESOLVED_FALSE_ACCEPTS],
+                         ids=lambda c: c["id"])
+def test_held_out_case_is_correct(case):
+    """Held-out development cases, minus the unresolved false accepts (pinned separately as xfail).
+    Delegation and the cross-paragraph stitch, once documented gaps, are now held for review."""
     verdict, problems = judge(case)
-    if case["id"] in _KNOWN_RESIDUAL:
-        assert verdict == "accept", (
-            f"{case['id']} is no longer accepted ({verdict}) - if this is a real close, update the "
-            "residual set and the results doc; if it is a new over-rejection, that is a regression")
-    else:
-        assert _correct(verdict, case["expect"]), f"{case['id']}: {verdict} -> {problems}"
+    assert _correct(verdict, case["expect"]), f"{case['id']}: {verdict} -> {problems}"
 
 
-# The reserved fresh set (grounding_eval_fresh.py), run once after the code was frozen and now
-# pinned as a permanent regression. Two cases are the measured false accepts of the
-# unsupported_combination family (the single-clause residual, and a stitch whose halves share the
-# subject noun so both localise to one clause); the rest, crucially every SUPPORTED case, must hold.
-_FRESH_FALSE_ACCEPTS = {"fresh-residual-recombination", "fresh-stitch-product"}
-
-
-@pytest.mark.parametrize("case", FRESH_CASES, ids=lambda c: c["id"])
-def test_fresh_case_is_correct_or_a_measured_false_accept(case):
+@pytest.mark.parametrize("case", [c for c in FRESH_CASES if c["id"] not in _UNRESOLVED_FALSE_ACCEPTS],
+                         ids=lambda c: c["id"])
+def test_fresh_case_is_correct(case):
+    """Reserved fresh cases, minus the unresolved false accepts. Every supported case here must be
+    accepted and every catchable unsupported case rejected or reviewed."""
     verdict, problems = judge(case)
-    if case["id"] in _FRESH_FALSE_ACCEPTS:
-        assert verdict == "accept", (
-            f"{case['id']} changed ({verdict}); the fresh-set measurement in the results doc no "
-            "longer holds and must be re-stated")
-    else:
-        assert _correct(verdict, case["expect"]), f"{case['id']}: {verdict} -> {problems}"
+    assert _correct(verdict, case["expect"]), f"{case['id']}: {verdict} -> {problems}"
 
 
 def test_the_fresh_set_has_no_false_rejects():
@@ -689,6 +680,47 @@ def test_the_fresh_set_has_no_false_rejects():
     bad = [c["id"] for c in FRESH_CASES
            if c["expect"] == "accept" and judge(c)[0] != "accept"]
     assert bad == [], f"fresh supported claims wrongly blocked: {bad}"
+
+
+# --- the two unresolved false accepts, pinned as strict xfail (NOT asserted acceptable) ----------
+# Each test asserts the CORRECT outcome (the draft is blocked / no approval hash). It currently
+# FAILS, because the validator wrongly accepts the claim - so the test xfails. strict=True turns a
+# future PASS into a suite failure, forcing the record to be updated the day either is closed. This
+# is how a known, measured, unfixed defect is pinned WITHOUT any green assertion that acceptance is
+# acceptable. The founder asked that both require rejection/review; they cannot be made to without
+# reviewing 20+ real supported sentences (RESULTS.md), so they are marked openly unresolved here
+# and put to the founder as an acceptance-contract decision.
+_RESIDUAL_REASON = ("Unresolved: single-clause recombination; no word rule blocks it without "
+                    "reviewing 20+ real supported product sentences. See RESULTS.md.")
+_STITCH_REASON = ("Unresolved: two-clause stitch sharing the subject noun; relaxing the stitch "
+                  "check to catch it reviews 23 real supported sentences. See RESULTS.md.")
+
+
+@pytest.mark.xfail(strict=True, reason=_RESIDUAL_REASON)
+def test_same_clause_recombination_product_is_blocked():
+    draft, _ = verify(product={"text": "Example Product uses your bank balance to explain "
+                                       "recommended payroll.", "kind": "PRODUCT", "quote_id": ""})
+    assert draft is None
+
+
+@pytest.mark.xfail(strict=True, reason=_RESIDUAL_REASON)
+def test_same_clause_recombination_subject_is_blocked():
+    draft, _ = verify(subject="Example Product explains recommended payroll from your bank balance")
+    assert draft is None
+
+
+@pytest.mark.xfail(strict=True, reason=_STITCH_REASON)
+def test_shared_subject_stitch_product_is_blocked():
+    draft, _ = verify(product={
+        "text": "Example Product is still being finished, and it already compares scenarios for "
+                "construction subcontractors.", "kind": "PRODUCT", "quote_id": ""})
+    assert draft is None
+
+
+@pytest.mark.xfail(strict=True, reason=_STITCH_REASON)
+def test_shared_subject_stitch_subject_is_blocked():
+    draft, _ = verify(subject="Example Product is still being finished and it compares scenarios")
+    assert draft is None
 
 
 # --- six gaps a mutation run found in the tests above, each pinned on its own -------------------

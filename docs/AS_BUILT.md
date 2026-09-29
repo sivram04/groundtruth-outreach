@@ -1377,6 +1377,17 @@ Sheet — and how often the checks refuse it — is unknown.
   handbook found before this shipped.** `docs/testing/grounding-eval/RESULTS.md` has the full
   record; this is the summary.
 
+  **STATUS after a second review: item 2 is NOT complete.** Two false accepts (a same-clause
+  recombination and a shared-subject stitch) are UNRESOLVED - measured three ways as uncatchable by
+  word overlap without reviewing 20+ of ~36 real supported sentences, including the founder's own
+  copy - so they are pinned strict-xfail (not "left to review", which was corrected) and put to the
+  founder as an acceptance-contract decision: (A) constrain product-claim generation to approved
+  copy [recommended], (B) require a per-draft human review record bound to the draft hash, or (C)
+  accept the risk under founder-in-the-loop sending. Enforcement (a flagged claim mints no approval
+  hash) is real and proven end to end for what the validator DOES catch; it cannot enforce review
+  for what it does not detect - the crux of the open decision. The validator (`writer.py`) was not
+  changed in this second pass; only the record, tests and one enforcement test.
+
   **CORRECTED 2026-09-29 (a second review), and extended with a review outcome - see the results
   doc for the authoritative numbers.** Two claims first written here are withdrawn: (a) the held-out
   cases were NOT "looked at only once" - the eval runner runs both lists together and was run

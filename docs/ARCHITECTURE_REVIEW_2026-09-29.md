@@ -208,14 +208,20 @@ Three corrections an external review required, all reflected in the results doc:
   16/18, **0 false rejects**, 2 review (delegation, both caught), 2 false accepts.
 - **The 21-draft recheck is compatibility evidence**, not proof the drafts' claims are true.
 
-**Two of the three out-of-scope classes are now held for review; one is not closed.** Delegation and
-the cross-paragraph stitch are caught. A single-clause recombination whose words all sit in one
-source clause ("uses your bank balance to explain recommended payroll") is **not** caught, and cannot
-be by word overlap without rejecting honest paraphrases; it is measured, named as the sole residual,
-and left to human review, not claimed as closed. The fresh run also surfaced one stitch the detector
-misses (both halves sharing the subject noun), reported and not patched, to keep the fresh set honest.
-29 deliberate breaks across both sessions, all caught. **Not deployed**: `outreach/writer.py` runs
-inside both `outreach-worker` and `outreach-console`, neither rebuilt with this.
+**Two classes are caught (held for review, hash-blocked); TWO remain UNRESOLVED, and a second review
+corrected my earlier "left to human review" wording — see `docs/testing/grounding-eval/RESULTS.md`
+(top).** Delegation and the cross-paragraph stitch are caught. The two unresolved false accepts — a
+single-clause recombination ("uses your bank balance to explain recommended payroll") and a
+shared-subject stitch ("... is still being finished, and it already compares scenarios ...") — are
+**not detected**, so they were never actually "left to review"; nothing routed them. Measured three
+ways, no word-overlap or shallow-structural rule blocks either without reviewing 20+ of ~36 real
+supported product/company sentences (including the founder's own template copy), so they are pinned
+as strict-xfail regressions and put to the founder as an acceptance-contract decision (constrain
+product generation to approved copy / require a per-draft review record / accept the risk under
+founder-in-the-loop sending). **Enforcement is real for what IS caught**: a flagged claim mints no
+approval hash, proven end to end through the real pipeline (`test_draft_pipeline.py`), even with
+`offer_approved=True`. 29 deliberate breaks across both sessions, all caught. **Not deployed**:
+`outreach/writer.py` runs inside both `outreach-worker` and `outreach-console`, neither rebuilt.
 
 ### 3.2 Prompt injection
 
@@ -655,14 +661,13 @@ name leaves a path that parses rows and suppresses nobody (§5, finding 1).
    revision and bundled code confirmed live afterward. See §4.1's finding and `AS_BUILT.md` for the
    evidence; an authenticated dashboard load is the one thing not verified, because that needs a
    real sign-in as an allow-listed account.
-2. **The negation hole and its family** (§3.1). **MOSTLY DONE 2026-09-29, not deployed; one class
-   deliberately left open.** The negation, scope, qualifier and number checks are in and route to
-   plain rejection; delegation and cross-paragraph stitching route to review (no approval hash). The
-   third out-of-scope class — a single-clause recombination of words that co-occur in one source
-   clause — is **not closed** and cannot be by word overlap without false rejects; it is measured,
-   named as the sole residual, and left to human review. See §3.1 and
-   `docs/testing/grounding-eval/RESULTS.md` for the adversarial and reserved sets, the corrected
-   before/intermediate/after counts, and the two remaining false accepts.
+2. **The negation hole and its family** (§3.1). **PARTLY DONE, NOT COMPLETE; not deployed.** The
+   negation/scope/qualifier/number checks are in and reject; delegation and the cross-paragraph
+   stitch route to review and are hash-blocked (enforcement proven end to end). **TWO false accepts
+   remain unresolved** — a single-clause recombination and a shared-subject stitch — both measured
+   uncatchable by word overlap without reviewing 20+ real supported sentences, so they are pinned
+   strict-xfail and put to the founder as an acceptance-contract decision (A/B/C). See §3.1 and
+   `docs/testing/grounding-eval/RESULTS.md` (top). This item stays **open** until that decision.
 3. **The assistant's number check** (§4.2). Either compute each figure from the named field before
    presenting it, or say plainly on screen that the assistant's prose is not verified. The claim
    made to the founder on 2026-09-28 should be corrected in writing — it is corrected here.

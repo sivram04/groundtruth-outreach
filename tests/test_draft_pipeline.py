@@ -75,6 +75,18 @@ def preview(row=None, *, book=BOOK, model=None, config=None, suppressed=False):
 
 # --- the good path ------------------------------------------------------------------------
 
+def test_a_review_flagged_claim_yields_no_approval_hash_through_the_whole_pipeline():
+    """Enforcement, end to end: a company sentence the validator holds for review (work credited to
+    a subcontractor under the company's own name) produces NO preview_hash from the full
+    write->verify->assemble path, even with offer_approved=True. Review is a real gate on the
+    approval hash, not just a verify() return value."""
+    delegation = ("Example Electric's subcontractors install electrical distribution systems for "
+                  "commercial buildings.")
+    out = preview(model=model_for(company_text=delegation))
+    assert out["preview_hash"] is None
+    assert any(writer.REVIEW_PREFIX in b for b in out["blockers"])
+
+
 def test_a_written_preview_is_approvable_and_carries_its_sources():
     out = preview()
     assert out["blockers"] == [] and out["preview_hash"]

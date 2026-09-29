@@ -1,5 +1,64 @@
 # Grounding check, item 2: adversarial sets, a review outcome, and what it does and does not close
 
+## SECOND-REVIEW CORRECTION, 2026-09-29 (supersedes the claims below; originals kept for the record)
+
+A second review made three points that this section corrects. **The validator (`outreach/writer.py`)
+was NOT changed in this pass** — it is frozen at commit `597bfcc`; only the record, the tests, and
+one enforcement test changed.
+
+1. **The two remaining false accepts are UNRESOLVED, not "left to human review."** "Left to review"
+   is only true if the application requires that review; the validator does not detect these two, so
+   nothing routes them anywhere. They are:
+   - the **same-clause recombination** ("Example Product uses your bank balance to explain
+     recommended payroll" — every word in one handbook clause), and
+   - the **shared-subject stitch** ("... is still being finished, and it already compares scenarios
+     ..." — two clauses sharing the subject, so both localise to one clause and the stitch check's
+     different-cluster requirement does not fire).
+
+2. **They cannot be caught by any word-overlap or shallow-structural rule without an unacceptable
+   false-review rate — measured three ways on the real drafts (read-only):**
+   - A content-bigram "tight restatement" auto-pass gate reviews **21 of 36** real product sentences
+     and **10 of 21** real company sentences — including the founder's own template product line.
+   - A verbatim-span gate reviews **21 of 36** real product sentences and even rejects a genuine
+     handbook quote (any added word like "building" breaks contiguity).
+   - Relaxing the stitch check to fire on any two predicate-bearing clauses reviews **23** real
+     sentences, including legitimate compound-predicate company sentences ("... designs, builds,
+     installs, services, and maintains ...") and the founder's own product line.
+
+   The theorem this establishes: an order-preserving word test reviews honest paraphrases (which
+   reorder); an order-free word test lets the recombination through (all its words co-occur in one
+   clause). There is no word-based sweet spot. More regex would only chase the score.
+
+3. **The enforcement the founder demanded IS real for what the validator flags:** a review/blocking
+   outcome (delegation, cross-paragraph stitch) makes `verify()` return no draft, so no approval
+   hash is minted — now proven end to end through the real write→verify→assemble pipeline, not just
+   `verify()` (`tests/test_draft_pipeline.py`), even with `offer_approved=True`. The two unresolved
+   false accepts are pinned as **strict-xfail** regression tests (company and subject variations)
+   that assert the correct outcome and currently fail — so the day either is closed, the suite goes
+   red and forces this record to be updated. No test asserts that their acceptance is acceptable.
+
+**The acceptance-contract decision, put to the founder (criterion 2).** The validator's PASS
+certifies *mechanical consistency* with the source (grounded words, and the specific added-signal
+patterns it checks — not "no added negation" in general, only the negation/scope/qualifier/number
+patterns coded), **never faithfulness**. Because word overlap cannot certify a product self-
+description claim, three real options exist, and this is a decision, not something to ship silently:
+
+- **(A) Constrain product-claim generation to approved statements** — the model reuses the founder's
+  approved product/ask sentences rather than paraphrasing freely; a novel product claim (which a
+  recombination is) then fails to match and is held. This eliminates the recombination class and is
+  the recommended fix. It is a generation change, not built.
+- **(B) Require a per-draft human review record bound to the exact draft hash** before any approval
+  hash — review-all, which matches the current reality (the founder sends every email by hand). The
+  hash already binds claim/evidence/recipient/handbook and any edit voids it; what is missing is that
+  the hash is minted from a global `offer_approved` flag, not a per-draft claim review.
+- **(C) Accept the two measured false accepts** under founder-in-the-loop sending (nothing sends
+  automatically; drafting is disabled).
+
+Until the founder chooses, **item 2 is not complete**: the two false accepts stand, unresolved and
+pinned. What follows is the original write-up (kept visible), with its own now-corrected phrasing.
+
+---
+
 2026-09-29. `outreach/writer.py`'s grounding check screens what Gemini writes before it can become
 a draft: every content word in a sentence must appear in the source it cites. The audit
 (`docs/ARCHITECTURE_REVIEW_2026-09-29.md` §3.1) confirmed a hole — a sentence that reverses its
@@ -101,21 +160,38 @@ Real drafts, after (read-only, live handbook): **0 of 21 newly rejected, 0 newly
 This is compatibility evidence — the shipped checks do not block real drafts — not proof the drafts'
 claims are true.
 
-### The reserved fresh set — written after the freeze, run once
+### The reserved fresh set — its real run history (not "run once")
 
 `tests/grounding_eval_fresh.py`: 18 cases (new companies, quotes and sentences that appear nowhere
-in development), run once against the frozen validator.
+in development). Its history, recorded separately rather than collapsed into "run once" (the
+second review's criterion 5), validator frozen throughout:
+
+- **Run 1 (raw):** 15/18. It surfaced two problems that were NOT validator faults: a **harness bug**
+  (the runner's filler company sentence was hardcoded to "Example Electric" while a fresh case named
+  "Summit Roofing", so the filler failed grounding) and a **mis-authored case** (`fresh-subject`
+  used "short", not a handbook word, so the validator *correctly* rejected an ungrounded word).
+- **Run 2 (harness fixed):** 15/18 — the harness bug gone, `fresh-subject` still (correctly)
+  rejecting "short".
+- **Run 3 (mis-authored case corrected to a grounded subject):** 16/18 — the final figure.
+
+Both corrections were to the harness and one bad case, never to `writer.py`; both are disclosed
+here rather than hidden behind "run once". The final (run 3) outcome:
 
 | outcome | count | cases |
 |---|---|---|
 | correct | 16/18 | — |
 | plainly rejected | 6 | negation, wrong number, wrong date, scope, dropped qualifier, invented capability |
 | held for review | 2 | `fresh-delegation-possessive`, `fresh-delegation-verb` |
-| **false accept** | 2 | `fresh-stitch-product`, `fresh-residual-recombination` |
+| **false accept** | 2 | `fresh-stitch-product`, `fresh-residual-recombination` (both unresolved; see the correction at the top) |
 | **false reject** | 0 | — |
 
 Every supported claim was accepted (baseline 8/8) — the cardinal requirement holds on unseen data.
-Delegation review generalised (2/2). (`docs/testing/grounding-eval-fresh.json`.)
+Delegation review generalised (2/2). **Supported claims that require review: 0 on the fresh set**
+(the two reviews are both delegation cases, i.e. genuinely uncertain, not supported). This is the
+"how many supported claims require review" figure the second review asked for, on this set. (Full
+rows in `docs/testing/grounding-eval-fresh.json`.) The validator was not changed after run 3, so no
+new reserved set is needed this pass; if the founder's contract decision changes the validator, a
+new reserved set will be written and this one becomes development evidence.
 
 **Two things the first fresh run surfaced, handled with the validator frozen throughout:**
 
@@ -151,28 +227,37 @@ measurement honest and avoid overfitting**:
 
 ## What this establishes, and what still needs a person
 
-- **Establishes (mechanically):** every content word and digit in a sentence is present in its cited
-  source; the sentence does not add a negation, an absolute scope word, or drop a qualifier the
-  localised source has; a company sentence does not lead with an alternative actor; and two visible
-  structural shapes — a third party credited with the work, and two clauses stitched across source
-  clusters — are blocked from an approval hash and held for review.
+- **Establishes (mechanically), for the specific patterns it codes — not in general:** every content
+  word and digit in a sentence is present in its cited source; the sentence does not contain one of
+  the coded negation words, one of the coded absolute-scope phrases, or drop one of the coded
+  qualifier phrases the localised source has (these are finite word/phrase lists, not a guarantee
+  against every negation or scope shift); a company sentence does not lead with one of the coded
+  alternative-actor words; and two visible structural shapes — a third party credited with the work,
+  and two clauses stitched across different source clauses — are blocked from an approval hash.
 - **Does not establish (needs human judgment):** that any claim is *true*; a reversal kept under the
   company's own name where the actor is not a listed third-party word; a single-clause recombination
   of co-occurring words (the residual); a stitch whose halves share a subject; a subtle scope
   widening using no absolute word. The founder reviews the exact words of every draft; the approval
   hash binds them.
 
-## Acceptance criteria status (item 2)
+## Acceptance criteria status (item 2) — NOT complete; see the top correction
 
-- Corrections to the report/audit/AS_BUILT — **done** (this document; §3.1; the change log).
-- A review/blocking outcome for out-of-scope claims — **done for two of three** classes (delegation,
-  cross-paragraph stitch). The third (single-clause recombination) is **not closed**; it is measured,
-  named, and left to review, because no word-based rule closes it without false rejects. Item-1's
-  authenticated dashboard check is **pending**.
-- Tests requiring rejection/review, and no approval hash for uncertain claims — **done** (company
-  sentences and subject lines; `test_writer.py`).
-- Fresh set kept separate and run once — **done** (`grounding_eval_fresh.py`).
-- False accepts / false rejects / reviews reported separately — **done** (above and the JSON).
+- Corrections to the report/audit/AS_BUILT — **done** (the top of this document; §3.1; the change log).
+- A review/blocking outcome for out-of-scope claims — **done for two classes** (delegation,
+  cross-paragraph stitch), which are blocked from an approval hash. **Two classes remain unresolved**
+  (same-clause recombination, shared-subject stitch): measured uncatchable by word overlap without
+  reviewing 20+ real supported sentences, so they are pinned as strict-xfail, not routed anywhere.
+  Closing them needs the founder's acceptance-contract decision (A/B/C at the top). **Open.**
+- Enforcement (no approval hash for a flagged claim) — **done and proven end to end** for what the
+  validator flags (`tests/test_draft_pipeline.py`); it cannot enforce review for what it does not
+  detect, which is the crux of the open decision.
+- Tests requiring rejection/review, and no approval hash for uncertain claims — **done for the caught
+  classes**; the two unresolved false accepts are pinned strict-xfail (asserting the correct outcome,
+  currently failing), **not** with any assertion that their acceptance is acceptable.
+- Fresh set kept separate — **done**, with its full run history recorded above (not "run once").
+- Report false accepts / false rejects / reviews / supported-claims-requiring-review separately —
+  **done** (above and the JSON).
+- Item-1's authenticated dashboard check — **pending**, separate from item 2.
 
 ## Proof
 
