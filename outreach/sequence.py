@@ -207,18 +207,29 @@ def _due_words(due, today):
     return f"was due {day_text(due)}" if due < today else f"is due {day_text(due)}"
 
 
+def next_followup(sequence):
+    """(step, due date) of the next follow-up of a running sequence, or None once both are sent.
+
+    Follow-up N is due FOLLOWUP_GAP business days after the sequence's last email was sent,
+    whoever started the thread; whether it is drafted or only reminded of is decided elsewhere."""
+    followups_sent = len(sequence["sends"]) - 1
+    if followups_sent >= len(FOLLOWUPS):
+        return None
+    last = sequence["sends"][-1]
+    return followups_sent + 1, add_business_days(new_york_date(when(last)), FOLLOWUP_GAP)
+
+
 def _schedule(row, sequence, today, *, hold, suppressed, draft_gone):
     """(Next action, follow-up waiting to be drafted or None) for a running sequence."""
-    followups_sent = len(sequence["sends"]) - 1
     last = sequence["sends"][-1]
     if hold:
         return "On hold: no follow-ups.", None
     if suppressed:
         return "On the Suppression list: no follow-ups.", None
-    if followups_sent >= len(FOLLOWUPS):
+    upcoming = next_followup(sequence)
+    if upcoming is None:
         return f"Both follow-ups sent, the last on {event_day(last)}. No reply yet.", None
-    step = followups_sent + 1
-    due_date = add_business_days(new_york_date(when(last)), FOLLOWUP_GAP)
+    step, due_date = upcoming
     words = _due_words(due_date, today)
     if sequence["origin"] == HAND:
         return (f"Follow-up {step} {words}. You started this thread by hand, so write it "

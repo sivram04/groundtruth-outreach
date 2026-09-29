@@ -244,10 +244,14 @@ class Store:
             return None
         return table[1]
 
+    def run_rows(self):
+        """The Runs tab's rows, oldest first; none when there is no Runs tab."""
+        table = self.table(RUNS_TAB)
+        return table[1] if table else []
+
     def last_cursor(self):
         """Where the last completed sync stopped reading, from its Runs row."""
-        table = self.table(RUNS_TAB)
-        for row in reversed(table[1] if table else []):
+        for row in reversed(self.run_rows()):
             if row.get("Job") == "sync" and row.get("Result") in ("OK", "PARTIAL"):
                 found = CURSOR.search(row.get("Detail", ""))
                 if found:

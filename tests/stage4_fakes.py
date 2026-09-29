@@ -216,6 +216,9 @@ class MemoryStore:
     def suppression(self):
         return None if self.entries is None else [dict(e) for e in self.entries]
 
+    def run_rows(self):
+        return [dict(r) for r in self.runs]
+
     def last_cursor(self):
         from outreach.sheet import CURSOR
         for row in reversed(self.runs):

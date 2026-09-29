@@ -9,3 +9,8 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
+
+# The console's React app: dependencies and builds are made, never committed
+console/node_modules/
+console/dist/
+console/dist-demo/

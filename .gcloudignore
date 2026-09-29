@@ -3,3 +3,8 @@
 .git/
 docs/
 __pycache__/
+.agent/
+.pytest_cache/
+console/node_modules/
+console/dist/
+console/dist-demo/

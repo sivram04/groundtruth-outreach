@@ -1,0 +1,6 @@
+# Builds the console's image from deploy/console.Dockerfile. `gcloud run deploy --source` only
+# reads a Dockerfile at the root, and that one is the worker's.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "deploy/console.Dockerfile", "-t", "$_IMAGE", "."]
+images: ["$_IMAGE"]

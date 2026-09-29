@@ -1,0 +1,1700 @@
+{
+  "approvals": {
+    "daily_cap": 4,
+    "followups": false,
+    "offer": false,
+    "sender": "admin@lakshyaa.ai",
+    "tracking": false
+  },
+  "coming_up": [
+    {
+      "date": "2026-09-29",
+      "day": "Tue 2026-09-29",
+      "lead_id": "B-0001",
+      "step": 1,
+      "text": "Follow-up 1 is due Tue 2026-09-29; it will be drafted then."
+    },
+    {
+      "date": "2026-09-30",
+      "day": "Wed 2026-09-30",
+      "lead_id": "A-0003",
+      "step": 1,
+      "text": "Follow-up 1 is due Wed 2026-09-30. You started this thread by hand, so write it yourself in the same thread."
+    }
+  ],
+  "coming_up_days": 5,
+  "drafts": [
+    {
+      "at": "2026-09-27 10:30 ET",
+      "kind": "First email",
+      "lead_id": "B-0002",
+      "status": "CREATED",
+      "tracked": false
+    }
+  ],
+  "event_count": 15,
+  "leads": [
+    {
+      "action": "Follow-up 1 was due Fri 2026-09-25. You started this thread by hand, so write it yourself in the same thread.",
+      "blockers": [
+        "already emailed by hand",
+        "already emailed"
+      ],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "0",
+        "Last event": "SENT 2026-09-22 13:18 ET",
+        "Next action": "Follow-up 1 was due Fri 2026-09-25. You started this thread by hand, so write it yourself in the same thread.",
+        "Opens (est.)": "",
+        "Outreach status": "SENT",
+        "Replied at": "",
+        "Sent at": "2026-09-22 13:18 ET",
+        "Sent to": "sam@example-electric.test",
+        "Tracked sends": ""
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "A-0001"
+        ],
+        [
+          "Company",
+          "Example Electric"
+        ],
+        [
+          "BEST EMAIL",
+          "sam@example-electric.test"
+        ],
+        [
+          "Their email",
+          "sam@example-electric.test"
+        ],
+        [
+          "Decision maker",
+          "Sam Rivers"
+        ],
+        [
+          "Website",
+          "https://example-electric.test/"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          "OK"
+        ],
+        [
+          "Fit",
+          "QUALIFIED"
+        ],
+        [
+          "Sent by hand",
+          "2026-09-22"
+        ],
+        [
+          "Profile status",
+          "READY"
+        ]
+      ],
+      "company": "Example Electric",
+      "contact": "Sam Rivers",
+      "drafts": [],
+      "email": "sam@example-electric.test",
+      "email_check": "OK",
+      "email_reason": "",
+      "error": null,
+      "events": [
+        {
+          "address": "sam@example-electric.test",
+          "detail": "hand-written",
+          "event": "Sent",
+          "match": "an address on the lead's row",
+          "step": "First email",
+          "when": "2026-09-22 13:18 ET"
+        }
+      ],
+      "fit": "QUALIFIED",
+      "fit_reason": "",
+      "hold": "",
+      "id": "A-0001",
+      "next_followup": {
+        "date": "2026-09-25",
+        "day": "Fri 2026-09-25",
+        "step": 1
+      },
+      "origin": "HAND",
+      "profile": "READY",
+      "ready": false,
+      "sent_by_hand": "2026-09-22",
+      "status": "SENT",
+      "status_label": "Emailed",
+      "suppressed": false,
+      "tier": "A",
+      "tier_label": "A: proven commercial",
+      "website": "https://example-electric.test/",
+      "website_href": "https://example-electric.test/"
+    },
+    {
+      "action": "Replied on Thu 2026-09-24. Answer by hand.",
+      "blockers": [
+        "already emailed by hand",
+        "already emailed"
+      ],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "0",
+        "Last event": "REPLIED 2026-09-24 16:40 ET",
+        "Next action": "Replied on Thu 2026-09-24. Answer by hand.",
+        "Opens (est.)": "",
+        "Outreach status": "REPLIED",
+        "Replied at": "2026-09-24 16:40 ET",
+        "Sent at": "2026-09-23 10:00 ET",
+        "Sent to": "pat@acme-plumbing.test",
+        "Tracked sends": ""
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "A-0002"
+        ],
+        [
+          "Company",
+          "Acme Plumbing"
+        ],
+        [
+          "BEST EMAIL",
+          "pat@acme-plumbing.test"
+        ],
+        [
+          "Their email",
+          "pat@acme-plumbing.test"
+        ],
+        [
+          "Decision maker",
+          "Pat Lee"
+        ],
+        [
+          "Website",
+          "https://acme-plumbing.test/"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          "OK"
+        ],
+        [
+          "Fit",
+          "QUALIFIED"
+        ],
+        [
+          "Sent by hand",
+          "2026-09-23"
+        ],
+        [
+          "Profile status",
+          "READY"
+        ]
+      ],
+      "company": "Acme Plumbing",
+      "contact": "Pat Lee",
+      "drafts": [],
+      "email": "pat@acme-plumbing.test",
+      "email_check": "OK",
+      "email_reason": "",
+      "error": null,
+      "events": [
+        {
+          "address": "pat@acme-plumbing.test",
+          "detail": "hand-written",
+          "event": "Sent",
+          "match": "an address on the lead's row",
+          "step": "First email",
+          "when": "2026-09-23 10:00 ET"
+        },
+        {
+          "address": "pat@acme-plumbing.test",
+          "detail": "",
+          "event": "Replied",
+          "match": "the same thread",
+          "step": "",
+          "when": "2026-09-24 16:40 ET"
+        }
+      ],
+      "fit": "QUALIFIED",
+      "fit_reason": "",
+      "hold": "",
+      "id": "A-0002",
+      "next_followup": {
+        "date": "2026-09-28",
+        "day": "Mon 2026-09-28",
+        "step": 1
+      },
+      "origin": "HAND",
+      "profile": "READY",
+      "ready": false,
+      "sent_by_hand": "2026-09-23",
+      "status": "REPLIED",
+      "status_label": "Replied",
+      "suppressed": false,
+      "tier": "A",
+      "tier_label": "A: proven commercial",
+      "website": "https://acme-plumbing.test/",
+      "website_href": "https://acme-plumbing.test/"
+    },
+    {
+      "action": "Follow-up 1 is due Wed 2026-09-30. You started this thread by hand, so write it yourself in the same thread.",
+      "blockers": [
+        "already emailed by hand",
+        "already emailed"
+      ],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "0",
+        "Last event": "SENT 2026-09-25 11:05 ET",
+        "Next action": "Follow-up 1 is due Wed 2026-09-30. You started this thread by hand, so write it yourself in the same thread.",
+        "Opens (est.)": "",
+        "Outreach status": "SENT",
+        "Replied at": "",
+        "Sent at": "2026-09-25 11:05 ET",
+        "Sent to": "robin@northside-mech.test",
+        "Tracked sends": ""
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "A-0003"
+        ],
+        [
+          "Company",
+          "Northside Mechanical"
+        ],
+        [
+          "BEST EMAIL",
+          "robin@northside-mech.test"
+        ],
+        [
+          "Their email",
+          "robin@northside-mech.test"
+        ],
+        [
+          "Decision maker",
+          "Robin Hale"
+        ],
+        [
+          "Website",
+          "https://northside-mech.test/"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          "OK"
+        ],
+        [
+          "Fit",
+          "QUALIFIED"
+        ],
+        [
+          "Sent by hand",
+          "2026-09-25"
+        ],
+        [
+          "Profile status",
+          "READY"
+        ]
+      ],
+      "company": "Northside Mechanical",
+      "contact": "Robin Hale",
+      "drafts": [],
+      "email": "robin@northside-mech.test",
+      "email_check": "OK",
+      "email_reason": "",
+      "error": null,
+      "events": [
+        {
+          "address": "robin@northside-mech.test",
+          "detail": "hand-written",
+          "event": "Sent",
+          "match": "an address on the lead's row",
+          "step": "First email",
+          "when": "2026-09-25 11:05 ET"
+        }
+      ],
+      "fit": "QUALIFIED",
+      "fit_reason": "",
+      "hold": "",
+      "id": "A-0003",
+      "next_followup": {
+        "date": "2026-09-30",
+        "day": "Wed 2026-09-30",
+        "step": 1
+      },
+      "origin": "HAND",
+      "profile": "READY",
+      "ready": false,
+      "sent_by_hand": "2026-09-25",
+      "status": "SENT",
+      "status_label": "Emailed",
+      "suppressed": false,
+      "tier": "A",
+      "tier_label": "A: proven commercial",
+      "website": "https://northside-mech.test/",
+      "website_href": "https://northside-mech.test/"
+    },
+    {
+      "action": "Check the match: you emailed jeff@riverbend-drywall.test on Tue 2026-09-22, which is not an address on this row. If it is this company, follow-up 1 was due Fri 2026-09-25.",
+      "blockers": [
+        "already emailed by hand",
+        "already emailed"
+      ],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "",
+        "Last event": "SENT 2026-09-22 13:40 ET",
+        "Next action": "Check the match: you emailed jeff@riverbend-drywall.test on Tue 2026-09-22, which is not an address on this row. If it is this company, follow-up 1 was due Fri 2026-09-25.",
+        "Opens (est.)": "",
+        "Outreach status": "REVIEW_NEEDED",
+        "Replied at": "",
+        "Sent at": "2026-09-22 13:40 ET",
+        "Sent to": "jeff@riverbend-drywall.test",
+        "Tracked sends": ""
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "A-0004"
+        ],
+        [
+          "Company",
+          "Riverbend Drywall"
+        ],
+        [
+          "BEST EMAIL",
+          "dennis@riverbend-drywall.test"
+        ],
+        [
+          "Their email",
+          "dennis@riverbend-drywall.test"
+        ],
+        [
+          "Decision maker",
+          "Dennis Ward"
+        ],
+        [
+          "Website",
+          "riverbend-drywall.test"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          "OK"
+        ],
+        [
+          "Fit",
+          "QUALIFIED"
+        ],
+        [
+          "Sent by hand",
+          "2026-09-22"
+        ],
+        [
+          "Profile status",
+          "READY"
+        ]
+      ],
+      "company": "Riverbend Drywall",
+      "contact": "Dennis Ward",
+      "drafts": [],
+      "email": "dennis@riverbend-drywall.test",
+      "email_check": "OK",
+      "email_reason": "",
+      "error": null,
+      "events": [
+        {
+          "address": "jeff@riverbend-drywall.test",
+          "detail": "hand-written",
+          "event": "Sent",
+          "match": "the company's domain only",
+          "step": "Not confirmed",
+          "when": "2026-09-22 13:40 ET"
+        }
+      ],
+      "fit": "QUALIFIED",
+      "fit_reason": "",
+      "hold": "",
+      "id": "A-0004",
+      "next_followup": null,
+      "origin": null,
+      "profile": "READY",
+      "ready": false,
+      "sent_by_hand": "2026-09-22",
+      "status": "REVIEW_NEEDED",
+      "status_label": "Match to check",
+      "suppressed": false,
+      "tier": "A",
+      "tier_label": "A: proven commercial",
+      "website": "riverbend-drywall.test",
+      "website_href": ""
+    },
+    {
+      "action": "kim@harbor-glass.test bounced on Tue 2026-09-22. Find another address.",
+      "blockers": [
+        "already emailed by hand",
+        "address or domain is suppressed",
+        "already emailed"
+      ],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "0",
+        "Last event": "BOUNCED 2026-09-22 14:03 ET",
+        "Next action": "kim@harbor-glass.test bounced on Tue 2026-09-22. Find another address.",
+        "Opens (est.)": "",
+        "Outreach status": "BOUNCED",
+        "Replied at": "",
+        "Sent at": "2026-09-22 14:02 ET",
+        "Sent to": "kim@harbor-glass.test",
+        "Tracked sends": ""
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "A-0005"
+        ],
+        [
+          "Company",
+          "Harbor Glass"
+        ],
+        [
+          "BEST EMAIL",
+          "kim@harbor-glass.test"
+        ],
+        [
+          "Their email",
+          "kim@harbor-glass.test"
+        ],
+        [
+          "Decision maker",
+          "Kim Ortiz"
+        ],
+        [
+          "Website",
+          "https://harbor-glass.test/"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          "OK"
+        ],
+        [
+          "Fit",
+          "QUALIFIED"
+        ],
+        [
+          "Sent by hand",
+          "2026-09-22"
+        ],
+        [
+          "Profile status",
+          "READY"
+        ]
+      ],
+      "company": "Harbor Glass",
+      "contact": "Kim Ortiz",
+      "drafts": [],
+      "email": "kim@harbor-glass.test",
+      "email_check": "OK",
+      "email_reason": "",
+      "error": null,
+      "events": [
+        {
+          "address": "kim@harbor-glass.test",
+          "detail": "hand-written",
+          "event": "Sent",
+          "match": "an address on the lead's row",
+          "step": "First email",
+          "when": "2026-09-22 14:02 ET"
+        },
+        {
+          "address": "kim@harbor-glass.test",
+          "detail": "5.1.1 address not found",
+          "event": "Bounced",
+          "match": "the same thread",
+          "step": "",
+          "when": "2026-09-22 14:03 ET"
+        }
+      ],
+      "fit": "QUALIFIED",
+      "fit_reason": "",
+      "hold": "",
+      "id": "A-0005",
+      "next_followup": {
+        "date": "2026-09-25",
+        "day": "Fri 2026-09-25",
+        "step": 1
+      },
+      "origin": "HAND",
+      "profile": "READY",
+      "ready": false,
+      "sent_by_hand": "2026-09-22",
+      "status": "BOUNCED",
+      "status_label": "Bounced",
+      "suppressed": true,
+      "tier": "A",
+      "tier_label": "A: proven commercial",
+      "website": "https://harbor-glass.test/",
+      "website_href": "https://harbor-glass.test/"
+    },
+    {
+      "action": "Asked to stop on Wed 2026-09-23 (no thanks). Never contact again.",
+      "blockers": [
+        "already emailed by hand",
+        "address or domain is suppressed",
+        "already emailed"
+      ],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "0",
+        "Last event": "OPT_OUT 2026-09-23 08:15 ET",
+        "Next action": "Asked to stop on Wed 2026-09-23 (no thanks). Never contact again.",
+        "Opens (est.)": "",
+        "Outreach status": "OPTED_OUT",
+        "Replied at": "2026-09-23 08:15 ET",
+        "Sent at": "2026-09-22 14:30 ET",
+        "Sent to": "lee@summit-roofing.test",
+        "Tracked sends": ""
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "A-0006"
+        ],
+        [
+          "Company",
+          "Summit Roofing"
+        ],
+        [
+          "BEST EMAIL",
+          "lee@summit-roofing.test"
+        ],
+        [
+          "Their email",
+          "lee@summit-roofing.test"
+        ],
+        [
+          "Decision maker",
+          "Lee Park"
+        ],
+        [
+          "Website",
+          "https://summit-roofing.test/"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          "OK"
+        ],
+        [
+          "Fit",
+          "QUALIFIED"
+        ],
+        [
+          "Sent by hand",
+          "2026-09-22"
+        ],
+        [
+          "Profile status",
+          "READY"
+        ]
+      ],
+      "company": "Summit Roofing",
+      "contact": "Lee Park",
+      "drafts": [],
+      "email": "lee@summit-roofing.test",
+      "email_check": "OK",
+      "email_reason": "",
+      "error": null,
+      "events": [
+        {
+          "address": "lee@summit-roofing.test",
+          "detail": "hand-written",
+          "event": "Sent",
+          "match": "an address on the lead's row",
+          "step": "First email",
+          "when": "2026-09-22 14:30 ET"
+        },
+        {
+          "address": "lee@summit-roofing.test",
+          "detail": "no thanks",
+          "event": "Asked to stop",
+          "match": "the same thread",
+          "step": "",
+          "when": "2026-09-23 08:15 ET"
+        }
+      ],
+      "fit": "QUALIFIED",
+      "fit_reason": "",
+      "hold": "",
+      "id": "A-0006",
+      "next_followup": {
+        "date": "2026-09-25",
+        "day": "Fri 2026-09-25",
+        "step": 1
+      },
+      "origin": "HAND",
+      "profile": "READY",
+      "ready": false,
+      "sent_by_hand": "2026-09-22",
+      "status": "OPTED_OUT",
+      "status_label": "Asked to stop",
+      "suppressed": true,
+      "tier": "A",
+      "tier_label": "A: proven commercial",
+      "website": "https://summit-roofing.test/",
+      "website_href": "https://summit-roofing.test/"
+    },
+    {
+      "action": "",
+      "blockers": [],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "",
+        "Last event": "",
+        "Next action": "",
+        "Opens (est.)": "",
+        "Outreach status": "",
+        "Replied at": "",
+        "Sent at": "",
+        "Sent to": "",
+        "Tracked sends": ""
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "A-0007"
+        ],
+        [
+          "Company",
+          "Lakeside Concrete"
+        ],
+        [
+          "BEST EMAIL",
+          "jo@lakeside-concrete.test"
+        ],
+        [
+          "Their email",
+          "jo@lakeside-concrete.test"
+        ],
+        [
+          "Decision maker",
+          "Jo Bennett"
+        ],
+        [
+          "Website",
+          "https://lakeside-concrete.test/"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          "OK"
+        ],
+        [
+          "Fit",
+          "QUALIFIED"
+        ],
+        [
+          "Sent by hand",
+          ""
+        ],
+        [
+          "Profile status",
+          "READY"
+        ]
+      ],
+      "company": "Lakeside Concrete",
+      "contact": "Jo Bennett",
+      "drafts": [],
+      "email": "jo@lakeside-concrete.test",
+      "email_check": "OK",
+      "email_reason": "",
+      "error": null,
+      "events": [],
+      "fit": "QUALIFIED",
+      "fit_reason": "",
+      "hold": "",
+      "id": "A-0007",
+      "next_followup": null,
+      "origin": null,
+      "profile": "READY",
+      "ready": true,
+      "sent_by_hand": "",
+      "status": "",
+      "status_label": "Not emailed",
+      "suppressed": false,
+      "tier": "A",
+      "tier_label": "A: proven commercial",
+      "website": "https://lakeside-concrete.test/",
+      "website_href": "https://lakeside-concrete.test/"
+    },
+    {
+      "action": "",
+      "blockers": [],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "",
+        "Last event": "",
+        "Next action": "",
+        "Opens (est.)": "",
+        "Outreach status": "",
+        "Replied at": "",
+        "Sent at": "",
+        "Sent to": "",
+        "Tracked sends": ""
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "A-0008"
+        ],
+        [
+          "Company",
+          "Pioneer Paving"
+        ],
+        [
+          "BEST EMAIL",
+          "ali@pioneer-paving.test"
+        ],
+        [
+          "Their email",
+          "ali@pioneer-paving.test"
+        ],
+        [
+          "Decision maker",
+          "Ali Moreno"
+        ],
+        [
+          "Website",
+          "https://pioneer-paving.test/"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          "OK"
+        ],
+        [
+          "Fit",
+          "QUALIFIED"
+        ],
+        [
+          "Sent by hand",
+          ""
+        ],
+        [
+          "Profile status",
+          "READY"
+        ]
+      ],
+      "company": "Pioneer Paving",
+      "contact": "Ali Moreno",
+      "drafts": [],
+      "email": "ali@pioneer-paving.test",
+      "email_check": "OK",
+      "email_reason": "",
+      "error": null,
+      "events": [],
+      "fit": "QUALIFIED",
+      "fit_reason": "",
+      "hold": "",
+      "id": "A-0008",
+      "next_followup": null,
+      "origin": null,
+      "profile": "READY",
+      "ready": true,
+      "sent_by_hand": "",
+      "status": "",
+      "status_label": "Not emailed",
+      "suppressed": false,
+      "tier": "A",
+      "tier_label": "A: proven commercial",
+      "website": "https://pioneer-paving.test/",
+      "website_href": "https://pioneer-paving.test/"
+    },
+    {
+      "action": "",
+      "blockers": [
+        "email check is RISKY"
+      ],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "",
+        "Last event": "",
+        "Next action": "",
+        "Opens (est.)": "",
+        "Outreach status": "",
+        "Replied at": "",
+        "Sent at": "",
+        "Sent to": "",
+        "Tracked sends": ""
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "A-0009"
+        ],
+        [
+          "Company",
+          "Maple Masonry"
+        ],
+        [
+          "BEST EMAIL",
+          "chris@maple-masonry.test"
+        ],
+        [
+          "Their email",
+          "chris@maple-masonry.test"
+        ],
+        [
+          "Decision maker",
+          "Chris Doyle"
+        ],
+        [
+          "Website",
+          "https://maple-masonry.test/"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          "RISKY"
+        ],
+        [
+          "Fit",
+          "QUALIFIED"
+        ],
+        [
+          "Sent by hand",
+          ""
+        ],
+        [
+          "Profile status",
+          "READY"
+        ],
+        [
+          "Reason",
+          "catch-all domain"
+        ]
+      ],
+      "company": "Maple Masonry",
+      "contact": "Chris Doyle",
+      "drafts": [],
+      "email": "chris@maple-masonry.test",
+      "email_check": "RISKY",
+      "email_reason": "catch-all domain",
+      "error": null,
+      "events": [],
+      "fit": "QUALIFIED",
+      "fit_reason": "",
+      "hold": "",
+      "id": "A-0009",
+      "next_followup": null,
+      "origin": null,
+      "profile": "READY",
+      "ready": false,
+      "sent_by_hand": "",
+      "status": "",
+      "status_label": "Not emailed",
+      "suppressed": false,
+      "tier": "A",
+      "tier_label": "A: proven commercial",
+      "website": "https://maple-masonry.test/",
+      "website_href": "https://maple-masonry.test/"
+    },
+    {
+      "action": "",
+      "blockers": [
+        "fit is DISQUALIFIED"
+      ],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "",
+        "Last event": "",
+        "Next action": "",
+        "Opens (est.)": "",
+        "Outreach status": "",
+        "Replied at": "",
+        "Sent at": "",
+        "Sent to": "",
+        "Tracked sends": ""
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "A-0010"
+        ],
+        [
+          "Company",
+          "Cedar Homes"
+        ],
+        [
+          "BEST EMAIL",
+          "val@cedar-homes.test"
+        ],
+        [
+          "Their email",
+          "val@cedar-homes.test"
+        ],
+        [
+          "Decision maker",
+          "Val Kemp"
+        ],
+        [
+          "Website",
+          "https://cedar-homes.test/"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          "OK"
+        ],
+        [
+          "Fit",
+          "DISQUALIFIED"
+        ],
+        [
+          "Sent by hand",
+          ""
+        ],
+        [
+          "Profile status",
+          "READY"
+        ],
+        [
+          "Fit reason",
+          "2 quote(s) show residential work"
+        ]
+      ],
+      "company": "Cedar Homes",
+      "contact": "Val Kemp",
+      "drafts": [],
+      "email": "val@cedar-homes.test",
+      "email_check": "OK",
+      "email_reason": "",
+      "error": null,
+      "events": [],
+      "fit": "DISQUALIFIED",
+      "fit_reason": "2 quote(s) show residential work",
+      "hold": "",
+      "id": "A-0010",
+      "next_followup": null,
+      "origin": null,
+      "profile": "READY",
+      "ready": false,
+      "sent_by_hand": "",
+      "status": "",
+      "status_label": "Not emailed",
+      "suppressed": false,
+      "tier": "A",
+      "tier_label": "A: proven commercial",
+      "website": "https://cedar-homes.test/",
+      "website_href": "https://cedar-homes.test/"
+    },
+    {
+      "action": "",
+      "blockers": [
+        "on hold"
+      ],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "",
+        "Last event": "",
+        "Next action": "",
+        "Opens (est.)": "",
+        "Outreach status": "",
+        "Replied at": "",
+        "Sent at": "",
+        "Sent to": "",
+        "Tracked sends": ""
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "A-0011"
+        ],
+        [
+          "Company",
+          "Birch Landscaping"
+        ],
+        [
+          "BEST EMAIL",
+          "max@birch-landscaping.test"
+        ],
+        [
+          "Their email",
+          "max@birch-landscaping.test"
+        ],
+        [
+          "Decision maker",
+          "Max Ruiz"
+        ],
+        [
+          "Website",
+          "https://birch-landscaping.test/"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          "OK"
+        ],
+        [
+          "Fit",
+          "QUALIFIED"
+        ],
+        [
+          "Sent by hand",
+          ""
+        ],
+        [
+          "Profile status",
+          "READY"
+        ],
+        [
+          "HOLD",
+          "waiting for an introduction"
+        ]
+      ],
+      "company": "Birch Landscaping",
+      "contact": "Max Ruiz",
+      "drafts": [],
+      "email": "max@birch-landscaping.test",
+      "email_check": "OK",
+      "email_reason": "",
+      "error": null,
+      "events": [],
+      "fit": "QUALIFIED",
+      "fit_reason": "",
+      "hold": "waiting for an introduction",
+      "id": "A-0011",
+      "next_followup": null,
+      "origin": null,
+      "profile": "READY",
+      "ready": false,
+      "sent_by_hand": "",
+      "status": "",
+      "status_label": "Not emailed",
+      "suppressed": false,
+      "tier": "A",
+      "tier_label": "A: proven commercial",
+      "website": "https://birch-landscaping.test/",
+      "website_href": "https://birch-landscaping.test/"
+    },
+    {
+      "action": "",
+      "blockers": [
+        "company profile is not READY"
+      ],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "",
+        "Last event": "",
+        "Next action": "",
+        "Opens (est.)": "",
+        "Outreach status": "",
+        "Replied at": "",
+        "Sent at": "",
+        "Sent to": "",
+        "Tracked sends": ""
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "A-0012"
+        ],
+        [
+          "Company",
+          "Oak Tile & Stone <b>Ltd</b>"
+        ],
+        [
+          "BEST EMAIL",
+          "ray@oak-tile.test"
+        ],
+        [
+          "Their email",
+          "ray@oak-tile.test"
+        ],
+        [
+          "Decision maker",
+          "Ray Fox"
+        ],
+        [
+          "Website",
+          "javascript:alert(1)"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          "OK"
+        ],
+        [
+          "Fit",
+          "QUALIFIED"
+        ],
+        [
+          "Sent by hand",
+          ""
+        ],
+        [
+          "Profile status",
+          ""
+        ]
+      ],
+      "company": "Oak Tile & Stone <b>Ltd</b>",
+      "contact": "Ray Fox",
+      "drafts": [],
+      "email": "ray@oak-tile.test",
+      "email_check": "OK",
+      "email_reason": "",
+      "error": null,
+      "events": [],
+      "fit": "QUALIFIED",
+      "fit_reason": "",
+      "hold": "",
+      "id": "A-0012",
+      "next_followup": null,
+      "origin": null,
+      "profile": "",
+      "ready": false,
+      "sent_by_hand": "",
+      "status": "",
+      "status_label": "Not emailed",
+      "suppressed": false,
+      "tier": "A",
+      "tier_label": "A: proven commercial",
+      "website": "javascript:alert(1)",
+      "website_href": ""
+    },
+    {
+      "action": "Follow-up 1 is due Tue 2026-09-29; it will be drafted then.",
+      "blockers": [
+        "a draft action or draft already exists",
+        "already emailed"
+      ],
+      "cells": {
+        "Clicks": "1",
+        "Follow-ups sent": "0",
+        "Last event": "CLICK 2026-09-24 10:31 ET",
+        "Next action": "Follow-up 1 is due Tue 2026-09-29; it will be drafted then.",
+        "Opens (est.)": "1",
+        "Outreach status": "SENT",
+        "Replied at": "",
+        "Sent at": "2026-09-24 09:12 ET",
+        "Sent to": "dana@pine-electrical.test",
+        "Tracked sends": "1"
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "B-0001"
+        ],
+        [
+          "Company",
+          "Pine Electrical"
+        ],
+        [
+          "BEST EMAIL",
+          "dana@pine-electrical.test"
+        ],
+        [
+          "Their email",
+          "dana@pine-electrical.test"
+        ],
+        [
+          "Decision maker",
+          "Dana Cole"
+        ],
+        [
+          "Website",
+          "https://pine-electrical.test/"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          "OK"
+        ],
+        [
+          "Fit",
+          "QUALIFIED"
+        ],
+        [
+          "Sent by hand",
+          ""
+        ],
+        [
+          "Profile status",
+          "READY"
+        ],
+        [
+          "Draft status",
+          "CREATED"
+        ],
+        [
+          "Draft action",
+          "act-b1"
+        ],
+        [
+          "Draft ID",
+          "draft-b1"
+        ],
+        [
+          "Draft thread ID",
+          "t-b1"
+        ],
+        [
+          "Draft tracked",
+          "yes"
+        ],
+        [
+          "Drafted at",
+          "2026-09-24T13:00:00+00:00"
+        ]
+      ],
+      "company": "Pine Electrical",
+      "contact": "Dana Cole",
+      "drafts": [],
+      "email": "dana@pine-electrical.test",
+      "email_check": "OK",
+      "email_reason": "",
+      "error": null,
+      "events": [
+        {
+          "address": "dana@pine-electrical.test",
+          "detail": "draft draft-b1, tracked",
+          "event": "Drafted",
+          "match": "this system's draft",
+          "step": "First email",
+          "when": "2026-09-24 09:00 ET"
+        },
+        {
+          "address": "dana@pine-electrical.test",
+          "detail": "",
+          "event": "Sent",
+          "match": "this system's draft",
+          "step": "First email",
+          "when": "2026-09-24 09:12 ET"
+        },
+        {
+          "address": "dana@pine-electrical.test",
+          "detail": "Gmail",
+          "event": "Opened (est.)",
+          "match": "this system's draft",
+          "step": "First email",
+          "when": "2026-09-24 10:30 ET"
+        },
+        {
+          "address": "dana@pine-electrical.test",
+          "detail": "lakshyaa.ai",
+          "event": "Clicked",
+          "match": "this system's draft",
+          "step": "First email",
+          "when": "2026-09-24 10:31 ET"
+        }
+      ],
+      "fit": "QUALIFIED",
+      "fit_reason": "",
+      "hold": "",
+      "id": "B-0001",
+      "next_followup": {
+        "date": "2026-09-29",
+        "day": "Tue 2026-09-29",
+        "step": 1
+      },
+      "origin": "SYSTEM",
+      "profile": "READY",
+      "ready": false,
+      "sent_by_hand": "",
+      "status": "SENT",
+      "status_label": "Emailed",
+      "suppressed": false,
+      "tier": "B",
+      "tier_label": "B: likely commercial",
+      "website": "https://pine-electrical.test/",
+      "website_href": "https://pine-electrical.test/"
+    },
+    {
+      "action": "The initial draft is in Gmail: review it and press Send.",
+      "blockers": [
+        "a draft action or draft already exists"
+      ],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "",
+        "Last event": "DRAFTED 2026-09-27 10:30 ET",
+        "Next action": "The initial draft is in Gmail: review it and press Send.",
+        "Opens (est.)": "",
+        "Outreach status": "DRAFTED",
+        "Replied at": "",
+        "Sent at": "",
+        "Sent to": "",
+        "Tracked sends": ""
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "B-0002"
+        ],
+        [
+          "Company",
+          "Spruce HVAC"
+        ],
+        [
+          "BEST EMAIL",
+          "mo@spruce-hvac.test"
+        ],
+        [
+          "Their email",
+          "mo@spruce-hvac.test"
+        ],
+        [
+          "Decision maker",
+          "Mo Grant"
+        ],
+        [
+          "Website",
+          "https://spruce-hvac.test/"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          "OK"
+        ],
+        [
+          "Fit",
+          "QUALIFIED"
+        ],
+        [
+          "Sent by hand",
+          ""
+        ],
+        [
+          "Profile status",
+          "READY"
+        ],
+        [
+          "Draft status",
+          "CREATED"
+        ],
+        [
+          "Draft action",
+          "act-b2"
+        ],
+        [
+          "Draft ID",
+          "draft-b2"
+        ],
+        [
+          "Draft thread ID",
+          "t-b2"
+        ],
+        [
+          "Drafted at",
+          "2026-09-27T14:30:00+00:00"
+        ]
+      ],
+      "company": "Spruce HVAC",
+      "contact": "Mo Grant",
+      "drafts": [
+        {
+          "at": "2026-09-27 10:30 ET",
+          "kind": "First email",
+          "status": "CREATED",
+          "tracked": false
+        }
+      ],
+      "email": "mo@spruce-hvac.test",
+      "email_check": "OK",
+      "email_reason": "",
+      "error": null,
+      "events": [
+        {
+          "address": "mo@spruce-hvac.test",
+          "detail": "draft draft-b2",
+          "event": "Drafted",
+          "match": "this system's draft",
+          "step": "First email",
+          "when": "2026-09-27 10:30 ET"
+        }
+      ],
+      "fit": "QUALIFIED",
+      "fit_reason": "",
+      "hold": "",
+      "id": "B-0002",
+      "next_followup": null,
+      "origin": null,
+      "profile": "READY",
+      "ready": false,
+      "sent_by_hand": "",
+      "status": "DRAFTED",
+      "status_label": "Draft in Gmail",
+      "suppressed": false,
+      "tier": "B",
+      "tier_label": "B: likely commercial",
+      "website": "https://spruce-hvac.test/",
+      "website_href": "https://spruce-hvac.test/"
+    },
+    {
+      "action": "",
+      "blockers": [
+        "email check is not done",
+        "company profile is not READY"
+      ],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "",
+        "Last event": "",
+        "Next action": "",
+        "Opens (est.)": "",
+        "Outreach status": "",
+        "Replied at": "",
+        "Sent at": "",
+        "Sent to": "",
+        "Tracked sends": ""
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "B-0003"
+        ],
+        [
+          "Company",
+          "Aspen Siding"
+        ],
+        [
+          "BEST EMAIL",
+          "ari@aspen-siding.test"
+        ],
+        [
+          "Their email",
+          "ari@aspen-siding.test"
+        ],
+        [
+          "Decision maker",
+          "Ari Lang"
+        ],
+        [
+          "Website",
+          "https://aspen-siding.test/"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          ""
+        ],
+        [
+          "Fit",
+          ""
+        ],
+        [
+          "Sent by hand",
+          ""
+        ],
+        [
+          "Profile status",
+          ""
+        ]
+      ],
+      "company": "Aspen Siding",
+      "contact": "Ari Lang",
+      "drafts": [],
+      "email": "ari@aspen-siding.test",
+      "email_check": "",
+      "email_reason": "",
+      "error": null,
+      "events": [],
+      "fit": "",
+      "fit_reason": "",
+      "hold": "",
+      "id": "B-0003",
+      "next_followup": null,
+      "origin": null,
+      "profile": "",
+      "ready": false,
+      "sent_by_hand": "",
+      "status": "",
+      "status_label": "Not emailed",
+      "suppressed": false,
+      "tier": "B",
+      "tier_label": "B: likely commercial",
+      "website": "https://aspen-siding.test/",
+      "website_href": "https://aspen-siding.test/"
+    }
+  ],
+  "links": {
+    "gmail_account": "admin@lakshyaa.ai",
+    "handbook": "https://docs.google.com/document/d/demo-handbook-document/edit",
+    "sheet": "https://docs.google.com/spreadsheets/d/1eEVkxc0gJMFptYSr_u9prQ5O850TOX28AEq17CKaFiA/edit"
+  },
+  "needs_you": [
+    {
+      "address": "pat@acme-plumbing.test",
+      "label": "Reply to answer",
+      "lead_id": "A-0002",
+      "order": 0,
+      "text": "Replied on Thu 2026-09-24. Answer by hand."
+    },
+    {
+      "address": "sam@example-electric.test",
+      "label": "Follow-up due",
+      "lead_id": "A-0001",
+      "order": 1,
+      "text": "Follow-up 1 was due Fri 2026-09-25. You started this thread by hand, so write it yourself in the same thread."
+    },
+    {
+      "address": "mo@spruce-hvac.test",
+      "label": "Draft waiting",
+      "lead_id": "B-0002",
+      "order": 2,
+      "text": "The initial draft is in Gmail: review it and press Send."
+    },
+    {
+      "address": "kim@harbor-glass.test",
+      "label": "To check",
+      "lead_id": "A-0005",
+      "order": 3,
+      "text": "kim@harbor-glass.test bounced on Tue 2026-09-22. Find another address."
+    },
+    {
+      "address": "jeff@riverbend-drywall.test",
+      "label": "To check",
+      "lead_id": "A-0004",
+      "order": 3,
+      "text": "Check the match: you emailed jeff@riverbend-drywall.test on Tue 2026-09-22, which is not an address on this row. If it is this company, follow-up 1 was due Fri 2026-09-25."
+    }
+  ],
+  "notes": [
+    "Sync fills the lead tabs and Events every 10 minutes; tracking every 5.",
+    "Replies are exact for this mailbox. A bounce counts only when a notice arrives.",
+    "Only emails this system drafted with tracking on can be tracked: hand-written ones never.",
+    "Opens are an estimate: Apple Mail loads images by itself, Outlook often blocks them, and opening your own Sent copy counts.",
+    "A click in the first minute after sending, or a HEAD request, is taken as a mail scanner and not counted."
+  ],
+  "read_at": "2026-09-28 09:00 ET",
+  "ready": [
+    "A-0007",
+    "A-0008"
+  ],
+  "signed_in_as": "admin@lakshyaa.ai",
+  "suppression_count": 2,
+  "sync": {
+    "at": "2026-09-28 08:50 ET",
+    "detail": "read 3 messages; new events: none; cursor 2026-09-28T12:50:00Z",
+    "result": "OK"
+  },
+  "tiers": [
+    {
+      "bounced": 1,
+      "click_rate": "-",
+      "clicked": 0,
+      "coverage": "0%",
+      "emailed": 6,
+      "emails_sent": 6,
+      "label": "A: proven commercial",
+      "leads": 12,
+      "open_rate": "-",
+      "opened": 0,
+      "opted_out": 1,
+      "prefix": "A",
+      "ready": 2,
+      "replied": 2,
+      "reply_rate": "33%",
+      "review_needed": 1,
+      "tracked": 0
+    },
+    {
+      "bounced": 0,
+      "click_rate": "100%",
+      "clicked": 1,
+      "coverage": "100%",
+      "emailed": 1,
+      "emails_sent": 1,
+      "label": "B: likely commercial",
+      "leads": 3,
+      "open_rate": "100%",
+      "opened": 1,
+      "opted_out": 0,
+      "prefix": "B",
+      "ready": 0,
+      "replied": 0,
+      "reply_rate": "0%",
+      "review_needed": 0,
+      "tracked": 1
+    },
+    {
+      "bounced": 1,
+      "click_rate": "100%",
+      "clicked": 1,
+      "coverage": "14%",
+      "emailed": 7,
+      "emails_sent": 7,
+      "label": "A and B",
+      "leads": 15,
+      "open_rate": "100%",
+      "opened": 1,
+      "opted_out": 1,
+      "prefix": "",
+      "ready": 2,
+      "replied": 2,
+      "reply_rate": "29%",
+      "review_needed": 1,
+      "tracked": 1
+    }
+  ],
+  "today": "2026-09-28",
+  "today_text": "Mon 2026-09-28",
+  "tracking_run": {
+    "at": "2026-09-28 08:52 ET",
+    "detail": "recorded 0 hits",
+    "result": "OK"
+  },
+  "version": 1,
+  "warnings": []
+}

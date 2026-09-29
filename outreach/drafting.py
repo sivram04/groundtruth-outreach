@@ -333,6 +333,24 @@ def _finish(lead, settings, sender_email, subject, body, evidence, chosen, optio
             "preview_date": preview_date, "blockers": blockers, "preview_hash": digest}
 
 
+def lead_blockers(lead, suppressed):
+    """Why a lead may not have a first draft, before any wording is looked at: the lead-level
+    part of `preview`, which the console also shows. `suppressed=None` means unknown."""
+    blockers = []
+    ok, why = eligibility.draft_eligible(lead)
+    if not ok:
+        blockers.append(why)
+    if lead.get("Profile status") != "READY":
+        blockers.append("company profile is not READY")
+    if any(lead.get(k) for k in ("Draft action", "Draft status", "Draft ID", "Draft link")):
+        blockers.append("a draft action or draft already exists")
+    if suppressed is None:
+        blockers.append("suppression has not been checked")
+    elif suppressed:
+        blockers.append("address or domain is suppressed")
+    return blockers
+
+
 def preview(lead, research_rows, settings, *, suppressed=None, subject_template=None,
             selected_quote_id=None, handbook=None, written=None, company=None):
     """Return reviewable copy and blockers. A hash exists only for send-ready copy.
@@ -347,17 +365,7 @@ def preview(lead, research_rows, settings, *, suppressed=None, subject_template=
     blockers = []
     if written is not None and not handbook:
         blockers.append("a written draft needs its handbook identity")
-    ok, why = eligibility.draft_eligible(lead)
-    if not ok:
-        blockers.append(why)
-    if lead.get("Profile status") != "READY":
-        blockers.append("company profile is not READY")
-    if any(lead.get(k) for k in ("Draft action", "Draft status", "Draft ID", "Draft link")):
-        blockers.append("a draft action or draft already exists")
-    if suppressed is None:
-        blockers.append("suppression has not been checked")
-    elif suppressed:
-        blockers.append("address or domain is suppressed")
+    blockers += lead_blockers(lead, suppressed)
 
     options = opening_options(supported_quotes(lead, research_rows),
                               company or lead.get("Company", ""))
