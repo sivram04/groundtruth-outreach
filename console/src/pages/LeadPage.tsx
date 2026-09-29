@@ -1,5 +1,5 @@
 import { ArrowLeft, Building2, History, Mail, Send, ShieldCheck } from "lucide-react";
-import { Avatar, Card, Chip, ExternalLink, leadTone } from "../components";
+import { Avatar, Card, ExternalLink, Status, leadTone } from "../components";
 import { DraftPreview } from "../draft-view";
 import { gmailSearch, plural, safeHref } from "../format";
 import { href } from "../router";
@@ -28,8 +28,8 @@ export function LeadPage({ data, id }: { data: Snapshot; id: string }) {
             {lead.contact && ` · ${lead.contact}`}
           </p>
           <div className="chips">
-            <Chip tone={leadTone(lead.status)}>{lead.status_label}</Chip>
-            {lead.ready && <Chip tone="green">Ready for a first draft</Chip>}
+            <Status tone={leadTone(lead.status)}>{lead.status_label}</Status>
+            {lead.ready && <Status tone="green">Ready for a first draft</Status>}
           </div>
         </div>
       </div>

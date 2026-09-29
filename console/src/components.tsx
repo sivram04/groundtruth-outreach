@@ -121,19 +121,24 @@ export function draftTone(status: string): Tone {
   return DRAFT_TONES[status] ?? "gray";
 }
 
-const AVATAR_COLORS = ["c1", "c2", "c3", "c4", "c5", "c6"];
-
-/** Two letters for a company, and a colour that stays the same for it. */
+/** A company's initials. One quiet shape, one colour: the status says what matters. */
 export function Avatar(props: { name: string; size?: "small" | "large" }) {
   const words = props.name.replace(/<[^>]*>/g, " ").match(/[A-Za-z0-9]+/g) ?? [];
   const letters = (words.length > 1 ? (words[0]![0] ?? "") + (words[1]![0] ?? "") : (words[0] ?? "?").slice(0, 2))
     .toUpperCase();
-  let hash = 0;
-  for (const character of props.name) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  const color = AVATAR_COLORS[hash % AVATAR_COLORS.length];
   return (
-    <span className={`avatar ${color} ${props.size ?? ""}`.trim()} aria-hidden="true">
+    <span className={`avatar ${props.size ?? ""}`.trim()} aria-hidden="true">
       {letters}
+    </span>
+  );
+}
+
+/** A status: a small dot and its name, never a whole block of colour. */
+export function Status(props: { tone: Tone; children: ReactNode }) {
+  return (
+    <span className={`status ${props.tone}`}>
+      <span className="dot" aria-hidden="true" />
+      {props.children}
     </span>
   );
 }
@@ -164,31 +169,37 @@ export function Card(props: {
   );
 }
 
-export function StatCard(props: {
-  icon: LucideIcon;
-  tone: Tone;
+export interface Metric {
   value: ReactNode;
   label: string;
   sub?: string;
   href?: string;
-}) {
-  const Icon = props.icon;
-  const inner = (
-    <>
-      <span className={`stat-icon ${props.tone}`} aria-hidden="true">
-        <Icon size={18} />
-      </span>
-      <span className="stat-value">{props.value}</span>
-      <span className="stat-label">{props.label}</span>
-      {props.sub && <span className="stat-sub">{props.sub}</span>}
-    </>
-  );
-  return props.href ? (
-    <a className="stat" href={props.href}>
-      {inner}
-    </a>
-  ) : (
-    <div className="stat">{inner}</div>
+  tone?: Tone;
+}
+
+/** The figures in one line, divided by hairlines, rather than a row of large boxes. */
+export function Metrics({ metrics }: { metrics: Metric[] }) {
+  return (
+    <div className="metrics">
+      {metrics.map((metric) => {
+        const inside = (
+          <>
+            <span className="metric-value">{metric.value}</span>
+            <span className="metric-label">{metric.label}</span>
+            <span className="metric-sub">{metric.sub ?? ""}</span>
+          </>
+        );
+        return metric.href ? (
+          <a className="metric" key={metric.label} href={metric.href}>
+            {inside}
+          </a>
+        ) : (
+          <div className="metric" key={metric.label}>
+            {inside}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

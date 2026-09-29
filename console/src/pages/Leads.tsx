@@ -1,6 +1,6 @@
 import { Search } from "lucide-react";
 import { useState } from "react";
-import { Avatar, Chip, PageHead, draftTone, leadTone } from "../components";
+import { Avatar, PageHead, Status, draftTone, leadTone } from "../components";
 import { SHOW, filterLeads, readFilter, type LeadFilter } from "../filters";
 import { href, leadHref } from "../router";
 import type { Snapshot } from "../types";
@@ -108,9 +108,9 @@ export function Leads({ data, query }: { data: Snapshot; query: URLSearchParams 
                   <td className="small">{lead.email}</td>
                   <td>
                     <div className="chips">
-                      <Chip tone={leadTone(lead.status)}>{lead.status_label}</Chip>
-                      {draft && <Chip tone={draftTone(draft.status)}>Draft: {draft.status_label.toLowerCase()}</Chip>}
-                      {lead.ready && !draft && <Chip tone="green">Ready</Chip>}
+                      <Status tone={leadTone(lead.status)}>{lead.status_label}</Status>
+                      {draft && <Status tone={draftTone(draft.status)}>Draft: {draft.status_label.toLowerCase()}</Status>}
+                      {lead.ready && !draft && <Status tone="green">Ready</Status>}
                     </div>
                   </td>
                   <td className="small">

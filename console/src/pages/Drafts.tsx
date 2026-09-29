@@ -22,7 +22,9 @@ function DraftRow(props: { draft: Draft; on: boolean; onPeek: () => void; onOpen
             <span className="draft-company">{draft.company}</span>
             <Chip tone={draftTone(draft.status)}>{draft.status_label}</Chip>
           </span>
-          <span className="draft-subject">{draft.subject || draft.why[0] || "No subject"}</span>
+          <span className="draft-subject">
+            {draft.quote ? `“${draft.quote}”` : draft.why[0] || "No opening line"}
+          </span>
           <span className="draft-to">
             {draft.contact && `${draft.contact} · `}
             {draft.to}

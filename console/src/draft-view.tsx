@@ -1,6 +1,6 @@
 import { Lock, PenLine, Send, TextQuote, X } from "lucide-react";
 import { useEffect, useRef } from "react";
-import { Chip, ExternalLink, draftTone } from "./components";
+import { ExternalLink, Status, draftTone } from "./components";
 import { safeHref } from "./format";
 import type { Draft } from "./types";
 
@@ -11,7 +11,7 @@ export function DraftPreview({ draft, from }: { draft: Draft; from: string }) {
   return (
     <article className="email" aria-label={`Draft to ${draft.company}`}>
       <div className="email-top">
-        <Chip tone={draftTone(draft.status)}>{draft.status_label}</Chip>
+        <Status tone={draftTone(draft.status)}>{draft.status_label}</Status>
         {draft.prepared_at && <span className="muted small">Written {draft.prepared_at}</span>}
       </div>
       <dl className="email-meta">

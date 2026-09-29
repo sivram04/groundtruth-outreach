@@ -1,6 +1,6 @@
-import { ArrowRight, CalendarClock, Flag, Mail, MailOpen, Reply, Search, Send, X } from "lucide-react";
+import { ArrowRight, Search, X } from "lucide-react";
 import { useState } from "react";
-import { Avatar, Callout, Card, Chip, ExternalLink, PageHead, StatCard, draftTone, leadTone, type Tone } from "../components";
+import { Avatar, Callout, Card, ExternalLink, Metrics, PageHead, Status, draftTone, leadTone, type Tone } from "../components";
 import { SHOW, filterLeads } from "../filters";
 import { gmailSearch } from "../format";
 import { href, leadHref } from "../router";
@@ -29,22 +29,25 @@ const NUMBERS: [keyof TierCounts, string][] = [
   ["click_rate", "Click rate"],
 ];
 
-/** A draft as a card: who it is to, what it says it is waiting for, and a way in. */
+/** A draft as a card: who it is to, the line it opens from, and what it waits for. */
 function DraftCard({ draft }: { draft: Draft }) {
-  const tone = draftTone(draft.status);
   return (
-    <a className={`draft-card ${tone}`} href={leadHref(draft.lead_id)}>
+    <a className="draft-card" href={leadHref(draft.lead_id)}>
       <div className="draft-card-top">
-        <Avatar name={draft.company} />
-        <Chip tone={tone}>{draft.status_label}</Chip>
+        <Avatar name={draft.company} size="small" />
+        <h3>{draft.company}</h3>
       </div>
-      <h3>{draft.company}</h3>
-      <p className="draft-card-subject">{draft.subject || draft.why[0] || "No subject"}</p>
-      <p className="draft-card-to muted small">
+      <p className="draft-card-line">
+        {draft.quote ? `“${draft.quote}”` : draft.why[0] || "No opening line"}
+      </p>
+      <p className="draft-card-to">
         {draft.contact && `${draft.contact} · `}
         {draft.to}
       </p>
-      <span className="draft-card-open">Read it</span>
+      <div className="draft-card-foot">
+        <Status tone={draftTone(draft.status)}>{draft.status_label}</Status>
+        <span className="draft-card-open">Read it</span>
+      </div>
     </a>
   );
 }
@@ -109,40 +112,34 @@ export function Dashboard({ data }: { data: Snapshot }) {
         </Callout>
       )}
 
-      <div className="stats">
-        <StatCard icon={Flag} tone="red" value={data.needs_you.length} label="Need you" href={href("/leads", { show: "needs" })} />
-        <StatCard
-          icon={Mail}
-          tone="amber"
-          value={data.drafts.length}
-          label="Drafts"
-          sub={`${data.drafts_summary.waiting} waiting for you`}
-          href={href("/drafts")}
-        />
-        <StatCard
-          icon={Send}
-          tone="blue"
-          value={all?.emailed ?? 0}
-          label="Leads emailed"
-          sub={`${all?.emails_sent ?? 0} emails in all`}
-          href={href("/leads", { show: "emailed" })}
-        />
-        <StatCard
-          icon={Reply}
-          tone="green"
-          value={all?.replied ?? 0}
-          label="Replied"
-          sub={`Reply rate ${all?.reply_rate ?? "-"}`}
-          href={href("/leads", { show: "replied" })}
-        />
-        <StatCard
-          icon={MailOpen}
-          tone="violet"
-          value={all?.opened ?? 0}
-          label="Opened (est.)"
-          sub={all?.tracked ? `of ${all.tracked} tracked` : "nothing tracked yet"}
-        />
-      </div>
+      <Metrics
+        metrics={[
+          { value: data.needs_you.length, label: "Need you", href: href("/leads", { show: "needs" }) },
+          {
+            value: data.drafts.length,
+            label: "Drafts",
+            sub: `${data.drafts_summary.waiting} waiting for you`,
+            href: href("/drafts"),
+          },
+          {
+            value: all?.emailed ?? 0,
+            label: "Leads emailed",
+            sub: `${all?.emails_sent ?? 0} emails in all`,
+            href: href("/leads", { show: "emailed" }),
+          },
+          {
+            value: all?.replied ?? 0,
+            label: "Replied",
+            sub: `Reply rate ${all?.reply_rate ?? "-"}`,
+            href: href("/leads", { show: "replied" }),
+          },
+          {
+            value: all?.opened ?? 0,
+            label: "Opened (est.)",
+            sub: all?.tracked ? `of ${all.tracked} tracked` : "nothing tracked yet",
+          },
+        ]}
+      />
 
       {data.drafts.length > 0 && (
         <section className="strip">
@@ -161,7 +158,7 @@ export function Dashboard({ data }: { data: Snapshot }) {
       )}
 
       <div className="grid-dash">
-        <Card title="Needs you" icon={Flag}>
+        <Card title="Needs you">
           {data.needs_you.length === 0 ? (
             <p className="muted">Nothing needs you right now.</p>
           ) : (
@@ -176,7 +173,7 @@ export function Dashboard({ data }: { data: Snapshot }) {
                         <a href={leadHref(item.lead_id)} className="strong">
                           {lead?.company || item.lead_id}
                         </a>
-                        <Chip tone={NEED_TONES[item.order] ?? "gray"}>{item.label}</Chip>
+                        <Status tone={NEED_TONES[item.order] ?? "gray"}>{item.label}</Status>
                       </div>
                       <p>{item.text}</p>
                       <p className="small muted">
@@ -205,7 +202,7 @@ export function Dashboard({ data }: { data: Snapshot }) {
               <Pipeline all={all} />
             </Card>
           )}
-          <Card title="Coming up" icon={CalendarClock}>
+          <Card title="Coming up">
             {data.coming_up.length === 0 ? (
               <p className="muted">No follow-up is due in the next {data.coming_up_days} business days.</p>
             ) : (
@@ -291,9 +288,15 @@ export function Dashboard({ data }: { data: Snapshot }) {
                         </div>
                       </div>
                     </td>
-                    <td>{draft ? <Chip tone={draftTone(draft.status)}>{draft.status_label}</Chip> : <span className="muted">—</span>}</td>
                     <td>
-                      <Chip tone={leadTone(lead.status)}>{lead.status_label}</Chip>
+                      {draft ? (
+                        <Status tone={draftTone(draft.status)}>{draft.status_label}</Status>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                    <td>
+                      <Status tone={leadTone(lead.status)}>{lead.status_label}</Status>
                     </td>
                     <td className="nowrap small">{lead.cells["Sent at"] || "—"}</td>
                     <td className="small next">{lead.action}</td>
