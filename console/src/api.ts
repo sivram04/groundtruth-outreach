@@ -1,6 +1,6 @@
 import type { Snapshot } from "./types";
 
-export const EXPECTED_VERSION = 1;
+export const EXPECTED_VERSION = 2;
 
 /** Why the data could not be shown, in words for the founder. `signIn` means reloading the
  *  page will take them through Google's sign-in again. */

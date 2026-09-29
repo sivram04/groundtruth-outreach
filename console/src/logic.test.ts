@@ -68,15 +68,15 @@ describe("the Leads filters", () => {
 
   it("narrows by tier and by what the lead needs", () => {
     expect(ids("", "B")).toEqual(["B-0001", "B-0002", "B-0003"]);
-    expect(ids("", "", "ready")).toEqual(["A-0007", "A-0008"]);
+    expect(ids("", "", "ready")).toEqual(["A-0007", "A-0008", "A-0013", "A-0014"]);
     expect(ids("", "", "needs")).toEqual(["A-0001", "A-0002", "A-0004", "A-0005", "B-0002"]);
     expect(ids("", "", "replied")).toEqual(["A-0002"]);
     expect(ids("", "", "stopped")).toEqual(["A-0006"]);
     expect(ids("", "", "bounced")).toEqual(["A-0005"]);
     expect(ids("", "", "check")).toEqual(["A-0004"]);
     expect(ids("", "", "emailed")).toHaveLength(7);
-    expect(ids("", "", "not-emailed")).toHaveLength(8);
-    expect(ids("", "A", "ready")).toEqual(["A-0007", "A-0008"]);
+    expect(ids("", "", "not-emailed")).toHaveLength(10);
+    expect(ids("", "A", "ready")).toEqual(["A-0007", "A-0008", "A-0013", "A-0014"]);
   });
 
   it("ignores a filter value it does not know", () => {

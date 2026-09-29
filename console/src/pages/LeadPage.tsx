@@ -1,4 +1,6 @@
-import { Card, ExternalLink, Pill } from "../components";
+import { ArrowLeft, Building2, History, Mail, Send, ShieldCheck } from "lucide-react";
+import { Avatar, Card, Chip, ExternalLink, leadTone } from "../components";
+import { DraftPreview } from "../draft-view";
 import { gmailSearch, plural, safeHref } from "../format";
 import { href } from "../router";
 import type { Snapshot } from "../types";
@@ -10,60 +12,98 @@ export function LeadPage({ data, id }: { data: Snapshot; id: string }) {
   const account = data.links.gmail_account || data.signed_in_as;
   const site = safeHref(lead.website_href);
   const tracked = lead.cells["Tracked sends"];
+  const draft = data.drafts.find((item) => item.lead_id === lead.id);
   return (
     <>
-      <p className="small">
-        <a href={href("/leads")}>All leads</a>
-      </p>
-      <h1>{lead.company || lead.id}</h1>
-      <p className="muted">
-        {lead.id}
-        {lead.tier_label && ` · ${lead.tier_label}`} · <Pill tone={lead.status}>{lead.status_label}</Pill>
-      </p>
-      {lead.error && <p className="warn">Where this lead stands could not be worked out: {lead.error}</p>}
+      <a className="back small" href={href("/leads")}>
+        <ArrowLeft size={14} aria-hidden="true" /> All leads
+      </a>
+      <div className="lead-head">
+        <Avatar name={lead.company || lead.id} size="large" />
+        <div>
+          <h1>{lead.company || lead.id}</h1>
+          <p className="muted">
+            {lead.id}
+            {lead.tier_label && ` · ${lead.tier_label}`}
+            {lead.contact && ` · ${lead.contact}`}
+          </p>
+          <div className="chips">
+            <Chip tone={leadTone(lead.status)}>{lead.status_label}</Chip>
+            {lead.ready && <Chip tone="green">Ready for a first draft</Chip>}
+          </div>
+        </div>
+      </div>
+      {lead.error && <p className="callout amber">Where this lead stands could not be worked out: {lead.error}</p>}
 
       {lead.action && (
-        <Card title="Next">
+        <Card title="Next" icon={Send} className="next-card">
           <p>{lead.action}</p>
         </Card>
       )}
 
-      <Card title="The lead">
-        <dl className="facts">
-          <dt>Contact</dt>
-          <dd>{lead.contact || "-"}</dd>
-          <dt>Email</dt>
-          <dd>
-            {lead.email ? (
-              <>
-                {lead.email} · <ExternalLink href={gmailSearch(lead.email, account)}>Open in Gmail</ExternalLink>
-              </>
-            ) : (
-              "-"
-            )}
-          </dd>
-          <dt>Website</dt>
-          <dd>{site ? <ExternalLink href={site}>{lead.website}</ExternalLink> : lead.website || "-"}</dd>
-          <dt>Email check</dt>
-          <dd>
-            {lead.email_check || "not done"}
-            {lead.email_reason && `: ${lead.email_reason}`}
-          </dd>
-          <dt>Fit</dt>
-          <dd>
-            {lead.fit || "not researched"}
-            {lead.fit_reason && `: ${lead.fit_reason}`}
-          </dd>
-          <dt>Company profile</dt>
-          <dd>{lead.profile || "not done"}</dd>
-          <dt>On hold</dt>
-          <dd>{lead.hold ? `yes: ${lead.hold}` : "no"}</dd>
-          <dt>Suppressed</dt>
-          <dd>{lead.suppressed === null ? "cannot tell" : lead.suppressed ? "yes" : "no"}</dd>
-        </dl>
-      </Card>
+      {draft && (
+        <Card title="The draft" icon={Mail}>
+          <DraftPreview draft={draft} from={data.approvals?.sender || account} />
+        </Card>
+      )}
 
-      <Card title="Emails">
+      <div className="grid-2">
+        <Card title="The lead" icon={Building2}>
+          <dl className="facts">
+            <dt>Contact</dt>
+            <dd>{lead.contact || "-"}</dd>
+            <dt>Email</dt>
+            <dd>
+              {lead.email ? (
+                <>
+                  {lead.email} · <ExternalLink href={gmailSearch(lead.email, account)}>Open in Gmail</ExternalLink>
+                </>
+              ) : (
+                "-"
+              )}
+            </dd>
+            <dt>Website</dt>
+            <dd>{site ? <ExternalLink href={site}>{lead.website}</ExternalLink> : lead.website || "-"}</dd>
+            <dt>Company profile</dt>
+            <dd>{lead.profile || "not done"}</dd>
+            <dt>On hold</dt>
+            <dd>{lead.hold ? `yes: ${lead.hold}` : "no"}</dd>
+            <dt>Suppressed</dt>
+            <dd>{lead.suppressed === null ? "cannot tell" : lead.suppressed ? "yes" : "no"}</dd>
+          </dl>
+        </Card>
+
+        <Card title="Checks" icon={ShieldCheck}>
+          <dl className="facts">
+            <dt>Email check</dt>
+            <dd>
+              {lead.email_check || "not done"}
+              {lead.email_reason && `: ${lead.email_reason}`}
+            </dd>
+            <dt>Fit</dt>
+            <dd>
+              {lead.fit || "not researched"}
+              {lead.fit_reason && `: ${lead.fit_reason}`}
+            </dd>
+            <dt>First draft</dt>
+            <dd>
+              {lead.ready ? (
+                "Every check on the lead passes. A draft also needs a usable quote about the company."
+              ) : lead.blockers.length > 0 ? (
+                <ul className="plain">
+                  {lead.blockers.map((why) => (
+                    <li key={why}>{why}</li>
+                  ))}
+                </ul>
+              ) : (
+                "cannot tell"
+              )}
+            </dd>
+          </dl>
+        </Card>
+      </div>
+
+      <Card title="Emails" icon={Mail}>
         <dl className="facts">
           <dt>Sent to</dt>
           <dd>{lead.cells["Sent to"] || "-"}</dd>
@@ -85,56 +125,26 @@ export function LeadPage({ data, id }: { data: Snapshot; id: string }) {
         </dl>
       </Card>
 
-      <Card title="First draft">
-        {lead.ready ? (
-          <p>
-            <Pill tone="ok">Ready</Pill> Every check on the lead passes. A draft also needs a usable quote about the
-            company, judged when it is written.
-          </p>
-        ) : lead.blockers.length > 0 ? (
-          <>
-            <p>Not ready:</p>
-            <ul>
-              {lead.blockers.map((why) => (
-                <li key={why}>{why}</li>
-              ))}
-            </ul>
-          </>
-        ) : (
-          <p className="muted">Cannot tell.</p>
-        )}
-      </Card>
-
-      <Card title="History">
+      <Card title="History" icon={History}>
         {lead.events.length === 0 ? (
           <p className="muted">Nothing recorded yet.</p>
         ) : (
-          <div className="scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">When</th>
-                  <th scope="col">What</th>
-                  <th scope="col">Which email</th>
-                  <th scope="col">Address</th>
-                  <th scope="col">Tied to the lead by</th>
-                  <th scope="col">Detail</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lead.events.map((event, index) => (
-                  <tr key={index}>
-                    <td className="nowrap">{event.when}</td>
-                    <td>{event.event}</td>
-                    <td>{event.step}</td>
-                    <td>{event.address}</td>
-                    <td>{event.match}</td>
-                    <td className="small">{event.detail}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ol className="history">
+            {lead.events.map((event, index) => (
+              <li key={index}>
+                <span className="history-when">{event.when}</span>
+                <span>
+                  <strong>{event.event}</strong>
+                  {event.step && <span className="muted"> · {event.step}</span>}
+                  <span className="block small muted">
+                    {event.address}
+                    {event.match && ` · tied to the lead by ${event.match}`}
+                  </span>
+                  {event.detail && <span className="block small">{event.detail}</span>}
+                </span>
+              </li>
+            ))}
+          </ol>
         )}
       </Card>
 

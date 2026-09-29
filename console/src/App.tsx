@@ -93,14 +93,17 @@ export function App({ load = loadSnapshot }: { load?: () => Promise<Snapshot> })
       signedInAs={data?.signed_in_as ?? ""}
       readAt={data?.read_at ?? ""}
       refreshing={loading}
+      draftsWaiting={data?.drafts.length ?? 0}
       onRefresh={refresh}
     >
       {data ? (
         <>
           {error && (
-            <p className="warn" role="alert">
-              Could not refresh: {error.message} What is shown was read at {data.read_at}.
-            </p>
+            <div className="callout amber" role="alert">
+              <div className="callout-text">
+                Could not refresh: {error.message} What is shown was read at {data.read_at}.
+              </div>
+            </div>
           )}
           <Warnings warnings={data.warnings} />
           {page(route, data)}

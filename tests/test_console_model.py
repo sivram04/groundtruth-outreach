@@ -27,7 +27,8 @@ def test_each_lead_gets_the_status_the_sync_writes(data):
     assert {v["id"]: v["status"] for v in data["leads"]} == {
         "A-0001": "SENT", "A-0002": "REPLIED", "A-0003": "SENT", "A-0004": "REVIEW_NEEDED",
         "A-0005": "BOUNCED", "A-0006": "OPTED_OUT", "A-0007": "", "A-0008": "", "A-0009": "",
-        "A-0010": "", "A-0011": "", "A-0012": "", "B-0001": "SENT", "B-0002": "DRAFTED",
+        "A-0010": "", "A-0011": "", "A-0012": "", "A-0013": "", "A-0014": "", "B-0001": "SENT",
+        "B-0002": "DRAFTED",
         "B-0003": ""}
 
 
@@ -63,7 +64,7 @@ def test_follow_ups_coming_up_are_listed_by_day(data):
 
 
 def test_ready_for_a_first_draft_uses_the_drafting_steps_own_checks(data):
-    assert data["ready"] == ["A-0007", "A-0008"]
+    assert data["ready"] == ["A-0007", "A-0008", "A-0013", "A-0014"]
     blockers = {lead_id: view["blockers"] for lead_id, view in leads(data).items()}
     assert blockers["A-0009"] == ["email check is RISKY"]
     assert blockers["A-0010"] == ["fit is DISQUALIFIED"]
@@ -75,15 +76,16 @@ def test_ready_for_a_first_draft_uses_the_drafting_steps_own_checks(data):
 
 def test_the_counts_follow_the_sheet_dashboards_definitions(data):
     a, b, both = data["tiers"]
-    assert (a["leads"], a["emailed"], a["emails_sent"], a["replied"], a["reply_rate"]) == (12, 6, 6, 2, "33%")
-    assert (a["opted_out"], a["bounced"], a["review_needed"], a["ready"]) == (1, 1, 1, 2)
+    assert (a["leads"], a["emailed"], a["emails_sent"], a["replied"], a["reply_rate"]) == (14, 6, 6, 2, "33%")
+    assert (a["opted_out"], a["bounced"], a["review_needed"], a["ready"]) == (1, 1, 1, 4)
+    assert (a["checked_ok"], a["qualified"], a["profiled"], a["drafted"]) == (13, 13, 13, 3)
     assert (b["emailed"], b["tracked"], b["opened"], b["open_rate"], b["clicked"]) == (1, 1, 1, "100%", 1)
     assert a["open_rate"] == "-"  # no tracked email in A: no rate, never 0%
     assert both["label"] == "A and B" and both["emails_sent"] == 7  # the tracking test is no lead
 
 
-def test_drafts_waiting_are_the_ones_the_sheet_knows_and_were_not_sent(data):
-    assert [(d["lead_id"], d["kind"], d["status"]) for d in data["drafts"]] == [
+def test_gmail_drafts_waiting_are_the_ones_the_sheet_knows_and_were_not_sent(data):
+    assert [(d["lead_id"], d["kind"], d["status"]) for d in data["gmail_drafts"]] == [
         ("B-0002", "First email", "CREATED")]
 
 
@@ -98,7 +100,8 @@ def test_a_website_link_is_given_only_for_an_http_address(data):
 def test_the_settings_show_approvals_and_never_the_founders_address_or_phone(data):
     assert data["approvals"] == {"offer": False, "followups": False, "tracking": False,
                                  "daily_cap": 4, "sender": "admin@lakshyaa.ai"}
-    text = json.dumps(data)
+    # A draft's signature carries the address by design; nothing else may.
+    text = json.dumps({key: value for key, value in data.items() if key != "drafts"})
     assert fx.SETTINGS["postal_address"] not in text and fx.SETTINGS["sender_phone"] not in text
     assert console_model.approvals({}) is None
 
@@ -112,7 +115,7 @@ def test_the_links_the_pages_use(data):
 
 def test_it_is_plain_json_in_a_versioned_shape(data):
     assert json.loads(json.dumps(data)) == data
-    assert data["version"] == console_model.VERSION == 1
+    assert data["version"] == console_model.VERSION == 2
     assert data["today"] == "2026-09-28" and data["read_at"] == "2026-09-28 09:00 ET"
     assert data["sync"] == {"at": "2026-09-28 08:50 ET", "result": "OK",
                             "detail": "read 3 messages; new events: none; cursor 2026-09-28T12:50:00Z"}
@@ -188,3 +191,61 @@ def test_an_event_recorded_twice_counts_once():
     assert data["event_count"] == len(fx.events())
     history = {v["id"]: v["events"] for v in data["leads"]}["A-0001"]
     assert [e["event"] for e in history] == ["Sent"]
+
+
+# --- the Drafts tab ------------------------------------------------------------------------------
+
+def test_drafts_come_in_order_of_what_can_be_done_with_them(data):
+    assert [(d["lead_id"], d["status"], d["status_label"]) for d in data["drafts"]] == [
+        ("A-0007", "WAITING", "Waiting for you"), ("A-0008", "WAITING", "Waiting for you"),
+        ("A-0013", "HELD", "Held")]
+    assert data["drafts_summary"] == {"ready": 0, "waiting": 2, "held": 1, "waiting_for_offer": 2}
+
+
+def test_a_draft_says_why_it_waits_and_where_its_quote_is_from(data):
+    first, second, held = data["drafts"]
+    assert first["why"] == ["You have not approved the offer wording yet"]
+    assert first["quote_href"] == "https://lakeside-concrete.test/services"
+    assert first["contact"] == "Jo Bennett" and first["to"] == "jo@lakeside-concrete.test"
+    assert len(second["why"]) == 2 and "not found on its own site" in second["why"][1]
+    assert second["quote_href"] == "" and second["quote_page"] == "javascript:alert(2)"
+    assert held["body"] == "" and held["why"]
+
+
+def test_a_draft_never_carries_its_approval_hash_or_the_writers_output(data):
+    for draft in data["drafts"]:
+        assert "Approval hash" not in draft and "Written" not in draft
+        assert set(draft) == {"lead_id", "kind", "to", "company", "contact", "tier", "subject",
+                              "body", "quote", "quote_page", "quote_href", "status",
+                              "status_label", "why", "prepared_at"}
+
+
+def test_each_lead_knows_its_drafts_status(data):
+    view = leads(data)
+    assert (view["A-0007"]["draft"], view["A-0013"]["draft"], view["A-0001"]["draft"]) == (
+        "WAITING", "HELD", None)
+
+
+def test_a_drafts_tab_that_cannot_be_read_is_said_and_the_rest_still_shows():
+    class Unreadable(MemoryStore):
+        def drafts(self):
+            raise RuntimeError("the Drafts tab's columns were changed; it is neither read nor written")
+
+    store = Unreadable(fx.rows(), events=fx.events(), suppression=fx.suppression(), runs=fx.runs())
+    data = console_model.snapshot(store, settings=fx.SETTINGS, now=fx.NOW)
+    assert data["drafts"] == [] and data["drafts_summary"]["waiting"] == 0
+    assert any("The Drafts tab cannot be read" in w and "columns were changed" in w
+               for w in data["warnings"])
+    assert len(data["leads"]) == len(fx.rows())
+
+
+def test_drafts_that_can_be_approved_come_first_then_waiting_then_held():
+    rows = [dict(fx.draft_rows()[2]), dict(fx.draft_rows()[0], **{"Status": "READY", "Why": ""}),
+            dict(fx.draft_rows()[1], **{"Why": 'the company name "Pioneer Paving" was not found on '
+                                                 "its own site; check it"})]
+    data = console_model.build({r["Lead ID"]: r for r in fx.rows()}, fx.events(), fx.suppression(), [],
+                               settings={}, now=fx.NOW, draft_rows=rows)
+    assert [(d["lead_id"], d["status"]) for d in data["drafts"]] == [
+        ("A-0007", "READY"), ("A-0008", "WAITING"), ("A-0013", "HELD")]
+    # Waiting only for a name to be checked is not waiting for the offer approval.
+    assert data["drafts_summary"] == {"ready": 1, "waiting": 1, "held": 1, "waiting_for_offer": 0}

@@ -1,7 +1,8 @@
-// The data GET /api/snapshot sends: outreach/console_model.py `build`, version 1.
+// The data GET /api/snapshot sends: outreach/console_model.py `build`, version 2.
 // Anything that refers to a lead does so by its Lead ID; a date is an ISO string.
 
 export type Status = "" | "DRAFTED" | "SENT" | "REPLIED" | "OPTED_OUT" | "BOUNCED" | "REVIEW_NEEDED";
+export type DraftStatus = "READY" | "WAITING" | "HELD";
 
 export interface LeadEvent {
   when: string;
@@ -12,11 +13,31 @@ export interface LeadEvent {
   detail: string;
 }
 
-export interface DraftSeen {
+/** A draft this system made in Gmail, as the lead row records it (the older way). */
+export interface GmailDraft {
   kind: string;
   status: "RESERVED" | "CREATED";
   at: string;
   tracked: boolean;
+}
+
+/** One row of the Drafts tab: a lead's first email, written and checked. */
+export interface Draft {
+  lead_id: string;
+  kind: string;
+  to: string;
+  company: string;
+  contact: string;
+  tier: string;
+  subject: string;
+  body: string;
+  quote: string;
+  quote_page: string;
+  quote_href: string;
+  status: DraftStatus | string;
+  status_label: string;
+  why: string[];
+  prepared_at: string;
 }
 
 export interface Lead {
@@ -42,7 +63,8 @@ export interface Lead {
   origin: "SYSTEM" | "HAND" | null;
   next_followup: { step: number; date: string; day: string } | null;
   suppressed: boolean | null;
-  drafts: DraftSeen[];
+  gmail_drafts: GmailDraft[];
+  draft: DraftStatus | string | null;
   ready: boolean;
   blockers: string[];
   error: string | null;
@@ -70,6 +92,10 @@ export interface TierCounts {
   prefix: string;
   label: string;
   leads: number;
+  checked_ok: number;
+  qualified: number;
+  profiled: number;
+  drafted: number;
   ready: number;
   emailed: number;
   emails_sent: number;
@@ -112,7 +138,9 @@ export interface Snapshot {
   coming_up_days: number;
   tiers: TierCounts[];
   notes: string[];
-  drafts: (DraftSeen & { lead_id: string })[];
+  drafts: Draft[];
+  drafts_summary: { ready: number; waiting: number; held: number; waiting_for_offer: number };
+  gmail_drafts: (GmailDraft & { lead_id: string })[];
   ready: string[] | null;
   approvals: Approvals | null;
   sync: Run | null;

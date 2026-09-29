@@ -199,13 +199,34 @@ class MemoryTab:
 class MemoryStore:
     """The Sheet as `outreach.sheet.Store` presents it, held in memory."""
 
-    def __init__(self, rows, events=(), suppression=(), runs=()):
+    def __init__(self, rows, events=(), suppression=(), runs=(), drafts=(), research=()):
         self.rows = {row["Lead ID"]: dict(row) for row in rows}
         self.event_rows = [dict(e) for e in events]
         self.entries = None if suppression is None else [dict(s) for s in suppression]
         self.runs = [dict(r) for r in runs]
-        self.lead_writes, self.columns_added = [], []
+        self.draft_rows = [dict(d) for d in drafts]
+        self.research_rows = [dict(r) for r in research]
+        self.lead_writes, self.columns_added, self.draft_writes = [], [], []
         self.refuse_writes = False
+
+    def table(self, name):
+        if name == "Research":
+            return (list(self.research_rows[0]) if self.research_rows else []), [dict(r) for r in self.research_rows]
+        return None
+
+    def drafts(self):
+        return [(number, dict(row)) for number, row in enumerate(self.draft_rows, start=2)]
+
+    def write_drafts(self, new, replace=None):
+        replace = replace or {}
+        for number, row in replace.items():
+            if self.draft_rows[number - 2]["Lead ID"] != row["Lead ID"]:
+                raise RuntimeError(f"Drafts rows [{number}] changed while drafts were being written; "
+                                   f"nothing was rewritten")
+        for number, row in sorted(replace.items()):
+            self.draft_rows[number - 2] = dict(row)
+        self.draft_rows += [dict(row) for row in new]
+        self.draft_writes.append(([dict(r) for r in new], {n: dict(r) for n, r in replace.items()}))
 
     def leads(self):
         return {lead_id: dict(row) for lead_id, row in self.rows.items()}

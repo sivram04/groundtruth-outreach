@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LoadError } from "./api";
 import { App } from "./App";
@@ -21,6 +21,10 @@ async function go(hash: string) {
   });
 }
 
+function card(title: string) {
+  return screen.getByRole("heading", { name: title }).closest("section")!;
+}
+
 beforeEach(() => {
   window.scrollTo = vi.fn();
 });
@@ -34,8 +38,7 @@ describe("the dashboard", () => {
   it("puts what needs the founder first, in order, each with a way into Gmail", async () => {
     await open("#/");
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Dashboard");
-    const needs = screen.getByRole("heading", { name: "Needs you" }).parentElement!;
-    const items = within(needs).getAllByRole("listitem");
+    const items = within(card("Needs you")).getAllByRole("listitem");
     expect(items.map((item) => within(item).getAllByRole("link")[0]!.textContent)).toEqual([
       "Acme Plumbing",
       "Example Electric",
@@ -48,40 +51,136 @@ describe("the dashboard", () => {
     expect(gmail.getAttribute("rel")).toBe("noopener noreferrer");
   });
 
-  it("shows the numbers per tier as the server worked them out", async () => {
+  it("says how many drafts wait for the offer approval, and links to them", async () => {
     await open("#/");
+    const note = screen.getByText(/2 drafts are written and waiting for your approval of the offer wording/);
+    expect(note.closest(".callout")!.querySelector("a")!.getAttribute("href")).toBe("#/drafts");
+    const nav = screen.getByRole("navigation", { name: "Pages" });
+    expect(within(nav).getByLabelText("3 drafts").textContent).toBe("3");
+  });
+
+  it("shows the pipeline and the numbers per tier as the server worked them out", async () => {
+    await open("#/");
+    const pipeline = within(card("Pipeline")).getAllByRole("listitem");
+    expect(pipeline.map((step) => step.textContent)).toEqual([
+      "Leads17",
+      "Email checked OK15",
+      "Company qualified15",
+      "Profiled15",
+      "Draft written3",
+      "Emailed7",
+      "Replied2",
+    ]);
     const row = screen.getByRole("cell", { name: "Reply rate" }).parentElement!;
     expect(within(row).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Reply rate", "33%", "0%", "29%"]);
-    const open_rate = screen.getByRole("cell", { name: "Open rate (est.)" }).parentElement!;
-    expect(within(open_rate).getAllByRole("cell")[1]!.textContent).toBe("-"); // nothing tracked: no rate
+    const openRate = screen.getByRole("cell", { name: "Open rate (est.)" }).parentElement!;
+    expect(within(openRate).getAllByRole("cell")[1]!.textContent).toBe("-"); // nothing tracked: no rate
     expect(screen.getByText("Tue 2026-09-29")).toBeTruthy(); // coming up
   });
 });
 
-describe("the other pages", () => {
-  it("lists the drafts waiting, what drafting waits for, and who is ready", async () => {
+describe("the drafts", () => {
+  it("shows the draft pointed at, and a different one when another is pointed at", async () => {
     await open("#/drafts");
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Drafts");
-    expect(screen.getByRole("link", { name: "B-0002" })).toBeTruthy();
-    expect(screen.getAllByText("Not approved")).toHaveLength(2);
-    const ready = screen.getByRole("heading", { name: "Ready for a first draft: 2" }).parentElement!;
-    expect(within(ready).getAllByRole("link").map((link) => link.textContent)).toEqual(["A-0007", "A-0008"]);
+    const pane = screen.getByRole("complementary", { name: "The draft you are pointing at" });
+    expect(within(pane).getByText(/Hi Jo,/)).toBeTruthy();
+    const rows = within(screen.getByRole("list", { name: "Drafts" })).getAllByRole("button");
+    expect(rows.map((row) => row.querySelector(".draft-company")!.textContent)).toEqual([
+      "Lakeside Concrete",
+      "Pioneer Paving",
+      "Granite Works",
+    ]);
+    fireEvent.mouseEnter(rows[1]!);
+    expect(within(pane).getByText(/Hi Ali,/)).toBeTruthy();
+    fireEvent.focus(rows[2]!);
+    expect(within(pane).getByText("No words to show: this draft is held.")).toBeTruthy();
+    expect(within(pane).getByText("Why it is held")).toBeTruthy();
+  });
+
+  it("opens a draft over the page and closes it with Escape", async () => {
+    await open("#/drafts");
+    const rows = within(screen.getByRole("list", { name: "Drafts" })).getAllByRole("button");
+    await act(async () => rows[0]!.click());
+    const dialog = screen.getByRole("dialog", { name: "Draft to Lakeside Concrete" });
+    expect(within(dialog).getByText("jo@lakeside-concrete.test", { exact: false })).toBeTruthy();
+    expect(within(dialog).getByText("You have not approved the offer wording yet")).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: /Approve and send/ }).hasAttribute("disabled")).toBe(true);
+    expect(within(dialog).getByRole("button", { name: /Edit/ }).hasAttribute("disabled")).toBe(true);
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Close");
+    await act(async () => fireEvent.keyDown(window, { key: "Escape" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("links the page a quote came from only when it is a web address", async () => {
+    await open("#/drafts");
+    const pane = screen.getByRole("complementary", { name: "The draft you are pointing at" });
+    expect(within(pane).getByRole("link", { name: /See the page/ }).getAttribute("href")).toBe(
+      "https://lakeside-concrete.test/services",
+    );
+    const rows = within(screen.getByRole("list", { name: "Drafts" })).getAllByRole("button");
+    fireEvent.mouseEnter(rows[1]!);
+    expect(within(pane).queryByRole("link", { name: /See the page/ })).toBeNull();
+    expect(within(pane).getByText(/javascript:alert\(2\)/).closest("a")).toBeNull();
+  });
+
+  it("lists who is ready and not written yet, and what drafting waits for", async () => {
+    await open("#/drafts");
+    const notYet = card("Ready, not written yet: 1");
+    expect(within(notYet).getAllByRole("link").map((link) => link.textContent)).toEqual(["Cobalt Glass"]);
+    expect(within(card("What drafting waits for")).getAllByText("Not approved")).toHaveLength(2);
+  });
+
+  it("counts in its notice only the drafts waiting for the offer approval", async () => {
+    await open("#/drafts", () =>
+      Promise.resolve({
+        ...structuredClone(data),
+        drafts_summary: { ready: 0, waiting: 3, held: 0, waiting_for_offer: 1 },
+      }),
+    );
+    expect(screen.getByText(/1 draft is written and waiting for your approval of the offer wording/)).toBeTruthy();
+    expect(screen.getByText("3 waiting for you")).toBeTruthy();
+  });
+
+  it("shows no approval notice when nothing waits for the offer approval", async () => {
+    await open("#/drafts", () =>
+      Promise.resolve({
+        ...structuredClone(data),
+        drafts_summary: { ready: 0, waiting: 2, held: 1, waiting_for_offer: 0 },
+      }),
+    );
+    expect(screen.queryByText(/waiting for your approval of the offer wording/)).toBeNull();
+  });
+
+  it("says so when there are no drafts", async () => {
+    await open("#/drafts", () =>
+      Promise.resolve({
+        ...structuredClone(data),
+        drafts: [],
+        drafts_summary: { ready: 0, waiting: 0, held: 0, waiting_for_offer: 0 },
+      }),
+    );
+    expect(screen.getByText("No drafts yet")).toBeTruthy();
+    expect(screen.queryByRole("complementary", { name: "The draft you are pointing at" })).toBeNull();
   });
 
   it("says who is ready cannot be told when the Suppression tab cannot be read", async () => {
     await open("#/drafts", () => Promise.resolve({ ...structuredClone(data), ready: null }));
-    expect(screen.getByRole("heading", { name: "Ready for a first draft" })).toBeTruthy();
     expect(screen.getByText("This cannot be told: the Suppression tab cannot be read.")).toBeTruthy();
     await go("#/");
-    const tile = screen.getByText("Ready for a first draft", { selector: ".tile span" }).parentElement!;
-    expect(tile.querySelector("b")!.textContent).toBe("?");
+    const row = screen.getByRole("cell", { name: "Ready for a first draft" }).parentElement!;
+    expect(within(row).getAllByRole("cell")[1]!.textContent).toBe("?");
   });
+});
 
-  it("filters the leads from the address and searches on submit", async () => {
+describe("the other pages", () => {
+  it("filters the leads from the address, and marks a lead's draft", async () => {
     await open("#/leads?show=ready");
-    expect(screen.getByText("2 of 15 leads")).toBeTruthy();
+    expect(screen.getByText("4 of 17 leads", { selector: "p" })).toBeTruthy();
+    expect(screen.getAllByText("Draft: waiting for you").length).toBe(2);
     await go("#/leads?tier=B");
-    expect(screen.getByText("3 of 15 leads")).toBeTruthy();
+    expect(screen.getByText("3 of 17 leads", { selector: "p" })).toBeTruthy();
+    const tab = screen.getByRole("link", { name: "Replied" });
+    expect(tab.getAttribute("href")).toBe("#/leads?tier=B&show=replied");
   });
 
   it("shows a name with markup in it as text, and no link for a website that is not http", async () => {
@@ -95,19 +194,20 @@ describe("the other pages", () => {
     expect(document.title).toBe("Outreach: Oak Tile & Stone <b>Ltd</b>");
   });
 
-  it("gives a lead's history and every column of its row", async () => {
-    await open("#/leads/A-0005");
+  it("gives a lead's draft, history and every column of its row", async () => {
+    await open("#/leads/A-0007");
+    expect(within(card("The draft")).getByText(/Hi Jo,/)).toBeTruthy();
+    await go("#/leads/A-0005");
     expect(screen.getByText("5.1.1 address not found")).toBeTruthy();
-    expect(screen.getByText("Bounced", { selector: "td" })).toBeTruthy();
     expect(screen.getByText("Every column of this lead in the Sheet")).toBeTruthy();
     expect(screen.getByText("Sent by hand")).toBeTruthy();
   });
 
   it("says where the data comes from without the founder's address or phone", async () => {
     await open("#/sources");
-    expect(screen.getByRole("link", { name: "Open the leads Sheet" }).getAttribute("href")).toBe(data.links.sheet);
+    expect(screen.getByRole("link", { name: /Open the leads Sheet/ }).getAttribute("href")).toBe(data.links.sheet);
     expect(screen.getByText("admin@lakshyaa.ai", { selector: "dd" })).toBeTruthy();
-    expect(document.body.textContent).not.toContain("Made Up Road");
+    expect(document.body.textContent).not.toContain("+1 555 010 0000");
   });
 
   it("says so for a lead or page that does not exist", async () => {

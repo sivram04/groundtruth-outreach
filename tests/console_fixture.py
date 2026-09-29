@@ -19,7 +19,7 @@ for path in (str(HERE), str(ROOT)):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from outreach import console_model, sequence  # noqa: E402
+from outreach import console_model, drafting, drafts, sequence  # noqa: E402
 from outreach.sync import _event  # noqa: E402
 from stage4_fakes import at, lead  # noqa: E402
 
@@ -74,6 +74,12 @@ def rows():
         # A website cell that must never become a link, and a name with markup in it.
         person("A-0012", "Oak Tile & Stone <b>Ltd</b>", "Ray Fox", "ray@oak-tile.test",
                "javascript:alert(1)", **{"Profile status": ""}),
+        # Ready, but the writer found no quote good enough to open with.
+        person("A-0013", "Granite Works", "Sky Adams", "sky@granite-works.test",
+               "https://granite-works.test/"),
+        # Ready, and not written yet.
+        person("A-0014", "Cobalt Glass", "Rene Diaz", "rene@cobalt-glass.test",
+               "https://cobalt-glass.test/"),
         # This system's tracked draft, sent, opened and clicked.
         person("B-0001", "Pine Electrical", "Dana Cole", "dana@pine-electrical.test",
                "https://pine-electrical.test/",
@@ -131,6 +137,40 @@ def events():
     ]
 
 
+def demo_body(first_name, company):
+    """A made-up email's shape: the real words come from the handbook and the company's quote."""
+    signature = ["Best,", "Demo Founder", "Founder, Demo Product", "https://example.test",
+                 "1 Made Up Road, Nowhere, OH 00000", drafting.OPT_OUT]
+    return "\n\n".join([
+        f"Hi {first_name},",
+        f"[One sentence about {company}, written only from the quote on its own site.]",
+        "[The offer, in the handbook's words.]",
+        "[One question, as the handbook asks it.]",
+        "\n".join(signature)])
+
+
+def draft_rows():
+    def row(lead_id, company, to, first, status, why, quote="", page="", body=True):
+        return {"Lead ID": lead_id, "Email": drafts.FIRST_EMAIL, "To": to, "Company": company,
+                "Subject": "[The subject, from the handbook]" if body else "",
+                "Body": demo_body(first, company) if body else "", "Opening quote": quote,
+                "Quote page": page, "Status": status, "Why": why, "Approval hash": "",
+                "Handbook hash": "demo-hash", "Written": '{"demo": true}' if body else "",
+                "Prepared at (UTC)": "2026-09-28 12:40:00"}
+    return [
+        row("A-0007", "Lakeside Concrete", "jo@lakeside-concrete.test", "Jo", drafts.WAITING,
+            drafts.OFFER_NOT_APPROVED, "We pour foundations and slabs for commercial buildings.",
+            "https://lakeside-concrete.test/services"),
+        row("A-0008", "Pioneer Paving", "ali@pioneer-paving.test", "Ali", drafts.WAITING,
+            "\n".join([drafts.OFFER_NOT_APPROVED, 'the company name "Pioneer Paving" was not '
+                       "found on its own site; check it"]),
+            "Parking lots and access roads for commercial sites.",
+            "javascript:alert(2)"),
+        row("A-0013", "Granite Works", "sky@granite-works.test", "Sky", drafts.HELD,
+            "no quote is good enough to open with: reads as a list of markets", body=False),
+    ]
+
+
 def suppression():
     return [{"Address or domain": "kim@harbor-glass.test", "Reason": "bounced: 5.1.1",
              "Added at": "2026-09-22 18:10:00", "Source": "sync: lead A-0005"},
@@ -148,7 +188,8 @@ def runs():
 def snapshot():
     """The demo console, exactly as the server would send it."""
     data = console_model.build({row["Lead ID"]: row for row in rows()}, events(), suppression(),
-                               runs(), settings=SETTINGS, now=NOW, handbook_doc_id=HANDBOOK)
+                               runs(), settings=SETTINGS, now=NOW, handbook_doc_id=HANDBOOK,
+                               draft_rows=draft_rows())
     data["signed_in_as"] = "admin@lakshyaa.ai"
     return data
 

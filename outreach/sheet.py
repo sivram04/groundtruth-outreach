@@ -43,6 +43,11 @@ EVENTS_HEADER = ["Recorded at (UTC)", "Lead ID", "Event", "Step", "Occurred at (
                  "Match", "Detail", "Thread ID", "Gmail message ID", "Event key"]
 SUPPRESSION_TAB = "Suppression"
 SUPPRESSION_HEADER = ["Address or domain", "Reason", "Added at", "Source"]
+# The console's drafts (outreach/drafts.py): one row per lead's first email, written and checked.
+DRAFTS_TAB = "Drafts"
+DRAFTS_HEADER = ["Lead ID", "Email", "To", "Company", "Subject", "Body", "Opening quote",
+                 "Quote page", "Status", "Why", "Approval hash", "Handbook hash", "Written",
+                 "Prepared at (UTC)"]
 
 
 _SHEETS = None
@@ -248,6 +253,42 @@ class Store:
         """The Runs tab's rows, oldest first; none when there is no Runs tab."""
         table = self.table(RUNS_TAB)
         return table[1] if table else []
+
+    def drafts(self):
+        """The Drafts tab as [(sheet row, {column: value})]; none when there is no Drafts tab.
+
+        Refuses a tab whose columns were changed: a draft read from the wrong column could be
+        shown, or later sent, with the wrong words."""
+        if DRAFTS_TAB not in self.titles:
+            return []
+        values = self.api.values().get(spreadsheetId=SHEET_ID,
+                                       range=f"'{DRAFTS_TAB}'").execute().get("values", [])
+        if not values:
+            return []
+        header = values[0]
+        if header[:len(DRAFTS_HEADER)] != DRAFTS_HEADER:
+            raise RuntimeError("the Drafts tab's columns were changed; it is neither read nor written")
+        return [(number, {h: (raw[i] if i < len(raw) else "") for i, h in enumerate(header) if h})
+                for number, raw in enumerate(values[1:], start=2)
+                if any(str(cell).strip() for cell in raw)]
+
+    def write_drafts(self, new, replace=None):
+        """Append `new` rows, and rewrite each of `replace` ({sheet row: row}) in place, as plain
+        text (a body starting with "=" never becomes a formula). A row is rewritten only if it
+        still holds the same lead; if any has moved, nothing is rewritten."""
+        replace = replace or {}
+        if replace:
+            current = dict(self.drafts())
+            moved = [n for n, row in replace.items()
+                     if current.get(n, {}).get("Lead ID") != row["Lead ID"]]
+            if moved:
+                raise RuntimeError(f"Drafts rows {moved} changed while drafts were being written; "
+                                   f"nothing was rewritten")
+            self.api.values().batchUpdate(spreadsheetId=SHEET_ID, body={
+                "valueInputOption": "RAW",
+                "data": [{"range": f"'{DRAFTS_TAB}'!A{n}", "values": [[row.get(h, "") for h in DRAFTS_HEADER]]}
+                         for n, row in sorted(replace.items())]}).execute()
+        self._append(DRAFTS_TAB, DRAFTS_HEADER, [[row.get(h, "") for h in DRAFTS_HEADER] for row in new])
 
     def last_cursor(self):
         """Where the last completed sync stopped reading, from its Runs row."""

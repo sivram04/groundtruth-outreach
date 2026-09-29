@@ -25,6 +25,73 @@
   "coming_up_days": 5,
   "drafts": [
     {
+      "body": "Hi Jo,\n\n[One sentence about Lakeside Concrete, written only from the quote on its own site.]\n\n[The offer, in the handbook's words.]\n\n[One question, as the handbook asks it.]\n\nBest,\nDemo Founder\nFounder, Demo Product\nhttps://example.test\n1 Made Up Road, Nowhere, OH 00000\nIf you don't want further outreach from me, reply \"no thanks\" and I'll stop.",
+      "company": "Lakeside Concrete",
+      "contact": "Jo Bennett",
+      "kind": "First email",
+      "lead_id": "A-0007",
+      "prepared_at": "2026-09-28 08:40 ET",
+      "quote": "We pour foundations and slabs for commercial buildings.",
+      "quote_href": "https://lakeside-concrete.test/services",
+      "quote_page": "https://lakeside-concrete.test/services",
+      "status": "WAITING",
+      "status_label": "Waiting for you",
+      "subject": "[The subject, from the handbook]",
+      "tier": "A",
+      "to": "jo@lakeside-concrete.test",
+      "why": [
+        "You have not approved the offer wording yet"
+      ]
+    },
+    {
+      "body": "Hi Ali,\n\n[One sentence about Pioneer Paving, written only from the quote on its own site.]\n\n[The offer, in the handbook's words.]\n\n[One question, as the handbook asks it.]\n\nBest,\nDemo Founder\nFounder, Demo Product\nhttps://example.test\n1 Made Up Road, Nowhere, OH 00000\nIf you don't want further outreach from me, reply \"no thanks\" and I'll stop.",
+      "company": "Pioneer Paving",
+      "contact": "Ali Moreno",
+      "kind": "First email",
+      "lead_id": "A-0008",
+      "prepared_at": "2026-09-28 08:40 ET",
+      "quote": "Parking lots and access roads for commercial sites.",
+      "quote_href": "",
+      "quote_page": "javascript:alert(2)",
+      "status": "WAITING",
+      "status_label": "Waiting for you",
+      "subject": "[The subject, from the handbook]",
+      "tier": "A",
+      "to": "ali@pioneer-paving.test",
+      "why": [
+        "You have not approved the offer wording yet",
+        "the company name \"Pioneer Paving\" was not found on its own site; check it"
+      ]
+    },
+    {
+      "body": "",
+      "company": "Granite Works",
+      "contact": "Sky Adams",
+      "kind": "First email",
+      "lead_id": "A-0013",
+      "prepared_at": "2026-09-28 08:40 ET",
+      "quote": "",
+      "quote_href": "",
+      "quote_page": "",
+      "status": "HELD",
+      "status_label": "Held",
+      "subject": "",
+      "tier": "A",
+      "to": "sky@granite-works.test",
+      "why": [
+        "no quote is good enough to open with: reads as a list of markets"
+      ]
+    }
+  ],
+  "drafts_summary": {
+    "held": 1,
+    "ready": 0,
+    "waiting": 2,
+    "waiting_for_offer": 2
+  },
+  "event_count": 15,
+  "gmail_drafts": [
+    {
       "at": "2026-09-27 10:30 ET",
       "kind": "First email",
       "lead_id": "B-0002",
@@ -32,7 +99,6 @@
       "tracked": false
     }
   ],
-  "event_count": 15,
   "leads": [
     {
       "action": "Follow-up 1 was due Fri 2026-09-25. You started this thread by hand, so write it yourself in the same thread.",
@@ -100,7 +166,7 @@
       ],
       "company": "Example Electric",
       "contact": "Sam Rivers",
-      "drafts": [],
+      "draft": null,
       "email": "sam@example-electric.test",
       "email_check": "OK",
       "email_reason": "",
@@ -117,6 +183,7 @@
       ],
       "fit": "QUALIFIED",
       "fit_reason": "",
+      "gmail_drafts": [],
       "hold": "",
       "id": "A-0001",
       "next_followup": {
@@ -202,7 +269,7 @@
       ],
       "company": "Acme Plumbing",
       "contact": "Pat Lee",
-      "drafts": [],
+      "draft": null,
       "email": "pat@acme-plumbing.test",
       "email_check": "OK",
       "email_reason": "",
@@ -227,6 +294,7 @@
       ],
       "fit": "QUALIFIED",
       "fit_reason": "",
+      "gmail_drafts": [],
       "hold": "",
       "id": "A-0002",
       "next_followup": {
@@ -312,7 +380,7 @@
       ],
       "company": "Northside Mechanical",
       "contact": "Robin Hale",
-      "drafts": [],
+      "draft": null,
       "email": "robin@northside-mech.test",
       "email_check": "OK",
       "email_reason": "",
@@ -329,6 +397,7 @@
       ],
       "fit": "QUALIFIED",
       "fit_reason": "",
+      "gmail_drafts": [],
       "hold": "",
       "id": "A-0003",
       "next_followup": {
@@ -414,7 +483,7 @@
       ],
       "company": "Riverbend Drywall",
       "contact": "Dennis Ward",
-      "drafts": [],
+      "draft": null,
       "email": "dennis@riverbend-drywall.test",
       "email_check": "OK",
       "email_reason": "",
@@ -431,6 +500,7 @@
       ],
       "fit": "QUALIFIED",
       "fit_reason": "",
+      "gmail_drafts": [],
       "hold": "",
       "id": "A-0004",
       "next_followup": null,
@@ -513,7 +583,7 @@
       ],
       "company": "Harbor Glass",
       "contact": "Kim Ortiz",
-      "drafts": [],
+      "draft": null,
       "email": "kim@harbor-glass.test",
       "email_check": "OK",
       "email_reason": "",
@@ -538,6 +608,7 @@
       ],
       "fit": "QUALIFIED",
       "fit_reason": "",
+      "gmail_drafts": [],
       "hold": "",
       "id": "A-0005",
       "next_followup": {
@@ -624,7 +695,7 @@
       ],
       "company": "Summit Roofing",
       "contact": "Lee Park",
-      "drafts": [],
+      "draft": null,
       "email": "lee@summit-roofing.test",
       "email_check": "OK",
       "email_reason": "",
@@ -649,6 +720,7 @@
       ],
       "fit": "QUALIFIED",
       "fit_reason": "",
+      "gmail_drafts": [],
       "hold": "",
       "id": "A-0006",
       "next_followup": {
@@ -731,7 +803,7 @@
       ],
       "company": "Lakeside Concrete",
       "contact": "Jo Bennett",
-      "drafts": [],
+      "draft": "WAITING",
       "email": "jo@lakeside-concrete.test",
       "email_check": "OK",
       "email_reason": "",
@@ -739,6 +811,7 @@
       "events": [],
       "fit": "QUALIFIED",
       "fit_reason": "",
+      "gmail_drafts": [],
       "hold": "",
       "id": "A-0007",
       "next_followup": null,
@@ -817,7 +890,7 @@
       ],
       "company": "Pioneer Paving",
       "contact": "Ali Moreno",
-      "drafts": [],
+      "draft": "WAITING",
       "email": "ali@pioneer-paving.test",
       "email_check": "OK",
       "email_reason": "",
@@ -825,6 +898,7 @@
       "events": [],
       "fit": "QUALIFIED",
       "fit_reason": "",
+      "gmail_drafts": [],
       "hold": "",
       "id": "A-0008",
       "next_followup": null,
@@ -909,7 +983,7 @@
       ],
       "company": "Maple Masonry",
       "contact": "Chris Doyle",
-      "drafts": [],
+      "draft": null,
       "email": "chris@maple-masonry.test",
       "email_check": "RISKY",
       "email_reason": "catch-all domain",
@@ -917,6 +991,7 @@
       "events": [],
       "fit": "QUALIFIED",
       "fit_reason": "",
+      "gmail_drafts": [],
       "hold": "",
       "id": "A-0009",
       "next_followup": null,
@@ -1001,7 +1076,7 @@
       ],
       "company": "Cedar Homes",
       "contact": "Val Kemp",
-      "drafts": [],
+      "draft": null,
       "email": "val@cedar-homes.test",
       "email_check": "OK",
       "email_reason": "",
@@ -1009,6 +1084,7 @@
       "events": [],
       "fit": "DISQUALIFIED",
       "fit_reason": "2 quote(s) show residential work",
+      "gmail_drafts": [],
       "hold": "",
       "id": "A-0010",
       "next_followup": null,
@@ -1093,7 +1169,7 @@
       ],
       "company": "Birch Landscaping",
       "contact": "Max Ruiz",
-      "drafts": [],
+      "draft": null,
       "email": "max@birch-landscaping.test",
       "email_check": "OK",
       "email_reason": "",
@@ -1101,6 +1177,7 @@
       "events": [],
       "fit": "QUALIFIED",
       "fit_reason": "",
+      "gmail_drafts": [],
       "hold": "waiting for an introduction",
       "id": "A-0011",
       "next_followup": null,
@@ -1181,7 +1258,7 @@
       ],
       "company": "Oak Tile & Stone <b>Ltd</b>",
       "contact": "Ray Fox",
-      "drafts": [],
+      "draft": null,
       "email": "ray@oak-tile.test",
       "email_check": "OK",
       "email_reason": "",
@@ -1189,6 +1266,7 @@
       "events": [],
       "fit": "QUALIFIED",
       "fit_reason": "",
+      "gmail_drafts": [],
       "hold": "",
       "id": "A-0012",
       "next_followup": null,
@@ -1203,6 +1281,180 @@
       "tier_label": "A: proven commercial",
       "website": "javascript:alert(1)",
       "website_href": ""
+    },
+    {
+      "action": "",
+      "blockers": [],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "",
+        "Last event": "",
+        "Next action": "",
+        "Opens (est.)": "",
+        "Outreach status": "",
+        "Replied at": "",
+        "Sent at": "",
+        "Sent to": "",
+        "Tracked sends": ""
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "A-0013"
+        ],
+        [
+          "Company",
+          "Granite Works"
+        ],
+        [
+          "BEST EMAIL",
+          "sky@granite-works.test"
+        ],
+        [
+          "Their email",
+          "sky@granite-works.test"
+        ],
+        [
+          "Decision maker",
+          "Sky Adams"
+        ],
+        [
+          "Website",
+          "https://granite-works.test/"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          "OK"
+        ],
+        [
+          "Fit",
+          "QUALIFIED"
+        ],
+        [
+          "Sent by hand",
+          ""
+        ],
+        [
+          "Profile status",
+          "READY"
+        ]
+      ],
+      "company": "Granite Works",
+      "contact": "Sky Adams",
+      "draft": "HELD",
+      "email": "sky@granite-works.test",
+      "email_check": "OK",
+      "email_reason": "",
+      "error": null,
+      "events": [],
+      "fit": "QUALIFIED",
+      "fit_reason": "",
+      "gmail_drafts": [],
+      "hold": "",
+      "id": "A-0013",
+      "next_followup": null,
+      "origin": null,
+      "profile": "READY",
+      "ready": true,
+      "sent_by_hand": "",
+      "status": "",
+      "status_label": "Not emailed",
+      "suppressed": false,
+      "tier": "A",
+      "tier_label": "A: proven commercial",
+      "website": "https://granite-works.test/",
+      "website_href": "https://granite-works.test/"
+    },
+    {
+      "action": "",
+      "blockers": [],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "",
+        "Last event": "",
+        "Next action": "",
+        "Opens (est.)": "",
+        "Outreach status": "",
+        "Replied at": "",
+        "Sent at": "",
+        "Sent to": "",
+        "Tracked sends": ""
+      },
+      "columns": [
+        [
+          "Lead ID",
+          "A-0014"
+        ],
+        [
+          "Company",
+          "Cobalt Glass"
+        ],
+        [
+          "BEST EMAIL",
+          "rene@cobalt-glass.test"
+        ],
+        [
+          "Their email",
+          "rene@cobalt-glass.test"
+        ],
+        [
+          "Decision maker",
+          "Rene Diaz"
+        ],
+        [
+          "Website",
+          "https://cobalt-glass.test/"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          "OK"
+        ],
+        [
+          "Fit",
+          "QUALIFIED"
+        ],
+        [
+          "Sent by hand",
+          ""
+        ],
+        [
+          "Profile status",
+          "READY"
+        ]
+      ],
+      "company": "Cobalt Glass",
+      "contact": "Rene Diaz",
+      "draft": null,
+      "email": "rene@cobalt-glass.test",
+      "email_check": "OK",
+      "email_reason": "",
+      "error": null,
+      "events": [],
+      "fit": "QUALIFIED",
+      "fit_reason": "",
+      "gmail_drafts": [],
+      "hold": "",
+      "id": "A-0014",
+      "next_followup": null,
+      "origin": null,
+      "profile": "READY",
+      "ready": true,
+      "sent_by_hand": "",
+      "status": "",
+      "status_label": "Not emailed",
+      "suppressed": false,
+      "tier": "A",
+      "tier_label": "A: proven commercial",
+      "website": "https://cobalt-glass.test/",
+      "website_href": "https://cobalt-glass.test/"
     },
     {
       "action": "Follow-up 1 is due Tue 2026-09-29; it will be drafted then.",
@@ -1294,7 +1546,7 @@
       ],
       "company": "Pine Electrical",
       "contact": "Dana Cole",
-      "drafts": [],
+      "draft": null,
       "email": "dana@pine-electrical.test",
       "email_check": "OK",
       "email_reason": "",
@@ -1335,6 +1587,7 @@
       ],
       "fit": "QUALIFIED",
       "fit_reason": "",
+      "gmail_drafts": [],
       "hold": "",
       "id": "B-0001",
       "next_followup": {
@@ -1439,14 +1692,7 @@
       ],
       "company": "Spruce HVAC",
       "contact": "Mo Grant",
-      "drafts": [
-        {
-          "at": "2026-09-27 10:30 ET",
-          "kind": "First email",
-          "status": "CREATED",
-          "tracked": false
-        }
-      ],
+      "draft": null,
       "email": "mo@spruce-hvac.test",
       "email_check": "OK",
       "email_reason": "",
@@ -1463,6 +1709,14 @@
       ],
       "fit": "QUALIFIED",
       "fit_reason": "",
+      "gmail_drafts": [
+        {
+          "at": "2026-09-27 10:30 ET",
+          "kind": "First email",
+          "status": "CREATED",
+          "tracked": false
+        }
+      ],
       "hold": "",
       "id": "B-0002",
       "next_followup": null,
@@ -1544,7 +1798,7 @@
       ],
       "company": "Aspen Siding",
       "contact": "Ari Lang",
-      "drafts": [],
+      "draft": null,
       "email": "ari@aspen-siding.test",
       "email_check": "",
       "email_reason": "",
@@ -1552,6 +1806,7 @@
       "events": [],
       "fit": "",
       "fit_reason": "",
+      "gmail_drafts": [],
       "hold": "",
       "id": "B-0003",
       "next_followup": null,
@@ -1620,7 +1875,9 @@
   "read_at": "2026-09-28 09:00 ET",
   "ready": [
     "A-0007",
-    "A-0008"
+    "A-0008",
+    "A-0013",
+    "A-0014"
   ],
   "signed_in_as": "admin@lakshyaa.ai",
   "suppression_count": 2,
@@ -1632,18 +1889,22 @@
   "tiers": [
     {
       "bounced": 1,
+      "checked_ok": 13,
       "click_rate": "-",
       "clicked": 0,
       "coverage": "0%",
+      "drafted": 3,
       "emailed": 6,
       "emails_sent": 6,
       "label": "A: proven commercial",
-      "leads": 12,
+      "leads": 14,
       "open_rate": "-",
       "opened": 0,
       "opted_out": 1,
       "prefix": "A",
-      "ready": 2,
+      "profiled": 13,
+      "qualified": 13,
+      "ready": 4,
       "replied": 2,
       "reply_rate": "33%",
       "review_needed": 1,
@@ -1651,9 +1912,11 @@
     },
     {
       "bounced": 0,
+      "checked_ok": 2,
       "click_rate": "100%",
       "clicked": 1,
       "coverage": "100%",
+      "drafted": 0,
       "emailed": 1,
       "emails_sent": 1,
       "label": "B: likely commercial",
@@ -1662,6 +1925,8 @@
       "opened": 1,
       "opted_out": 0,
       "prefix": "B",
+      "profiled": 2,
+      "qualified": 2,
       "ready": 0,
       "replied": 0,
       "reply_rate": "0%",
@@ -1670,18 +1935,22 @@
     },
     {
       "bounced": 1,
+      "checked_ok": 15,
       "click_rate": "100%",
       "clicked": 1,
       "coverage": "14%",
+      "drafted": 3,
       "emailed": 7,
       "emails_sent": 7,
       "label": "A and B",
-      "leads": 15,
+      "leads": 17,
       "open_rate": "100%",
       "opened": 1,
       "opted_out": 1,
       "prefix": "",
-      "ready": 2,
+      "profiled": 15,
+      "qualified": 15,
+      "ready": 4,
       "replied": 2,
       "reply_rate": "29%",
       "review_needed": 1,
@@ -1695,6 +1964,6 @@
     "detail": "recorded 0 hits",
     "result": "OK"
   },
-  "version": 1,
+  "version": 2,
   "warnings": []
 }

@@ -17,13 +17,14 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from urllib.parse import quote, urlparse
 
-from outreach import drafting, sequence, sync
+from outreach import drafts as drafts_tab
+from outreach import sequence, sync
 from outreach.business_days import NEW_YORK, add_business_days, new_york_date
 from outreach.dashboard import NOTES
 from outreach.dashboard import TIERS as SHEET_TIERS
 from outreach.sheet import SHEET_ID
 
-VERSION = 1  # the shape of what `build` returns; the React pages check it
+VERSION = 2  # the shape of what `build` returns; the React pages check it
 SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit"
 TIERS = [(prefix.rstrip("-"), label) for _, prefix, label in SHEET_TIERS]
 TIER_LABELS = dict(TIERS)
@@ -57,6 +58,9 @@ MATCH_LABELS = {
     "THREAD": "the same thread", "DOMAIN": "the company's domain only",
     "SEVERAL": "more than one lead",
 }
+DRAFT_LABELS = {drafts_tab.READY: "Ready to approve", drafts_tab.WAITING: "Waiting for you",
+                drafts_tab.HELD: "Held"}
+DRAFT_ORDER = {drafts_tab.READY: 0, drafts_tab.WAITING: 1, drafts_tab.HELD: 2}
 # Needs-you order: an answer first, then what is late, then drafts, then checks.
 REPLY, FOLLOWUP_DUE, DRAFT_WAITING, CHECK = 0, 1, 2, 3
 NEED_LABELS = {REPLY: "Reply to answer", FOLLOWUP_DUE: "Follow-up due",
@@ -156,8 +160,8 @@ def _lead(lead_id, row, events, entries, today):
         "profile": row.get("Profile status", ""), "hold": row.get("HOLD", "").strip(),
         "sent_by_hand": row.get("Sent by hand", "").strip(),
         "status": "", "status_label": STATUS_LABELS[""], "action": "", "cells": {},
-        "origin": None, "next_followup": None, "suppressed": None, "drafts": [],
-        "ready": False, "blockers": [], "error": None,
+        "origin": None, "next_followup": None, "suppressed": None, "gmail_drafts": [],
+        "ready": False, "blockers": [], "error": None, "draft": None,
         "events": [event_view(e) for e in _in_order(events)],
         "columns": [[column, value] for column, value in row.items()],
     }
@@ -176,12 +180,9 @@ def _lead(lead_id, row, events, entries, today):
         origin=running["origin"] if running else None,
         next_followup=({"step": upcoming[0], "date": upcoming[1].isoformat(),
                         "day": sequence.day_text(upcoming[1])} if upcoming else None),
-        drafts=_drafts_of(row, state["sends"],
+        gmail_drafts=_drafts_of(row, state["sends"],
                           {e["Step"] for e in running["sends"]} if running else set()))
-    blockers = drafting.lead_blockers(
-        row, None if entries is None else sync.on_list(entries, view["email"]))
-    if state["sends"]:
-        blockers.append("already emailed")
+    blockers = drafts_tab.first_draft_blockers(row, events, entries)
     view["blockers"] = blockers
     view["ready"] = not blockers
     return view, upcoming
@@ -202,7 +203,7 @@ def _needs_you(view, upcoming, today):
         return DRAFT_WAITING, "", action
     if status != "SENT" or view["hold"] or view["suppressed"]:
         return None
-    if view["drafts"]:
+    if view["gmail_drafts"]:
         return DRAFT_WAITING, "", action
     if upcoming and upcoming[1] <= today:
         return FOLLOWUP_DUE, upcoming[1].isoformat(), action
@@ -221,7 +222,11 @@ def _tier_counts(views, events, prefix):
                and tier_of(e.get("Lead ID", ""))
                and (prefix is None or tier_of(e["Lead ID"]) == prefix))
     return {
-        "leads": len(mine), "ready": sum(1 for v in mine if v["ready"]), "emailed": emailed,
+        "leads": len(mine), "checked_ok": sum(1 for v in mine if v["email_check"] == "OK"),
+        "qualified": sum(1 for v in mine if v["fit"] == "QUALIFIED"),
+        "profiled": sum(1 for v in mine if v["profile"] == "READY"),
+        "drafted": sum(1 for v in mine if v["draft"]),
+        "ready": sum(1 for v in mine if v["ready"]), "emailed": emailed,
         "emails_sent": sent, "replied": replied, "reply_rate": percent(replied, emailed),
         "opted_out": statuses.count("OPTED_OUT"), "bounced": statuses.count("BOUNCED"),
         "review_needed": statuses.count("REVIEW_NEEDED"), "tracked": tracked,
@@ -254,8 +259,33 @@ def approvals(settings):
     }
 
 
-def build(leads, events, entries, runs, *, settings, now, handbook_doc_id=""):
-    """The whole console, worked out once per request."""
+# The drafting step's reasons are written about the founder; the pages speak to them.
+OFFER_NOT_APPROVED_SAID = "You have not approved the offer wording yet"
+REASONS_SAID = {drafts_tab.OFFER_NOT_APPROVED: OFFER_NOT_APPROVED_SAID}
+
+
+def draft_view(row, lead):
+    """One row of the Drafts tab as the pages show it. Never the approval hash or the stored
+    writer output: the pages only show the words."""
+    status = row.get("Status", "")
+    reasons = [part.strip() for part in row.get("Why", "").splitlines() if part.strip()]
+    return {
+        "lead_id": row.get("Lead ID", ""), "kind": row.get("Email", ""), "to": row.get("To", ""),
+        "company": row.get("Company") or (lead or {}).get("company", ""),
+        "contact": (lead or {}).get("contact", ""), "tier": tier_of(row.get("Lead ID", "")),
+        "subject": row.get("Subject", ""), "body": row.get("Body", ""),
+        "quote": row.get("Opening quote", ""), "quote_page": row.get("Quote page", ""),
+        "quote_href": safe_href(row.get("Quote page", "")),
+        "status": status, "status_label": DRAFT_LABELS.get(status, status or "Unknown"),
+        "why": [REASONS_SAID.get(reason, reason) for reason in reasons],
+        "prepared_at": moment(row.get("Prepared at (UTC)")),
+    }
+
+
+def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", draft_rows=(),
+          drafts_error=None):
+    """The whole console, worked out once per request. `draft_rows` is the Drafts tab's rows,
+    or None when it could not be read (`drafts_error` says why)."""
     today = new_york_date(now)
     events = sync.unique(events)
     by_lead = defaultdict(list)
@@ -275,7 +305,7 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id=""):
                               "address": view["cells"].get("Sent to") or view["email"],
                               "_sort": sort_key})
         if (view["status"] == "SENT" and not view["hold"] and not view["suppressed"]
-                and not view["drafts"] and upcoming and today < upcoming[1] <= horizon):
+                and not view["gmail_drafts"] and upcoming and today < upcoming[1] <= horizon):
             coming_up.append({"lead_id": lead_id, "step": upcoming[0],
                               "date": upcoming[1].isoformat(),
                               "day": sequence.day_text(upcoming[1]), "text": view["action"]})
@@ -293,6 +323,18 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id=""):
         warnings.append("Where these leads stand could not be worked out from their events: "
                         + ", ".join(broken) + ".")
 
+    by_id = {v["id"]: v for v in views}
+    drafts = [draft_view(row, by_id.get(row.get("Lead ID"))) for row in (draft_rows or [])]
+    drafts.sort(key=lambda d: (DRAFT_ORDER.get(d["status"], 3), _lead_order(d["lead_id"])))
+    for draft in drafts:
+        if draft["lead_id"] in by_id and by_id[draft["lead_id"]]["draft"] is None:
+            by_id[draft["lead_id"]]["draft"] = draft["status"]
+    if draft_rows is None:
+        warnings.append("The Drafts tab cannot be read" + (f": {drafts_error}" if drafts_error else "")
+                        + ". No draft is shown.")
+    waiting_for_offer = sum(1 for d in drafts if d["status"] == drafts_tab.WAITING
+                            and OFFER_NOT_APPROVED_SAID in d["why"])
+
     tiers = [{"prefix": prefix, "label": label, **_tier_counts(views, events, prefix)}
              for prefix, label in TIERS]
     tiers.append({"prefix": "", "label": "A and B", **_tier_counts(views, events, None)})
@@ -304,7 +346,13 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id=""):
         "today": today.isoformat(), "today_text": sequence.day_text(today),
         "warnings": warnings, "leads": views, "needs_you": needs_you, "coming_up": coming_up,
         "coming_up_days": COMING_UP_BUSINESS_DAYS, "tiers": tiers, "notes": list(NOTES),
-        "drafts": [dict(draft, lead_id=view["id"]) for view in views for draft in view["drafts"]],
+        "drafts": drafts,
+        "drafts_summary": {"ready": sum(1 for d in drafts if d["status"] == drafts_tab.READY),
+                           "waiting": sum(1 for d in drafts if d["status"] == drafts_tab.WAITING),
+                           "held": sum(1 for d in drafts if d["status"] == drafts_tab.HELD),
+                           "waiting_for_offer": waiting_for_offer},
+        "gmail_drafts": [dict(draft, lead_id=view["id"]) for view in views
+                         for draft in view["gmail_drafts"]],
         "ready": None if entries is None else [v["id"] for v in views if v["ready"]],
         "approvals": chosen,
         "sync": _last_run(runs, "sync"), "tracking_run": _last_run(runs, "tracking"),
@@ -317,6 +365,12 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id=""):
 
 
 def snapshot(store, *, settings, now, handbook_doc_id=""):
-    """Read the Sheet once through `store` and work the console out."""
+    """Read the Sheet once through `store` and work the console out. A Drafts tab that cannot
+    be read is said, and the rest is still shown."""
+    try:
+        draft_rows, drafts_error = [row for _, row in store.drafts()], None
+    except RuntimeError as exc:
+        draft_rows, drafts_error = None, str(exc)
     return build(store.leads(), store.events(), store.suppression(), store.run_rows(),
-                 settings=settings, now=now, handbook_doc_id=handbook_doc_id)
+                 settings=settings, now=now, handbook_doc_id=handbook_doc_id,
+                 draft_rows=draft_rows, drafts_error=drafts_error)

@@ -20,7 +20,8 @@ def built(tmp_path):
 
 
 def store():
-    return MemoryStore(fx.rows(), events=fx.events(), suppression=fx.suppression(), runs=fx.runs())
+    return MemoryStore(fx.rows(), events=fx.events(), suppression=fx.suppression(), runs=fx.runs(),
+                       drafts=fx.draft_rows())
 
 
 def app(static, **changes):
