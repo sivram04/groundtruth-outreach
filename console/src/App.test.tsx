@@ -269,3 +269,16 @@ describe("the dashboard's leads table", () => {
     expect(within(rows[1]!).getByRole("link", { name: "Acme Plumbing" })).toBeTruthy();
   });
 });
+
+describe("when the console has been updated", () => {
+  it("says the page is an older version and offers a reload", async () => {
+    await open("#/", () => Promise.resolve({ ...structuredClone(data), build: "index-NEWER.js" }));
+    expect(screen.getByText("The console has been updated.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reload the page" })).toBeTruthy();
+  });
+
+  it("says nothing when the server's build is the one this page runs, or is not said", async () => {
+    await open("#/", loaded); // the demo data carries no build
+    expect(screen.queryByText("The console has been updated.")).toBeNull();
+  });
+});

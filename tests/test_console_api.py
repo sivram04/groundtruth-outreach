@@ -39,7 +39,8 @@ def signed(**claims):
 def test_the_data_is_the_console_worked_out_from_the_sheet(built):
     response = app(built).get("/api/snapshot", headers=signed())
     assert response.status_code == 200
-    assert response.get_json() == fx.snapshot()
+    # Beside the console itself, the data names the build of the pages the server has.
+    assert response.get_json() == {**fx.snapshot(), "build": ""}
     assert response.headers["Cache-Control"] == "no-store"
 
 
@@ -100,6 +101,26 @@ def test_every_response_carries_the_security_headers(built):
         assert headers["X-Content-Type-Options"] == "nosniff"
         assert headers["X-Frame-Options"] == "DENY"
         assert headers["Referrer-Policy"] == "no-referrer"
+
+
+def test_the_page_is_never_kept_by_a_browser_but_its_files_are(built):
+    """A kept page would go on running an older console after a deploy."""
+    client = app(built)
+    page = client.get("/", headers=signed())
+    assert page.headers["Cache-Control"] == "no-store"
+    assert "ETag" not in page.headers and "Last-Modified" not in page.headers
+    asset = client.get("/assets/app-abc123.js", headers=signed())
+    assert asset.headers["Cache-Control"] == "private, max-age=31536000, immutable"
+
+
+def test_the_data_names_the_build_the_server_has(built):
+    """The pages compare it with their own script's name and say when they are older."""
+    (built / "index.html").write_text(
+        '<!doctype html><script type="module" crossorigin src="/assets/index-NEW123.js"></script>',
+        encoding="utf-8")
+    assert app(built).get("/api/snapshot", headers=signed()).get_json()["build"] == "index-NEW123.js"
+    (built / "index.html").write_text("<!doctype html><div id=root></div>", encoding="utf-8")
+    assert app(built).get("/api/snapshot", headers=signed()).get_json()["build"] == ""
 
 
 def test_the_console_only_reads(built):

@@ -83,3 +83,13 @@ export async function askAssistant(question: string, fetcher: typeof fetch = fet
   }
   return body as Answer;
 }
+
+/** The name of the script this page is running, e.g. "index-a1b2c3.js". The server says which
+ *  it has; when the two differ, the page in front of the founder is out of date. */
+export function runningBuild(): string {
+  try {
+    return new URL(import.meta.url).pathname.split("/").pop() ?? "";
+  } catch {
+    return "";
+  }
+}

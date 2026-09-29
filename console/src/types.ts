@@ -149,4 +149,6 @@ export interface Snapshot {
   suppression_count: number | null;
   links: { sheet: string; handbook: string; gmail_account: string };
   signed_in_as: string;
+  /** The name of the script the server's own pages use; see api.ts runningBuild. */
+  build?: string;
 }

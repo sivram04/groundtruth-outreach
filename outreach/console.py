@@ -16,6 +16,7 @@ included; without a valid token nothing is read or served.
 
 import logging
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,6 +40,8 @@ SECURITY_HEADERS = {
 # itself and the data are never kept.
 ASSET_CACHE = "private, max-age=31536000, immutable"
 NO_STORE = "no-store"
+# The built page names its own script, e.g. <script src="/assets/index-a1b2c3.js">.
+BUILT_SCRIPT = re.compile(r'src="/assets/(index-[^"]+.js)"')
 _UNSET = object()
 log = logging.getLogger("outreach.console")
 
@@ -90,6 +93,14 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
     def not_allowed(_):
         return refuse(405, "The console only reads: nothing else can be sent to it.")
 
+    def built():
+        """The name of the pages' own script, which changes with every build."""
+        try:
+            found = BUILT_SCRIPT.search((static / "index.html").read_text(encoding="utf-8"))
+        except OSError:
+            return ""
+        return found.group(1) if found else ""
+
     def console():
         """The console worked out from the Sheet now, or a refusal to show instead."""
         try:
@@ -106,6 +117,7 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             return None, refuse(502, "The Sheet could not be read just now. Nothing was "
                                      "changed; try again in a minute.")
         data["signed_in_as"] = g.email
+        data["build"] = built()
         return data, None
 
     @app.get("/api/snapshot")
@@ -134,7 +146,13 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
     def page():
         if not (static / "index.html").is_file():
             return refuse(503, "The console's pages have not been built.")
-        return send_from_directory(static, "index.html", max_age=0)
+        answer = send_from_directory(static, "index.html", max_age=0)
+        # Never kept, not even for a moment: a browser holding this page would keep running an
+        # older console after a deploy, and the founder would see no change.
+        answer.headers["Cache-Control"] = NO_STORE
+        answer.headers.pop("ETag", None)
+        answer.headers.pop("Last-Modified", None)
+        return answer
 
     @app.get("/assets/<path:name>")
     def asset(name):

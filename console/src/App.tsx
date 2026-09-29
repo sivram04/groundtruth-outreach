@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { LoadError, loadSnapshot, type askAssistant } from "./api";
+import { LoadError, loadSnapshot, runningBuild, type askAssistant } from "./api";
 import { Assistant } from "./assistant";
 import { NAME } from "./brand";
 import { Card, Layout, Warnings } from "./components";
@@ -112,6 +112,9 @@ export function App({ load = loadSnapshot, ask }: { load?: () => Promise<Snapsho
   }, [route, lead]);
 
   const { data, error, loading } = state;
+  // The server says which build of the pages it has. If this page is an older one, the founder
+  // is looking at something the console has replaced, and only a reload will show it.
+  const stale = Boolean(data?.build && runningBuild() && data.build !== runningBuild());
   const companies = useMemo(
     () => new Map((data?.leads ?? []).map((item) => [item.id, item.company || item.id])),
     [data],
@@ -135,6 +138,16 @@ export function App({ load = loadSnapshot, ask }: { load?: () => Promise<Snapsho
     >
       {data ? (
         <>
+          {stale && (
+            <div className="callout blue" role="alert">
+              <div className="callout-text">
+                <strong>The console has been updated.</strong> This page is an older version of it.
+              </div>
+              <button type="button" className="small" onClick={() => window.location.reload()}>
+                Reload the page
+              </button>
+            </div>
+          )}
           {error && (
             <div className="callout amber" role="alert">
               <div className="callout-text">
