@@ -344,6 +344,34 @@ and nothing else.
    because `append_suppression` maps by the *existing* header (`sheet.py:314-317`), the appended
    rows would carry a **blank address**, which `on_list` skips. The run reports OK. Nothing sends
    today, so the blast radius is currently a corrupted tab, not an email.
+
+   **Sharpened 2026-09-29, after an external reviewer put this first in the fix order — it is worse
+   than the paragraph above says, and the reviewer is right.** `Store.suppression()` states its own
+   contract in its docstring (`sheet.py:246`): *"or None when the tab is missing: unknown, never
+   empty."* Four jobs consume it, and **three honour that contract and one breaks it**:
+
+   | Consumer | On an unreadable tab |
+   |---|---|
+   | `drafts.py:99` | raises `DraftsBlocked` — no lead can be called ready |
+   | `followup.py:233` | gates the run and returns, drafting nothing |
+   | `tracking_check.py:66` | raises `CheckBlocked` |
+   | **`sync.py:363-364`** | **`entries or []` — proceeds as though nobody is suppressed** |
+
+   The consequence is not only a corrupted tab. `summaries` (`sync.py:326`) computes each lead's
+   state with `suppressed=lead_suppressed(entries, …)`, and `sync.run:380` **writes those columns to
+   the real Sheet**. So on an unreadable tab the job now running every ten minutes rewrites lead
+   state as if no address were suppressed — and that written state is what the founder reads before
+   sending by hand. **Of every gap in this review, it is the only one that both runs unattended and
+   reaches a real recipient**, because the founder is the sending mechanism. The others change what
+   the founder reads and can correct; this one changes the record they trust.
+
+   **A second, latent inconsistency in the same place.** `SUPPRESSION_HEADER` and
+   `Store.suppression()` require the exact column `Address or domain` (`sheet.py:45,248`), while
+   `job_draft.py:47`'s own reader accepts `Address or domain`, `Address` **or** `Domain`. A tab
+   headed `Address` is therefore unreadable to three jobs and readable to the fourth — and
+   `on_list` (`sync.py:255`) looks up only the key `"Address or domain"`, so those rows would parse
+   and then suppress nobody, silently. Fixing the fail-open without settling on one column name
+   would leave that path intact.
 2. **A follow-up can still be drafted to someone who has replied**, if the reply arrives in a
    *different* thread, or between the thread check (`followup.py:284`) and the draft call (`:321`),
    or via a concurrent sync after the run's snapshot (`:230`). The in-thread case is blocked and
@@ -522,19 +550,34 @@ items 1 and 2, it is measured against a written set of cases — not against the
 the Sheet, which an external reviewer rightly points out is a sample too small and too uniform to
 establish a validator's reliability either way.
 
-1. **The negation hole** (§3.1). A sentence that reverses its quote is accepted. Fix: treat negation
+**The order changed on 2026-09-29**, after an external review of this document argued the active
+job should be fixed before the validators. I agree, for a reason worth stating: item 1 below is the
+only gap that both runs unattended and can reach a real recipient, because the founder is the
+sending mechanism. Items 2 and 3 change what the founder reads and can correct at the keyboard.
+Items 1 and 5 are now one piece of work, because fixing the fail-open without settling the column
+name leaves a path that parses rows and suppresses nobody (§5, finding 1).
+
+1. **The sync's `entries or []`, with the column names** (§5, finding 1). Make `sync.run` fail
+   closed as its three sibling jobs already do, settle on one suppression column name across all
+   four readers, and have the run row say *why* it stopped rather than reporting OK.
+2. **The negation hole** (§3.1). A sentence that reverses its quote is accepted. Fix: treat negation
    and hedging words as content rather than stopwords, and extend `_polarity_reversed` to the
-   sentence side. 0 of 25 current drafts are affected.
-2. **The assistant's number check** (§4.2). Either bind each figure to the field it came from, or
-   say plainly on screen that the assistant's prose is not verified. The claim made to the founder
-   yesterday should be corrected in writing — it is corrected here.
-3. **The sync's `entries or []`** (§5, finding 2). Make it fail closed like the other two jobs.
-4. **No quote freshness** (§3.3). The site is already re-fetched at draft time; re-checking the
-   quote there is nearly free.
-5. **Suppression header names disagree** across three readers (`job_draft.py:47` vs `sheet.py:247`
-   vs `sync.py:255`).
+   sentence side. 0 of 25 current drafts are affected — see §3.1 for why that is not a pass rate.
+3. **The assistant's number check** (§4.2). Either compute each figure from the named field before
+   presenting it, or say plainly on screen that the assistant's prose is not verified. The claim
+   made to the founder on 2026-09-28 should be corrected in writing — it is corrected here.
+4. **No quote freshness** (§3.3). **Confirmed precisely 2026-09-29:** the company's pages *are*
+   re-fetched at draft time, and `job_draft.site_text`'s own docstring limits them — *"used only to
+   confirm how it writes its name. Never quoted."* The selected quote is never re-checked against
+   them. `AS_BUILT.md:909` records quotes being *"independently re-fetched from the pages they cite
+   and found there"*, which was a **one-off manual check of 10 quotes during profiling**, not a step
+   any job runs; read as a standing guarantee it would be wrong, and it is not one.
+5. **Suppression header names disagree** across three readers (`job_draft.py:47` vs `sheet.py:248`
+   vs `sync.py:255`) — **folded into item 1**, not a separate task.
 6. **The approval path is not wired**: `Approval hash` and `Written` are stored in the Drafts tab
-   and read by nothing. `job_draft.create` still takes them as parameters.
+   and read by nothing. `job_draft.create` still takes them as parameters. Editing the recipient,
+   the body or the handbook must invalidate the stored approval; the hash already covers all three
+   (§4), so this is wiring, not new cryptography.
 7. **The assistant's rate limit is per-process** and resets on every gunicorn recycle (500 requests)
    and per instance (2), so the 60-an-hour ceiling is not real.
 8. **`POST /api/ask` has no CSRF protection.** It only reads, so the exposure is model spend.
