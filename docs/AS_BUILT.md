@@ -24,7 +24,7 @@ moved on (the handbook was already in Drive and all 26 eligible leads were profi
 | 4 Sync and follow-ups | **Sync deployed and scheduled every 10 minutes** 2026-09-28; no follow-up drafted | 396 tests pass offline in the container with no network; 69 deliberate breaks of the new code, all caught. Revision `outreach-worker-00017-nin` serves 100%; Cloud Scheduler `outreach-sync` (`*/10`, America/New_York) is ENABLED, and its first run returned 200 in 2.4 s. The first real sync (run locally) recorded the 14 hand-sent emails in a new Events tab and 14 A rows. See "Stage 4" below. Its pass test (the founder sends real drafts; SENT, REPLIED and a bounce land correctly) has not been run. |
 | 5 Tracking | **Built and deployed 2026-09-28; off for new drafts; t.lakshyaa.ai live over HTTPS (DNS added by the founder, certificate issued 23:55 UTC); pass test: both test emails in the Inbox (personal Gmail and a Google Workspace inbox), one genuine open and one click recorded on the personal one; tracking not yet switched on for drafts** | 460 tests pass offline in the container; 49 deliberate breaks, 48 caught, 1 equivalent. Public tracker `outreach-tracker` smoke-tested live (forged links counted nothing, an off-site click was refused, genuine hits queued with no IP address); the worker picks up hits every 5 minutes (`outreach-tracking`); the Dashboard tab computes 14 emailed, 1 match to check. Its pass test (a test email to the founder's other inbox shows an open and a click) waits for the DNS record and certificate. See "Stage 5" below. |
 | 6 Calls | Not started | |
-| Console (web app) | **Step 1 deployed 2026-09-29: private, read-only, behind Google's sign-in gate.** Steps 2-4 (drafts in the app, edit and Approve-sends, sources and uploads) not built | 515 Python and 26 React tests pass; 42 of 42 deliberate breaks caught. Live: a stranger is sent to Google sign-in, a request marked as the app's own gets 401, forged headers get nowhere, only IAP's agent may call the service. **Not yet seen by the founder**, so the real leads on its pages are unverified. See "Console" below. |
+| Console (web app) | **Step 2 deployed 2026-09-29: drafts in the app, redesigned; still read-only, behind Google's sign-in gate.** 25 first emails written into a new Drafts tab (21 waiting only for the offer approval, 4 held). Steps 3-4 (approve the offer, edit and Approve-sends; sources and uploads) not built | 548 Python and 33 React tests pass; step 2's 46 deliberate breaks, 43 caught, 3 equivalent (step 1's 42 all caught). Live: revision `outreach-console-00002-kjx`; strangers go to Google sign-in; the founder opened step 1 (data loaded in 1.6 s) and asked for this redesign; **the redesigned pages over the real drafts are not yet seen by the founder**. See "Console" below. |
 
 ## What runs where
 
@@ -1271,7 +1271,62 @@ version (builds, deploys, serves at once: it only reads), `sh deploy/setup_conso
 after-deploy` once after the first deploy (done). Update the settings secret after changing the
 local settings file (command above, "GCP").
 
+### Step 2: the drafts, and the redesign (2026-09-29)
+
+**Why.** The founder opened step 1 and said the dashboard did not look good, and that hovering a
+draft should show the drafted email; there was no draft to show, because first emails wait for
+the offer wording's approval. Asked, they chose the sidebar-and-cards look and said "yes, write
+them" to writing the ready leads' emails into a new Drafts tab.
+
+**The Drafts tab** (`outreach/drafts.py`, `sheet.DRAFTS_HEADER`): one row per ready lead's first
+email: Lead ID, Email ("First email"), To, Company, Subject, Body, Opening quote, Quote page,
+Status, Why (one reason a line: a reason can itself contain "; "), Approval hash, Handbook hash,
+Written (the writer's approved sentences, which step 3's sending will check against), Prepared
+at. Status is READY (every check passes; carries the approval hash), WAITING (the words pass,
+but the offer is unapproved or a company name must be checked by eye; no approval hash) or HELD
+(cannot be written as it stands; no words). "Ready" is the drafting step's own lead checks plus
+never emailed; the console and the run share that one rule. While the offer is unapproved the
+pipeline withholds the words, so when only that approval (or a name to check) stands in the way
+the same approved sentences are assembled a second time to be read: no model call, and that
+pass's hash is discarded, so no WAITING row can ever be sent. Written as plain text, so a body
+beginning with "=" is never a formula; a row is rewritten only in place and only while it still
+holds the same lead; a Drafts tab whose columns were changed is neither read nor written. The
+run never sends and never makes a Gmail draft. Run it with
+`HANDBOOK_DOC_ID=… python -m outreach.drafts --dry-run`, then without `--dry-run` (it skips leads
+that already have a row; `--refresh` writes them again in place; at most 100 a run, default 30).
+
+**Live, 2026-09-29, on the founder's yes:** the dry run named 25 ready leads (the 25 profiled
+READY); the run wrote all 25: **21 WAITING** with only the offer approval standing in the way,
+**4 HELD** by the pipeline's own checks (A-0017, A-0022 and A-0025: the opening could describe
+any contractor; A-0219: a company sentence not supported by its quote). Every row read back in
+shape (greeting, opt-out line last, opening quote, no approval hash; held rows carry no words);
+a Runs row records it. At most 25 Gemini calls.
+
+**The pages** (version 2 of the data): a navy sidebar with icons and the drafts count; the
+dashboard's notice of drafts waiting for the offer approval; five stat cards; what needs you with
+company badges and coloured chips; a pipeline from leads to replies (leads, email OK, qualified,
+profiled, draft written, emailed, replied: counts, not conversion rates); follow-ups coming up;
+the numbers by tier. **Drafts** lists the emails, shows the one pointed at beside the list (hover
+or keyboard focus), and opens one over the page on a click (Escape, the close button or the
+shade close it); each shows from, to, subject, the words, what it waits for or why it is held,
+and the quote it opens with, linked only to an http(s) page. Edit and Approve are shown, turned
+off, "come in the next step". Ready leads not written yet are listed. A lead's own page shows its
+draft. Inter and the icons are bundled into the app's own files. The offer reason is said to the
+founder as "You have not approved the offer wording yet".
+
+**Proof.** Python 548, React 33. 46 deliberate breaks of the drafts run, the Sheet methods, the
+data and the pages: 43 caught; 3 survive and are equivalent (they alter guards that cannot change
+a row given how the pipeline works). Seen in the browser pane from the demo build at 1180 wide
+and phone width (no sideways scrolling; the menu keeps icons only under 480 px), hover and open
+and Escape tried. Deployed as `outreach-console-00002-kjx`; strangers still go to Google sign-in;
+no errors. **Not yet seen by the founder with the real drafts.**
+
 ## Change log
+
+- **2026-09-29** Console step 2: 25 first emails written into a new Drafts tab on the founder's
+  yes (21 waiting only for the offer approval, 4 held by the pipeline's checks), and the console
+  redesigned around them (sidebar and cards; Drafts shows the email pointed at and opens it on a
+  click). Deployed as `outreach-console-00002-kjx`. The founder had opened step 1 (data in 1.6 s).
 
 - **2026-09-29** Console step 1 built and deployed (see "Console"): a private, read-only React app
   over the Sheet behind Google's sign-in gate, for admin@lakshyaa.ai only. New in Google Cloud:
