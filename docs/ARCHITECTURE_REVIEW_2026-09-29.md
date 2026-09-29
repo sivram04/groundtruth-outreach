@@ -187,6 +187,26 @@ not a pass rate: 25 is too small a sample, and too uniform, to measure either th
 model's tendency to negate. Treat the count as "no known escape", never as evidence the check works.
 Measuring it needs a written set of adversarial sentences (§8.1).
 
+**FIXED and measured, 2026-09-29 — `docs/testing/grounding-eval/RESULTS.md` has the full record.**
+A 35-case adversarial set (22 tuning, 13 held-out, written before any code change) put the exact
+gap above, and five more named by the founder — reversed subjects, wrong quantities or dates,
+exaggerated scope, removed qualifications, unsupported combinations — to the unmodified code
+first: 15/22 tuning, 7/13 held-out, **zero false rejects on either**. Four new checks were added
+(an added negation, an absolute scope word, a dropped qualifier, an ungrounded digit run — `_words`
+never matched a digit before this) plus one narrow subject check, applied to the company sentence,
+every product and ask sentence, and the subject line alike. Checked against the founder's real
+handbook read-only, a first version **flagged 21 of 21 real drafts** — two real bugs, not one:
+localisation was a no-op on the real handbook (it has no blank lines) and, once fixed, the
+company's own name ("All Phase Power & Lighting") collided with a trigger word before its name was
+stripped, exactly the protection `names_specific_work` already had and these checks had not been
+given. After both fixes: **22/22 tuning, 10/13 held-out, 0 of 21 real drafts newly rejected, zero
+false rejects throughout.** The three held-out misses are exactly the three the case comments
+predicted in advance as out of scope for a word-presence check (a reversal kept under the
+company's own name; a fabricated claim built from words that genuinely co-occur in one source) and
+were not patched after being seen, to keep the held-out measurement honest. 19 deliberate breaks,
+all caught. **Not deployed**: `outreach/writer.py` runs inside both `outreach-worker` and
+`outreach-console`, neither rebuilt with this.
+
 ### 3.2 Prompt injection
 
 **Partially defended, on the output side only.** Fetched page text is placed into the research and
@@ -625,9 +645,11 @@ name leaves a path that parses rows and suppresses nobody (§5, finding 1).
    revision and bundled code confirmed live afterward. See §4.1's finding and `AS_BUILT.md` for the
    evidence; an authenticated dashboard load is the one thing not verified, because that needs a
    real sign-in as an allow-listed account.
-2. **The negation hole** (§3.1). A sentence that reverses its quote is accepted. Fix: treat negation
-   and hedging words as content rather than stopwords, and extend `_polarity_reversed` to the
-   sentence side. 0 of 25 current drafts are affected — see §3.1 for why that is not a pass rate.
+2. ~~**The negation hole**~~ (§3.1). **DONE 2026-09-29, not deployed.** Not the one-line fix first
+   proposed ("treat negation as content") — that alone would have missed reversed scope, dropped
+   qualifiers and wrong numbers, and checking it against the real handbook found two further bugs
+   a purely synthetic test never would have. See §3.1 and `docs/testing/grounding-eval/RESULTS.md`
+   for the adversarial set, the before/after counts, and what still is not caught.
 3. **The assistant's number check** (§4.2). Either compute each figure from the named field before
    presenting it, or say plainly on screen that the assistant's prose is not verified. The claim
    made to the founder on 2026-09-28 should be corrected in writing — it is corrected here.

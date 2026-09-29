@@ -11,6 +11,36 @@ against its cited quote and handbook before approving its hash.
 Website text reaches this module only as previously verified quotes. It is untrusted data,
 never instruction: the prompt says so, and the output checks reject any address, link or
 phone number that is not the founder's own.
+
+Beyond plain word presence, four narrower checks catch specific ways a sentence can use only
+grounded words and still say something its source did not (`_reversed_or_unqualified`,
+`wrong_actor_subject`, `numbers_ungrounded`; see each for exactly what it compares):
+
+  - a negation the source does not carry ("does not install" against a purely positive quote)
+  - an absolute scope word ("every", "nationwide") the source does not use
+  - a qualifier the source states ("select", "currently", "on a pilot basis") that the
+    sentence quietly drops, generalising a limited claim into a standing one
+  - a digit run - a count, a year - that does not appear, digit for digit, anywhere in the
+    source; `_words` never sees a number, so this was previously unchecked entirely
+  - one narrow class of reversed subject: an explicit alternative actor (the reader, "we", a
+    named substitute) LEADING the sentence once the company's own name is removed
+
+None of this proves the claim true, and each is a bounded, documented gap, not a hidden one:
+
+  - a reversal that keeps the company's own name as the grammatical subject while quietly
+    changing who performs the verb ("relies on subcontractors to install") is not caught
+  - a fabricated claim built entirely from words that already sit together in the ONE
+    paragraph a sentence is checked against is not caught; paragraph localisation (below)
+    narrows this from "anywhere in the handbook" to "the one matching paragraph", nothing more
+  - a subtle scope widening using no absolute word ("across the region" against a source
+    naming one city) is not caught
+  - a legitimate paraphrase that happens to introduce a NEW negation word for a fact the
+    source states only affirmatively (rather than restating an existing negation) would be
+    flagged; the module has not needed to write one to see this, because the model is asked
+    for affirmative observations, but it is a real, bounded cost of the rule, not a null one
+
+`docs/testing/grounding-eval/RESULTS.md` measures all of this against a written adversarial
+set, before and after, including the cases these checks are known not to solve.
 """
 
 import re
@@ -134,6 +164,18 @@ GENERIC_TRADE_WORDS = {
 }
 
 
+def _without_company_name(text, company):
+    """`text` with the company's own name removed, wherever it sits in the sentence.
+
+    Only the whole name, never its separate words: stripping "Power" from "All Phase Power &
+    Lighting" would also delete "power distribution systems". Shared by `names_specific_work`
+    and the wrong-actor check below, so both see the sentence the same way."""
+    if not company:
+        return text
+    return re.sub(r"\s+".join(re.escape(w) for w in company.split()) + r"(?:'s)?",
+                  " ", text, flags=re.I)
+
+
 def names_specific_work(text, company=""):
     """True when an opening says something only this company's site could say.
 
@@ -141,24 +183,163 @@ def names_specific_work(text, company=""):
     about coordination and completion count as naming electrical work — and what remains must
     contain at least one content word that is not part of every contractor's vocabulary.
     """
-    if company:
-        # Only the whole name, never its separate words: stripping "Power" from
-        # "All Phase Power & Lighting" would also delete "power distribution systems".
-        text = re.sub(r"\s+".join(re.escape(w) for w in company.split()) + r"(?:'s)?",
-                      " ", text, flags=re.I)
+    text = _without_company_name(text, company)
     distinctive = {word for word in _words(text) if word not in GENERIC_TRADE_WORDS}
     # Two, not one: a single unusual word ("engages", "pre-construction") is a turn of phrase,
     # not a fact about the work.
     return len(distinctive) >= 2
 
 
+def wrong_actor_subject(text, company=""):
+    """True when a company sentence's own grammatical subject, once the company's name is
+    removed, is someone other than the company: the reader, the founder's own voice, or a named
+    substitute.
+
+    What this establishes: the sentence LEADS with an explicit alternative actor. It does not
+    parse grammar - a subject named mid-sentence, or a reversal kept grammatically under the
+    company's own name ("Example Electric relies on subcontractors to install..."), passes this
+    unnoticed; that gap is named in the module docstring and in `docs/testing/grounding-eval`,
+    not hidden."""
+    return bool(WRONG_ACTOR.match(_without_company_name(text, company).strip()))
+
+
+def numbers_ungrounded(text, sources, company=""):
+    """Digit runs in `text` with no matching digit run anywhere in `sources`.
+
+    Ordinary word grounding never sees a number: `_words`' pattern starts with a letter, so a
+    wrong count or a transposed year passed through unremarked until this was added. A number's
+    spelled-out form ("twenty minute") is untouched by this and remains covered, as before, by
+    plain word grounding. The company's own name is removed first - a company named "Route 66
+    Contracting" or "24/7 Electric" must not have its own name read as an unsupported figure."""
+    text = _without_company_name(text, company)
+    have = set()
+    for source in sources:
+        have |= set(NUMBER.findall(source))
+    return [n for n in NUMBER.findall(text) if n not in have]
+
+
 NEGATION = re.compile(r"\b(?:no|not|never|without|cannot|can't|won't|doesn't|don't)\b", re.I)
 STATE = re.compile(r"\b(?:available|ready|finished|complete|completed|launched|live)\b", re.I)
 QUALIFIER = re.compile(r"\b(?:still being|not yet|in progress|under development)\b", re.I)
+# A second, broader family of qualifiers: not the product's own state (STATE/QUALIFIER above,
+# which "reversed" already screens), but a scope or standing limit on a claim of any kind -
+# "on a pilot basis", "select clients" - whose quiet removal turns a limited, provisional fact
+# into a general, standing one. Checked in the OPPOSITE direction from NEGATION and
+# SCOPE_EXPANSION below: it is a problem when the SOURCE has one of these and the candidate does
+# not, not when the candidate adds one the source lacks.
+#
+# Deliberately MULTI-WORD, or otherwise distinctive, and deliberately missing several words a
+# first pass at this list used: "specific", "certain", "particular", "limited", "some",
+# "currently" and bare "select"/"selected"/"pilot" alone. Checked against the founder's own real
+# handbook (read-only, not committed), that draft flagged 21 of 21 real drafts, every one for
+# "dropping" a qualifier they never made a scoped claim about - "sender-specific" (a compound
+# word, not a scope qualifier) was the one hit, but the deeper problem was `some`, `certain` and
+# `select` matching any ordinary use of an everyday word. A common single word is not a safe
+# trigger in real prose; each phrase kept here is one that, in practice, essentially only means
+# "this is limited or provisional".
+QUALIFIER_DROP = re.compile(
+    r"\bon a pilot basis\b|\bin select\b|\bselect (?:commercial )?(?:clients?|customers?|"
+    r"markets?)\b|\ba subset of\b|\bearly[- ]access\b|\bplanned for later\b|"
+    r"\bnot yet (?:available|supported|named as supported)\b|\bfor now\b|\bat this time\b|"
+    r"\bcurrently only\b", re.I)
+# An absolute or universal word claiming a scope the source never states. Broad on purpose - it
+# is meant to catch a blunt widening ("every state", "nationwide"), not a subtle one ("across the
+# region" when the source names one city, which this cannot tell from a true regional claim).
+# "all" and "any" are common enough as ordinary words (and as the first word of a company's own
+# name - "All Phase Power & Lighting" tripped this before the company's name was stripped first,
+# below) that they are kept narrow: only as a claim over WHERE or WHO, not as a bare adjective.
+_SCOPE_NOUN = (r"states?|cit(?:y|ies)|towns?|count(?:y|ies)|regions?|customers?|clients?|"
+              r"buildings?|projects?|industr(?:y|ies)|contractors?|owners?|businesses?|"
+              r"compan(?:y|ies)|markets?")
+# "every"/"all"/"any" allow ONE word between themselves and the noun ("any commercial building"),
+# never more, so a paragraph that happens to use "all" or "any" for something unrelated several
+# words earlier cannot chain into a noun that belongs to a different clause.
+SCOPE_EXPANSION = re.compile(
+    rf"\b(?:every|all|any) (?:\w+ )?(?:{_SCOPE_NOUN})\b|"
+    r"\banywhere\b|\beverywhere\b|\bnationwide\b|\bnation-wide\b|\bnationally\b|\bglobally\b|"
+    r"\bworldwide\b|\b24/7\b|\baround the clock\b|\bunlimited\b|\balways\b|\bwithout exception\b",
+    re.I)
+# A digit run. `_words` never matches one (its pattern starts with a letter), so a wrong count or
+# a transposed year passed unnoticed by ordinary grounding until this was added.
+NUMBER = re.compile(r"\b\d[\d,]*(?:\.\d+)?\b")
+# A sentence that opens with one of these, once the company's own name has been removed from the
+# front, is talking about who does the work in a voice that is not the lead company's - the
+# reader ("you"/"your"), the founder's own voice ("we"), or a generic substitute. It catches only
+# an explicit alternative actor named as the sentence's own subject; a reversal kept under the
+# company's own name (delegating the verb to a subcontractor it "relies on") is not caught by
+# this, or by anything else here - see the module docstring's own limits.
+WRONG_ACTOR = re.compile(
+    r"^(?:you|your|we|us|our|customers?|clients?|homeowners?|other contractors?|"
+    r"other subcontractors?)\b", re.I)
 
 
 def _normalized(text):
     return " ".join(re.findall(r"[a-z0-9]+", text.casefold()))
+
+
+def _clauses(source):
+    """Sentence- or line-sized pieces of a long source - the same split `_polarity_reversed`'s
+    own STATE-clause logic above already trusts. A source with no sentence punctuation and no
+    line break (a single quote) is one clause: itself.
+
+    A first version of this split on blank lines, meant for paragraphs. The founder's real
+    handbook, read once (read-only) to check this against production data rather than only the
+    synthetic fixture, turned out to be exported from Drive as ONE blank-line-free block: that
+    split never fired, so every check below silently ran against the whole document instead of a
+    local window, and flagged 21 of 21 real drafts. Splitting on sentence punctuation and line
+    breaks instead gives over a hundred pieces of that same document - but a line break in the
+    MIDDLE of a sentence (a document or a fixture wrapped at a fixed width, as this repo's own
+    `examples/synthetic_handbook.txt` is) is not a real boundary, and cutting one there can
+    separate two halves of the one phrase a check is looking for; a bare mid-sentence line break
+    is joined back into its line first, and only a blank line or the end of a sentence still
+    splits."""
+    joined = re.sub(r"(?<![.!?\n])\n(?!\n)", " ", source)
+    return [c for c in re.split(r"[.!?]\s+|\n", joined) if c.strip()]
+
+
+def _localized_source(text, source):
+    """The clauses of a long source sharing the MOST content words with `text`, joined back into
+    one string - the whole source when it is one clause already (a single quote), or when
+    nothing in it overlaps at all.
+
+    Every clause tied for the top score is kept, not only a single winner, so a qualifier split
+    across two adjacent clauses of equal relevance is not lost to an arbitrary tie-break. Only
+    the top score, not every nonzero one: a first version kept any clause sharing even one word,
+    which let a single common word ("use") pull in a wholly unrelated clause and, with it, an
+    unrelated negation that then wrongly excused a real one - found by checking this against a
+    real handbook (read-only), not invented. This narrows only the checks below (an added
+    negation, a dropped qualifier, an expanded scope), never the plain word-grounding
+    `ungrounded` runs against the whole source: an unrelated clause elsewhere in a long handbook
+    must not excuse, or wrongly implicate, a sentence about a different one."""
+    clauses = _clauses(source)
+    if len(clauses) <= 1:
+        return source
+    wanted = set()
+    for word in _words(text):
+        wanted |= _stem(word)
+    # Stemmed, exactly as `ungrounded` compares words: a plain string match would score
+    # "accounting systems" against "accounting system" as one word shared, not two, and could
+    # rank the clause that actually matches below one that only coincidentally shares a shorter
+    # word.
+    scored = []
+    for clause in clauses:
+        stems = set()
+        for word in _words(clause):
+            stems |= _stem(word)
+        scored.append((len(wanted & stems), clause))
+    best = max((score for score, _ in scored), default=0)
+    if not best:
+        return source
+    return " ".join(clause for score, clause in scored if score == best)
+
+
+def _present_only_in(pattern, present_in, absent_from):
+    """True when `pattern` matches `present_in` but not `absent_from`.
+
+    One shape serves three checks by choice of arguments: a negation or an absolute scope word
+    ADDED by the candidate is `_present_only_in(pattern, text, source)`; a qualifier the source
+    states and the candidate DROPS is the same test with the two arguments swapped."""
+    return bool(pattern.search(present_in)) and not pattern.search(absent_from)
 
 
 def _polarity_reversed(text, source, *, single_quote=False):
@@ -177,6 +358,37 @@ def _polarity_reversed(text, source, *, single_quote=False):
                 if not (NEGATION.search(text) or QUALIFIER.search(text)):
                     return True
     return False
+
+
+def _reversed_or_unqualified(text, source, company=""):
+    """A sentence that adds a claim its (localized) source never made: a negation the source
+    does not carry, an absolute scope word the source does not use, or a qualifier the source
+    states that the sentence quietly drops.
+
+    What this establishes: each of the three is a plain word-presence comparison against the ONE
+    quote (a company sentence) or the clauses of the handbook that share a word with the
+    sentence (a product, ask or subject text) - not the source's meaning. A negation restated
+    from the matching clause, however worded, is credited and never flagged; the check only
+    fires on a negation, an absolute word or a dropped qualifier that clause did not have. The
+    company's own name is removed first: "All Phase Power & Lighting" must not read its own
+    "All" as a scope claim, exactly as `names_specific_work` already protects against the same
+    name supplying false distinctiveness.
+
+    What remains uncertain, on purpose: a reversal that introduces none of these three signals -
+    swapping who performs an action while keeping every word the source already used (a wrong
+    subject with the company's own name left in place, or a fact stitched from a clause that
+    happens to already contain every word the new claim needs) - is not caught here, or anywhere
+    in this module. See `WRONG_ACTOR` for the one narrow class of subject reversal this module
+    does check, and the module docstring for the limit this leaves."""
+    text = _without_company_name(text, company)
+    localized = _localized_source(text, source)
+    if _present_only_in(NEGATION, text, localized):
+        return "adds a negation the source does not state"
+    if _present_only_in(SCOPE_EXPANSION, text, localized):
+        return "claims a broader scope than the source states"
+    if _present_only_in(QUALIFIER_DROP, localized, text):
+        return "drops a qualifier the source states"
+    return None
 
 
 def _words(text):
@@ -258,6 +470,19 @@ def verify(handbook_text, company, facts, sentences, subject):
             if _polarity_reversed(text, fact["quote"], single_quote=True):
                 problems.append("company sentence reverses or omits a quote's qualifier")
                 continue
+            if wrong_actor_subject(text, company):
+                problems.append("company sentence's own subject may not be the company; check "
+                                "who the sentence says performs the work")
+                continue
+            reversal = _reversed_or_unqualified(text, fact["quote"], company)
+            if reversal:
+                problems.append(f"company sentence {reversal}")
+                continue
+            extra_numbers = numbers_ungrounded(text, [fact["quote"]], company)
+            if extra_numbers:
+                problems.append("company sentence states a number its quote does not: "
+                                + ", ".join(extra_numbers[:6]))
+                continue
             if not names_specific_work(text, company):
                 problems.append("the opening names no trade work, building or project, so it "
                                 "could describe any contractor")
@@ -277,6 +502,15 @@ def verify(handbook_text, company, facts, sentences, subject):
             if kind == "PRODUCT" and _polarity_reversed(text, handbook_text):
                 problems.append("product sentence reverses or omits a handbook qualifier")
                 continue
+            reversal = _reversed_or_unqualified(text, handbook_text, company)
+            if reversal:
+                problems.append(f"{kind.lower()} sentence {reversal}")
+                continue
+            extra_numbers = numbers_ungrounded(text, [handbook_text], company)
+            if extra_numbers:
+                problems.append(f"{kind.lower()} sentence states a number the handbook does not: "
+                                + ", ".join(extra_numbers[:6]))
+                continue
             missing = ungrounded(text, [handbook_text, company])
             if missing:
                 problems.append(f"{kind.lower()} sentence adds words the handbook does not use: "
@@ -291,6 +525,11 @@ def verify(handbook_text, company, facts, sentences, subject):
         problems.append("the subject line carries a banned claim or a contact detail")
     elif _polarity_reversed(subject, handbook_text):
         problems.append("the subject line reverses or omits a handbook qualifier")
+    elif _reversed_or_unqualified(subject, handbook_text, company):
+        problems.append(f"the subject line "
+                        f"{_reversed_or_unqualified(subject, handbook_text, company)}")
+    elif numbers_ungrounded(subject, [handbook_text] + [f["quote"] for f in facts], company):
+        problems.append("the subject line states a number nothing here supports")
     elif ungrounded(subject, [handbook_text, company, " ".join(f["quote"] for f in facts)]):
         problems.append("the subject line is not grounded in the handbook or a verified quote")
     if problems:

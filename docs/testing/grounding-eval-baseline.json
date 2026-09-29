@@ -1,0 +1,376 @@
+{
+  "tuning_summary": {
+    "label": "TUNING_CASES",
+    "total": 22,
+    "correct": 15,
+    "false_accept": [
+      "negation-company-does-not",
+      "negation-product-explains-nothing",
+      "reversed-subject-we-for-them",
+      "wrong-number-count",
+      "wrong-date-year",
+      "removed-qualifier-pilot",
+      "removed-qualifier-integration"
+    ],
+    "false_reject": [],
+    "wrong_reason": []
+  },
+  "held_out_summary": {
+    "label": "HELD_OUT_CASES",
+    "total": 13,
+    "correct": 7,
+    "false_accept": [
+      "held-negation-doesnt-handbook",
+      "held-reversed-subject-delegation-kept-under-name",
+      "held-wrong-number-transposed",
+      "held-wrong-date-handbook",
+      "held-combination-cross-paragraph",
+      "held-combination-same-paragraph"
+    ],
+    "false_reject": [],
+    "wrong_reason": []
+  },
+  "rows": {
+    "tuning": [
+      {
+        "id": "baseline-company-verbatim",
+        "category": "baseline",
+        "kind": "COMPANY",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "baseline-company-paraphrase",
+        "category": "baseline",
+        "kind": "COMPANY",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "baseline-product-state",
+        "category": "baseline",
+        "kind": "PRODUCT",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "baseline-subject",
+        "category": "baseline",
+        "kind": "SUBJECT",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "baseline-negative-quote-verbatim",
+        "category": "baseline",
+        "kind": "COMPANY",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "negation-company-does-not",
+        "category": "negation",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "accept",
+        "correct": false,
+        "problems": []
+      },
+      {
+        "id": "negation-company-never",
+        "category": "negation",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence is not supported by its quote: never"
+        ]
+      },
+      {
+        "id": "negation-company-cannot",
+        "category": "negation",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence is not supported by its quote: cannot"
+        ]
+      },
+      {
+        "id": "negation-company-fabricated-exclusion",
+        "category": "negation",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence is not supported by its quote: ones, residential"
+        ]
+      },
+      {
+        "id": "negation-product-explains-nothing",
+        "category": "negation",
+        "kind": "PRODUCT",
+        "expect": "reject",
+        "verdict": "accept",
+        "correct": false,
+        "problems": []
+      },
+      {
+        "id": "reversed-subject-easy-customers",
+        "category": "reversed_subject",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence is not supported by its quote: customers, process, supports"
+        ]
+      },
+      {
+        "id": "reversed-subject-we-for-them",
+        "category": "reversed_subject",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "accept",
+        "correct": false,
+        "problems": []
+      },
+      {
+        "id": "wrong-number-count",
+        "category": "wrong_number",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "accept",
+        "correct": false,
+        "problems": []
+      },
+      {
+        "id": "wrong-date-year",
+        "category": "wrong_date",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "accept",
+        "correct": false,
+        "problems": []
+      },
+      {
+        "id": "wrong-number-added",
+        "category": "wrong_number",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence is not supported by its quote: states"
+        ]
+      },
+      {
+        "id": "correct-numbers-verbatim",
+        "category": "baseline",
+        "kind": "COMPANY",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "exaggerated-scope-every-state",
+        "category": "exaggerated_scope",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence is not supported by its quote: every, state"
+        ]
+      },
+      {
+        "id": "exaggerated-scope-nationwide-any",
+        "category": "exaggerated_scope",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence is not supported by its quote: nationwide"
+        ]
+      },
+      {
+        "id": "correct-scope-kept",
+        "category": "baseline",
+        "kind": "COMPANY",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "removed-qualifier-pilot",
+        "category": "removed_qualifier",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "accept",
+        "correct": false,
+        "problems": []
+      },
+      {
+        "id": "correct-qualifier-kept",
+        "category": "baseline",
+        "kind": "COMPANY",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "removed-qualifier-integration",
+        "category": "removed_qualifier",
+        "kind": "PRODUCT",
+        "expect": "reject",
+        "verdict": "accept",
+        "correct": false,
+        "problems": []
+      }
+    ],
+    "held_out": [
+      {
+        "id": "held-baseline-company-slash",
+        "category": "baseline",
+        "kind": "COMPANY",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "held-baseline-product-ask",
+        "category": "baseline",
+        "kind": "ASK",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "held-baseline-negative-restated",
+        "category": "baseline",
+        "kind": "PRODUCT",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "held-negation-wont",
+        "category": "negation",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence is not supported by its quote: contract, signed"
+        ]
+      },
+      {
+        "id": "held-negation-doesnt-handbook",
+        "category": "negation",
+        "kind": "PRODUCT",
+        "expect": "reject",
+        "verdict": "accept",
+        "correct": false,
+        "problems": []
+      },
+      {
+        "id": "held-reversed-subject-other-contractors",
+        "category": "reversed_subject",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence is not supported by its quote: contractors, project-manages"
+        ]
+      },
+      {
+        "id": "held-reversed-subject-delegation-kept-under-name",
+        "category": "reversed_subject",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "accept",
+        "correct": false,
+        "problems": []
+      },
+      {
+        "id": "held-wrong-number-transposed",
+        "category": "wrong_number",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "accept",
+        "correct": false,
+        "problems": []
+      },
+      {
+        "id": "held-wrong-date-handbook",
+        "category": "wrong_date",
+        "kind": "PRODUCT",
+        "expect": "reject",
+        "verdict": "accept",
+        "correct": false,
+        "problems": []
+      },
+      {
+        "id": "held-exaggerated-scope-product-audience",
+        "category": "exaggerated_scope",
+        "kind": "PRODUCT",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "product sentence adds words the handbook does not use: business, every, owner"
+        ]
+      },
+      {
+        "id": "held-removed-qualifier-still-being-finished",
+        "category": "removed_qualifier",
+        "kind": "PRODUCT",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "product sentence reverses or omits a handbook qualifier"
+        ]
+      },
+      {
+        "id": "held-combination-cross-paragraph",
+        "category": "unsupported_combination",
+        "kind": "PRODUCT",
+        "expect": "reject",
+        "verdict": "accept",
+        "correct": false,
+        "problems": []
+      },
+      {
+        "id": "held-combination-same-paragraph",
+        "category": "unsupported_combination",
+        "kind": "PRODUCT",
+        "expect": "reject",
+        "verdict": "accept",
+        "correct": false,
+        "problems": []
+      }
+    ]
+  }
+}

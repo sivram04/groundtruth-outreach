@@ -1,0 +1,385 @@
+{
+  "tuning_summary": {
+    "label": "TUNING_CASES",
+    "total": 22,
+    "correct": 22,
+    "false_accept": [],
+    "false_reject": [],
+    "wrong_reason": []
+  },
+  "held_out_summary": {
+    "label": "HELD_OUT_CASES",
+    "total": 13,
+    "correct": 10,
+    "false_accept": [
+      "held-reversed-subject-delegation-kept-under-name",
+      "held-combination-cross-paragraph",
+      "held-combination-same-paragraph"
+    ],
+    "false_reject": [],
+    "wrong_reason": []
+  },
+  "rows": {
+    "tuning": [
+      {
+        "id": "baseline-company-verbatim",
+        "category": "baseline",
+        "kind": "COMPANY",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "baseline-company-paraphrase",
+        "category": "baseline",
+        "kind": "COMPANY",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "baseline-product-state",
+        "category": "baseline",
+        "kind": "PRODUCT",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "baseline-subject",
+        "category": "baseline",
+        "kind": "SUBJECT",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "baseline-negative-quote-verbatim",
+        "category": "baseline",
+        "kind": "COMPANY",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "negation-company-does-not",
+        "category": "negation",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence adds a negation the source does not state"
+        ]
+      },
+      {
+        "id": "negation-company-never",
+        "category": "negation",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence adds a negation the source does not state"
+        ]
+      },
+      {
+        "id": "negation-company-cannot",
+        "category": "negation",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence adds a negation the source does not state"
+        ]
+      },
+      {
+        "id": "negation-company-fabricated-exclusion",
+        "category": "negation",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence adds a negation the source does not state"
+        ]
+      },
+      {
+        "id": "negation-product-explains-nothing",
+        "category": "negation",
+        "kind": "PRODUCT",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "product sentence adds a negation the source does not state"
+        ]
+      },
+      {
+        "id": "reversed-subject-easy-customers",
+        "category": "reversed_subject",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence's own subject may not be the company; check who the sentence says performs the work"
+        ]
+      },
+      {
+        "id": "reversed-subject-we-for-them",
+        "category": "reversed_subject",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence's own subject may not be the company; check who the sentence says performs the work"
+        ]
+      },
+      {
+        "id": "wrong-number-count",
+        "category": "wrong_number",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence states a number its quote does not: 500"
+        ]
+      },
+      {
+        "id": "wrong-date-year",
+        "category": "wrong_date",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence states a number its quote does not: 1988"
+        ]
+      },
+      {
+        "id": "wrong-number-added",
+        "category": "wrong_number",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence states a number its quote does not: 12"
+        ]
+      },
+      {
+        "id": "correct-numbers-verbatim",
+        "category": "baseline",
+        "kind": "COMPANY",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "exaggerated-scope-every-state",
+        "category": "exaggerated_scope",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence claims a broader scope than the source states"
+        ]
+      },
+      {
+        "id": "exaggerated-scope-nationwide-any",
+        "category": "exaggerated_scope",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence claims a broader scope than the source states"
+        ]
+      },
+      {
+        "id": "correct-scope-kept",
+        "category": "baseline",
+        "kind": "COMPANY",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "removed-qualifier-pilot",
+        "category": "removed_qualifier",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence drops a qualifier the source states"
+        ]
+      },
+      {
+        "id": "correct-qualifier-kept",
+        "category": "baseline",
+        "kind": "COMPANY",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "removed-qualifier-integration",
+        "category": "removed_qualifier",
+        "kind": "PRODUCT",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "product sentence drops a qualifier the source states"
+        ]
+      }
+    ],
+    "held_out": [
+      {
+        "id": "held-baseline-company-slash",
+        "category": "baseline",
+        "kind": "COMPANY",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "held-baseline-product-ask",
+        "category": "baseline",
+        "kind": "ASK",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "held-baseline-negative-restated",
+        "category": "baseline",
+        "kind": "PRODUCT",
+        "expect": "accept",
+        "verdict": "accept",
+        "correct": true,
+        "problems": []
+      },
+      {
+        "id": "held-negation-wont",
+        "category": "negation",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence adds a negation the source does not state"
+        ]
+      },
+      {
+        "id": "held-negation-doesnt-handbook",
+        "category": "negation",
+        "kind": "PRODUCT",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "product sentence adds a negation the source does not state"
+        ]
+      },
+      {
+        "id": "held-reversed-subject-other-contractors",
+        "category": "reversed_subject",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence's own subject may not be the company; check who the sentence says performs the work"
+        ]
+      },
+      {
+        "id": "held-reversed-subject-delegation-kept-under-name",
+        "category": "reversed_subject",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "accept",
+        "correct": false,
+        "problems": []
+      },
+      {
+        "id": "held-wrong-number-transposed",
+        "category": "wrong_number",
+        "kind": "COMPANY",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "company sentence states a number its quote does not: 220"
+        ]
+      },
+      {
+        "id": "held-wrong-date-handbook",
+        "category": "wrong_date",
+        "kind": "PRODUCT",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "product sentence states a number the handbook does not: 2019"
+        ]
+      },
+      {
+        "id": "held-exaggerated-scope-product-audience",
+        "category": "exaggerated_scope",
+        "kind": "PRODUCT",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "product sentence claims a broader scope than the source states"
+        ]
+      },
+      {
+        "id": "held-removed-qualifier-still-being-finished",
+        "category": "removed_qualifier",
+        "kind": "PRODUCT",
+        "expect": "reject",
+        "verdict": "reject",
+        "correct": true,
+        "problems": [
+          "product sentence reverses or omits a handbook qualifier"
+        ]
+      },
+      {
+        "id": "held-combination-cross-paragraph",
+        "category": "unsupported_combination",
+        "kind": "PRODUCT",
+        "expect": "reject",
+        "verdict": "accept",
+        "correct": false,
+        "problems": []
+      },
+      {
+        "id": "held-combination-same-paragraph",
+        "category": "unsupported_combination",
+        "kind": "PRODUCT",
+        "expect": "reject",
+        "verdict": "accept",
+        "correct": false,
+        "problems": []
+      }
+    ]
+  }
+}

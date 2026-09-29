@@ -1,10 +1,15 @@
 """The Gemini writer, judged by code. Synthetic handbook and leads; no network, no model."""
 
+import sys
 from pathlib import Path
 
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from outreach import drafting, job_draft, writer
+from grounding_eval import HELD_OUT_CASES, TUNING_CASES
+from grounding_eval_runner import judge
 
 HANDBOOK = Path(__file__).resolve().parent.parent / "examples" / "synthetic_handbook.txt"
 TEXT = HANDBOOK.read_text(encoding="utf-8")
@@ -350,3 +355,271 @@ def test_a_generic_opening_blocks_the_draft():
              "quote_id": "q1"}] + sentences()[1:]
     draft, problems = writer.verify(TEXT, "Example Electric", facts, rows, "A conversation")
     assert draft is None and any("could describe any contractor" in p for p in problems)
+
+
+# --- the wider grounding checks, item 2: negation, scope, numbers, subject and qualifiers -----
+# The cases these pin are also in grounding_eval.py, written and run against the unmodified
+# code before this work, and against the founder's real handbook (read-only, not committed) to
+# find the two real bugs the comments below name. docs/testing has the full before-and-after
+# count.
+
+def test_a_positive_quote_turned_negative_is_refused():
+    """The audit's own flagship case: a purely positive quote, denied by the candidate."""
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL,
+              "quote": "We install electrical distribution systems for commercial buildings."}]
+    draft, problems = writer.verify(
+        TEXT, "Example Electric", facts,
+        [{"text": "Example Electric does not install electrical distribution systems for "
+                  "commercial buildings.", "kind": "COMPANY", "quote_id": "q1"}] + sentences()[1:],
+        "A conversation next week")
+    assert draft is None and any("adds a negation" in p for p in problems)
+
+
+def test_a_fabricated_exclusion_the_quote_never_states_is_refused():
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL,
+              "quote": "We install electrical distribution systems for commercial buildings."}]
+    draft, problems = writer.verify(
+        TEXT, "Example Electric", facts,
+        [{"text": "Example Electric installs electrical distribution systems for commercial "
+                  "buildings, but not for residential ones.", "kind": "COMPANY", "quote_id": "q1"}]
+        + sentences()[1:], "A conversation next week")
+    assert draft is None and any("adds a negation" in p for p in problems)
+
+
+def test_a_negation_restated_with_a_different_word_is_not_flagged():
+    """A candidate may restate an existing negation in its own words; only an added one, absent
+    from the source, is a problem."""
+    draft, problems = verify(product={"text": "Example Product does not promise a result, a "
+                                              "saving or a faster payment.", "kind": "PRODUCT",
+                                      "quote_id": ""})
+    assert problems == [] and draft is not None
+
+
+def test_a_wrong_count_is_refused():
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL,
+              "quote": "We have installed systems in over 200 buildings since 1998."}]
+    draft, problems = writer.verify(
+        TEXT, "Example Electric", facts,
+        [{"text": "Example Electric has installed systems in over 500 buildings since 1998.",
+          "kind": "COMPANY", "quote_id": "q1"}] + sentences()[1:], "A conversation next week")
+    assert draft is None and any("states a number" in p for p in problems)
+
+
+def test_a_transposed_year_is_refused():
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL,
+              "quote": "We have installed systems in over 200 buildings since 1998."}]
+    draft, problems = writer.verify(
+        TEXT, "Example Electric", facts,
+        [{"text": "Example Electric has installed systems in over 200 buildings since 1988.",
+          "kind": "COMPANY", "quote_id": "q1"}] + sentences()[1:], "A conversation next week")
+    assert draft is None and any("states a number" in p for p in problems)
+
+
+def test_the_same_numbers_restated_exactly_are_not_flagged():
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL,
+              "quote": "We have installed systems in over 200 buildings since 1998."}]
+    draft, problems = writer.verify(
+        TEXT, "Example Electric", facts,
+        [{"text": "Example Electric has installed systems in over 200 buildings since 1998.",
+          "kind": "COMPANY", "quote_id": "q1"}] + sentences()[1:], "A conversation next week")
+    assert problems == [] and draft is not None
+
+
+def test_spelled_out_numbers_are_unaffected():
+    """numbers_ungrounded only reads digits; "twenty minute" is covered, as before, by ordinary
+    word grounding, and is not touched by this."""
+    assert writer.numbers_ungrounded("a twenty minute conversation", ["a call next week"]) == []
+
+
+def test_an_absolute_scope_word_the_quote_does_not_use_is_refused():
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL,
+              "quote": "We install electrical distribution systems for commercial buildings in "
+                       "central Ohio."}]
+    draft, problems = writer.verify(
+        TEXT, "Example Electric", facts,
+        [{"text": "Example Electric installs electrical distribution systems for commercial "
+                  "buildings in every state.", "kind": "COMPANY", "quote_id": "q1"}]
+        + sentences()[1:], "A conversation next week")
+    assert draft is None and any("broader scope" in p for p in problems)
+
+
+def test_the_companys_own_name_does_not_trigger_the_scope_check():
+    """A real defect, found by checking this against the founder's real handbook (read-only):
+    "All Phase Power & Lighting" tripped the scope check on its own name's first word before the
+    name was stripped first, exactly as names_specific_work already protects against."""
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL,
+              "quote": "Design and installation of complete power distribution systems."}]
+    draft, problems = writer.verify(
+        TEXT, "All Phase Power & Lighting", facts,
+        [{"text": "All Phase Power & Lighting designs and installs complete power distribution "
+                  "systems.", "kind": "COMPANY", "quote_id": "q1"}] + sentences()[1:],
+        "A conversation next week")
+    assert problems == [] and draft is not None
+
+
+def test_a_dropped_scope_qualifier_is_refused():
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL,
+              "quote": "We currently serve select commercial clients in central Ohio on a "
+                       "pilot basis."}]
+    draft, problems = writer.verify(
+        TEXT, "Example Electric", facts,
+        [{"text": "Example Electric serves commercial clients in central Ohio.", "kind": "COMPANY",
+          "quote_id": "q1"}] + sentences()[1:], "A conversation next week")
+    assert draft is None and any("drops a qualifier" in p for p in problems)
+
+
+def test_every_qualifier_kept_is_not_flagged():
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL,
+              "quote": "We currently serve select commercial clients in central Ohio on a "
+                       "pilot basis."}]
+    draft, problems = writer.verify(
+        TEXT, "Example Electric", facts,
+        [{"text": "Example Electric currently serves select commercial clients in central Ohio "
+                  "on a pilot basis.", "kind": "COMPANY", "quote_id": "q1"}] + sentences()[1:],
+        "A conversation next week")
+    assert problems == [] and draft is not None
+
+
+@pytest.mark.parametrize("word", ["Customers", "Your team", "You", "We", "Clients"])
+def test_an_explicit_wrong_actor_leading_the_sentence_is_refused(word):
+    assert writer.wrong_actor_subject(f"{word} install electrical systems.", "Example Electric")
+
+
+def test_the_companys_own_name_is_not_a_wrong_actor():
+    assert not writer.wrong_actor_subject(
+        "Example Electric installs electrical distribution systems.", "Example Electric")
+    assert not writer.wrong_actor_subject(
+        "I noticed Example Electric installs electrical distribution systems.", "Example Electric")
+
+
+def test_a_subject_who_is_the_founders_own_voice_is_refused_even_with_every_word_grounded():
+    """Every content word here is already in the quote; only noticing the subject is "we", not
+    the lead company, catches it - the case ordinary word-overlap grounding cannot."""
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL,
+              "quote": "We install electrical distribution systems for commercial buildings."}]
+    draft, problems = writer.verify(
+        TEXT, "Example Electric", facts,
+        [{"text": "We install electrical distribution systems for commercial buildings for "
+                  "Example Electric.", "kind": "COMPANY", "quote_id": "q1"}] + sentences()[1:],
+        "A conversation next week")
+    assert draft is None and any("own subject may not be the company" in p for p in problems)
+
+
+def test_a_delegation_kept_under_the_companys_own_name_is_a_known_open_gap():
+    """Documented, not hidden: keeping the company's own name as the subject while changing who
+    performs the verb ("relies on subcontractors") passes every check here unnoticed. This test
+    pins that it is still unnoticed, so a future change that silently narrows coverage here is
+    visible, rather than recording an accidental pass as if it were a solved case."""
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL,
+              "quote": "We install and maintain electrical distribution systems for commercial "
+                       "buildings, working with trusted subcontractors and vendors."}]
+    draft, problems = writer.verify(
+        TEXT, "Example Electric", facts,
+        [{"text": "Example Electric's trusted subcontractors install and maintain electrical "
+                  "distribution systems for commercial buildings.", "kind": "COMPANY",
+          "quote_id": "q1"}] + sentences()[1:], "A conversation next week")
+    assert problems == [] and draft is not None  # known gap: see the module docstring
+
+
+def test_a_mid_sentence_line_wrap_is_not_a_clause_boundary():
+    """A real bug, found against the founder's real handbook (read-only): a document or fixture
+    wrapped at a fixed width splits a phrase like "planned for later" across two clauses unless
+    the wrap is joined back first."""
+    wrapped = ("Other accounting systems are planned\nfor later, and none of them may be named "
+              "as supported yet.")
+    assert writer._clauses(wrapped) == [
+        "Other accounting systems are planned for later, and none of them may be named as "
+        "supported yet."]
+
+
+def test_a_blank_line_still_separates_clauses_after_the_wrap_fix():
+    text = "First topic here.\n\nSecond topic, unrelated, here."
+    assert writer._clauses(text) == ["First topic here", "Second topic, unrelated, here."]
+
+
+@pytest.mark.parametrize("case", TUNING_CASES, ids=lambda c: c["id"])
+def test_tuning_case_matches_its_expected_verdict(case):
+    """Every case the improved checks were built against. Written, and run against the
+    unmodified code, before writer.py was touched for this work."""
+    verdict, problems = judge(case)
+    assert verdict == case["expect"], f"{case['id']}: {case['because']} -> {problems}"
+
+
+_HELD_OUT_KNOWN_GAPS = {
+    "held-reversed-subject-delegation-kept-under-name", "held-combination-cross-paragraph",
+    "held-combination-same-paragraph"}
+
+
+@pytest.mark.parametrize("case", HELD_OUT_CASES, ids=lambda c: c["id"])
+def test_held_out_case_matches_its_expected_verdict_or_is_a_named_gap(case):
+    """Set aside and looked at only once, after the implementation was finished, to measure it
+    rather than shape it. Three remain wrong, exactly the three predicted uncaught when the case
+    was written (grounding_eval.py says why for each); this pins that the count of open gaps
+    does not grow without the change being visible here."""
+    verdict, problems = judge(case)
+    if case["id"] in _HELD_OUT_KNOWN_GAPS:
+        assert verdict != case["expect"], (
+            f"{case['id']} now passes - a real improvement, not a regression, but the module "
+            "docstring and grounding_eval.py both call this an open gap and should be updated")
+    else:
+        assert verdict == case["expect"], f"{case['id']}: {case['because']} -> {problems}"
+
+
+# --- six gaps a mutation run found in the tests above, each pinned on its own -------------------
+# None of the six above turned out to be a live defect; each is a test that did not actually
+# exercise the protection it looked like it did. Listed with the case that found each.
+
+def test_the_companys_own_name_never_supplies_a_negation():
+    """The scope-collision test above stopped exercising company-name stripping once
+    SCOPE_EXPANSION was narrowed to require a following noun ("All Phase Power" no longer
+    matches "all" alone). A company named for what it never does needs its own case."""
+    facts = [{"quote_id": "q1", "category": "OFFERING", "url": URL,
+              "quote": "We install fire suppression systems for commercial buildings."}]
+    draft, problems = writer.verify(
+        TEXT, "Never Fail Electric", facts,
+        [{"text": "Never Fail Electric installs fire suppression systems for commercial "
+                  "buildings.", "kind": "COMPANY", "quote_id": "q1"}] + sentences()[1:],
+        "A conversation next week")
+    assert problems == [] and draft is not None
+
+
+def test_numbers_ungrounded_strips_the_companys_own_name_first():
+    assert writer.numbers_ungrounded(
+        "24/7 Electric installs systems for commercial buildings.",
+        ["We install systems for commercial buildings."], company="24/7 Electric") == []
+
+
+def test_wrong_actor_subject_strips_the_companys_own_name_first():
+    assert not writer.wrong_actor_subject(
+        "We Fix It Electric installs systems for commercial buildings.", "We Fix It Electric")
+
+
+def test_a_subject_line_can_add_a_negation_the_handbook_does_not_state():
+    """"not" is a stopword, so ordinary word grounding alone would not notice it; every other
+    word here is already in the shared handbook and company pool."""
+    draft, problems = verify(subject="A conversation about Example Product, not explain "
+                                     "recommended next steps")
+    assert draft is None and any("adds a negation" in p for p in problems)
+
+
+def test_a_subject_line_can_state_a_number_nothing_supports():
+    draft, problems = verify(subject="A conversation about Example Product in 2030")
+    assert draft is None and any("states a number" in p for p in problems)
+
+
+def test_qualifier_drop_no_longer_matches_a_bare_common_word():
+    """The real defect this list used to have: "specific" alone matched inside the founder's own
+    handbook's "sender-specific values", an unrelated compound, and flagged every real draft."""
+    assert not writer.QUALIFIER_DROP.search("The sender-specific values remain outside the repository.")
+    assert not writer.QUALIFIER_DROP.search("under certain circumstances")
+    assert not writer.QUALIFIER_DROP.search("a limited liability company")
+    assert writer.QUALIFIER_DROP.search("we currently serve select clients on a pilot basis")
+
+
+def test_scope_expansion_no_longer_matches_a_bare_all_any_every():
+    """The real defect this used to have: "All" in "All Phase Power & Lighting" matched on its
+    own, before a scope word ever needed a noun to follow it."""
+    assert not writer.SCOPE_EXPANSION.search("All Phase Power & Lighting")
+    assert not writer.SCOPE_EXPANSION.search("if you have any questions")
+    assert not writer.SCOPE_EXPANSION.search("every day we install systems")
+    assert writer.SCOPE_EXPANSION.search("we install systems in every state")

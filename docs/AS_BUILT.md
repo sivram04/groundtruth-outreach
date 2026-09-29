@@ -1372,6 +1372,62 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-29** **Grounding catches an added negation, a wrong number or date, an exaggerated
+  scope, a dropped qualifier, and one narrow reversed-subject pattern - and two real bugs the real
+  handbook found before this shipped.** `docs/testing/grounding-eval/RESULTS.md` has the full
+  record; this is the summary. The audit's finding (§3.1) was that a purely positive quote turned
+  into a denial still passed, because negation words are stopwords. Following an external review's
+  method: `tests/grounding_eval.py` wrote 35 adversarial cases (22 to tune against, 13 held out and
+  looked at only once, after) BEFORE `outreach/writer.py` was touched, covering the negation gap
+  plus five more the founder named - reversed subjects, wrong quantities or dates, exaggerated
+  scope, removed qualifications, unsupported combinations of facts. **Baseline (unmodified code):
+  15/22 tuning, 7/13 held-out, zero false rejects on either** - the existing checks were
+  conservative, not broken, just missing this family. Running the baseline also corrected two of
+  the case authors' own assumptions before any code changed: what looked like reversed-subject
+  cases already passed today for an unrelated reason (a word simply wasn't in the quote), and were
+  rebuilt from the quote's own vocabulary so a pass could only mean the subject was actually
+  checked.
+
+  **Built:** four checks (`outreach/writer.py` `_reversed_or_unqualified`, `numbers_ungrounded`) -
+  an added negation the source does not carry, an absolute scope word ("every state") the source
+  does not use, a qualifier the source states ("on a pilot basis") that the sentence drops, and a
+  digit run with no match anywhere in the source (`_words` never matched a digit before this) -
+  plus one narrow check (`wrong_actor_subject`): a company sentence that leads, once the company's
+  own name is removed, with an explicit alternative actor ("you", "we", "customers") rather than
+  the company itself. Applied uniformly to the company sentence, every product and ask sentence,
+  and the subject line.
+
+  **Checked against the founder's real handbook, read-only, before anything was trusted:** a first
+  version **flagged 21 of 21 real Drafts-tab rows** that were previously WAITING - a severe
+  regression, caught before commit. Two real bugs, neither visible in the synthetic test fixture:
+  (1) the real handbook is exported from Drive with no blank lines, so paragraph-based localisation
+  was a complete no-op and every check ran against the whole 5,521-character document; fixed by
+  splitting on sentence punctuation and line breaks (the same split the existing STATE-reversal
+  check already trusted), then narrowed again after a mid-sentence line wrap - present in the real
+  handbook AND in this repo's own `examples/synthetic_handbook.txt` - turned out to cut a phrase
+  like "planned for later" across a false boundary; a wrapped line is now joined back first. (2)
+  "All Phase Power & Lighting" tripped the scope check on the bare word "All" in its own name,
+  before the name was stripped - exactly the protection `names_specific_work` already has, which
+  the new checks had not been given; every new check now strips the company's name first, and the
+  qualifier-word list itself was narrowed (dropping `specific`, `certain`, `particular`, `limited`,
+  `some`, bare `select`/`pilot`/`currently` - all common enough to collide with ordinary prose, as
+  `specific` did inside the handbook's own "sender-specific values") to distinctive multi-word
+  phrases only. **After both fixes: 22/22 tuning, 10/13 held-out, 0 of 21 real drafts newly
+  rejected, zero false rejects throughout.** The three held-out misses - a reversal kept under the
+  company's own name, and two fabricated claims built from words that genuinely co-occur in one
+  source - are exactly the three the case comments predicted in advance as out of scope for a
+  word-presence check, and were not patched after being seen, to keep the held-out measurement
+  honest.
+
+  Proof: `tests/test_writer.py`, 117 tests (was 54) - every existing test unchanged and passing,
+  all 35 eval cases run as permanent regression tests, plus targeted tests for each new function
+  and each of the two real bugs; 19 deliberate breaks, all 19 caught by these tests alone (a first
+  run left 6 alive - not defects, but tests that looked like they exercised a protection without
+  requiring it; each replaced with a case that genuinely needs it, and the second run left 0
+  alive). Whole suite 678 Python (was 615), 46 React, unaffected. **Not deployed**:
+  `outreach/writer.py` runs inside both `outreach-worker` and `outreach-console`; neither image has
+  been rebuilt with this. Quote freshness (§3.3 of the audit) is untouched, as instructed.
+
 - **2026-09-29** **One reading of the Suppression tab, and the sync stops instead of guessing.**
   `outreach/suppression.py` is now the single contract: `FIELD` (`Address or domain`) is canonical,
   `Address` and `Domain` are aliases **normalised onto it**, and `of_values`, `covers`, `cell` and
