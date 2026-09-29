@@ -1415,8 +1415,34 @@ Sheet — and how often the checks refuse it — is unknown.
   data as it stands today. Traffic was then moved to it (`update-traffic --to-tags=next=100`); the
   default URL confirmed serving it (a further dry-run OK, cursor advancing) and the two other tagged
   revisions (`profile-review`, `stage4`) remain reachable at 0% by their own URLs but no longer take
-  the scheduler's calls. **The console (`deploy_console.sh`) was not redeployed**, so its warning text
-  still reads the pre-fix wording; that is display only and blocks nothing.
+  the scheduler's calls.
+
+  **Correction: the console was left running the pre-fix code, not merely showing stale text.**
+  `console.Dockerfile` bundles its own `outreach/` copy (`COPY outreach ./outreach`); it is a
+  separate deployable, not a caller of the worker's image. `outreach-console-00007-9ls` kept the
+  fail-open `Store.suppression()` until it was rebuilt and redeployed the same day.
+
+  **Console redeployed 2026-09-29.** Focused checks first: `tests/test_suppression.py`,
+  `test_console_api.py` and `test_console_model.py` together, 87 of 87 pass; the whole suite,
+  615 Python + 46 React; `console/npm run build` (`tsc --noEmit && vite build`) clean. No file
+  outside what item 1 already touched was changed; `deploy/deploy_console.sh` and
+  `console.cloudbuild.yaml` were read and run unmodified — they already preserve `--iap`,
+  `--no-allow-unauthenticated`, the allow-list (`CONSOLE_ALLOWED_EMAILS: admin@lakshyaa.ai`) and
+  set no drafting env var. Built and deployed: `outreach-console-00008-pjc`, 100% traffic.
+
+  **Verified live, without signing in (an authenticated check needs the founder's own Google
+  sign-in, which entering credentials to obtain would be improper even for this verification):**
+  the serving revision is `00008-pjc`; both `/` and `/api/snapshot` redirect unauthenticated
+  requests to real Google OAuth (curl, HTTP 302, and confirmed again in a browser reaching the
+  real `accounts.google.com` sign-in page — IAP's own layer, not app code, so this holds
+  independent of the deploy); the service account, IAP audience, allow-list and handbook doc id
+  are byte-identical to before; no `ENABLE_GMAIL_DRAFTS` or any drafting var is set. Pulling the
+  built image and reading its bundled `outreach/` directly confirms the fix is what shipped:
+  `suppression.Unreadable` is defined, `sync.py` contains zero instances of `entries or []`, and
+  `suppression.FIELD` is defined. **Not verified: an authenticated dashboard load, or that the
+  founder actually sees a suppression count and no stale warning** — that needs the founder (or
+  someone already on the allow-list) to sign in once; a one-line request to check `/` and confirm
+  the dashboard loads with no error banner would close this.
 
 - **2026-09-29** The console gets an assistant (grounded in the Sheet, refuses any answer whose
   figures the data does not carry, can change nothing) and the pages are rebuilt light in the

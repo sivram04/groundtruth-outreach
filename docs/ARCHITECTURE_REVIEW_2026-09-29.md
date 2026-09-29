@@ -395,9 +395,39 @@ and nothing else.
    Suppression tab reads clean under the stricter rules, so nothing was ever at risk of being
    blocked by this change on the data as it stands. Traffic was then moved to the new revision
    (`gcloud run services update-traffic … --to-tags=next=100`) and the default URL confirmed
-   serving it. **The console was not redeployed**; its displayed warning still reads the pre-fix
-   wording, which is a display-only gap, not a functional one — `Store.suppression()` itself is
-   fixed regardless of which process calls it.
+   serving it.
+
+   **Correction, 2026-09-29 (an external reviewer caught this): the console was NOT fixed by the
+   worker deploy, and this was wrong to call cosmetic.** `deploy/console.Dockerfile` does
+   `COPY outreach ./outreach` — the console image carries its own complete copy of
+   `outreach/suppression.py`, `sheet.py` and `console_model.py`. It is a second running instance of
+   the code, built and deployed separately (`deploy/deploy_console.sh`, `console.cloudbuild.yaml`),
+   not a client of the worker's fix. **`outreach-console-00007-9ls` still runs the pre-fix
+   `Store.suppression()`** — the fail-open and the header mismatch it read from — confirmed live
+   (`gcloud run services describe outreach-console`: still `00007-9ls`, 100% traffic). The console's
+   own `snapshot()` calls `store.suppression()` directly for the dashboard; while it lagged, a
+   founder reading the console during that window was reading a suppression count and a warning
+   computed by the old, unfixed code, not a display artifact of already-fixed logic.
+
+   **Redeployed 2026-09-29, unmodified script, no unrelated changes.** `deploy/deploy_console.sh`
+   and `console.cloudbuild.yaml` were read before running: both already preserve `--iap`,
+   `--no-allow-unauthenticated`, the allow-list and set no drafting env var, so nothing in either
+   needed to change — the fix reaches the console because it builds `outreach/` fresh from the
+   current working tree. Focused tests first (`test_suppression.py` + `test_console_api.py` +
+   `test_console_model.py`, 87/87), then the whole suite (615 + 46) and `npm run build`
+   (`tsc --noEmit && vite build`), all clean. Deployed: `outreach-console-00008-pjc`, 100% traffic.
+
+   **Verified live, without signing in:** the revision; both `/` and `/api/snapshot` redirect
+   unauthenticated requests to real Google OAuth (curl 302, and independently in a browser reaching
+   `accounts.google.com`) — IAP's own layer, unaffected by this deploy either way, so this checks
+   that the deploy did not disturb it, not that the deploy fixed anything; the service account, IAP
+   audience, allow-list and handbook doc id unchanged; no drafting env var; and pulling the built
+   image and reading its bundled `outreach/suppression.py` and `sync.py` directly confirms the fixed
+   contract shipped (`Unreadable` defined, zero `entries or []`, `FIELD` defined) rather than trusting
+   that the source I intended to ship is the source that was built. **NOT verified: an authenticated
+   dashboard load.** That needs a real Google sign-in as an allow-listed account; I did not attempt
+   one, because entering credentials — even to verify my own work — is not something I do. This is a
+   fixture-and-live-plumbing verification, not a confirmation of what the founder's browser shows.
 2. **A follow-up can still be drafted to someone who has replied**, if the reply arrives in a
    *different* thread, or between the thread check (`followup.py:284`) and the draft call (`:321`),
    or via a concurrent sync after the run's snapshot (`:230`). The in-thread case is blocked and
@@ -588,7 +618,13 @@ name leaves a path that parses rows and suppresses nobody (§5, finding 1).
    its siblings do, one contract (`outreach/suppression.py`) serves all five readers, and a blocked
    run records `BLOCKED` with the reason and no cursor. 40 tests, 23 deliberate breaks all caught. A
    dry-run against the live Sheet before traffic moved read clean under the stricter contract. The
-   console's own displayed wording was not redeployed (cosmetic only).
+   console runs a separate copy of this code (`console.Dockerfile` `COPY outreach ./outreach`) and
+   was **not** fixed by the worker deploy alone — that was a real gap, caught by an external
+   reviewer, not a cosmetic one. **Closed the same day**: `outreach-console-00008-pjc`, unmodified
+   deploy script, 87 focused tests + the whole suite + the frontend build all clean beforehand, the
+   revision and bundled code confirmed live afterward. See §4.1's finding and `AS_BUILT.md` for the
+   evidence; an authenticated dashboard load is the one thing not verified, because that needs a
+   real sign-in as an allow-listed account.
 2. **The negation hole** (§3.1). A sentence that reverses its quote is accepted. Fix: treat negation
    and hedging words as content rather than stopwords, and extend `_polarity_reversed` to the
    sentence side. 0 of 25 current drafts are affected — see §3.1 for why that is not a pass rate.
