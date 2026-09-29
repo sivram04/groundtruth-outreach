@@ -2,7 +2,7 @@
    One accent, hairline borders, one scale of corners, and colour only where it means
    something: a status dot, never a whole block. */
 :root {
-  --bg: #f6f7f9;
+  --bg: #f7f7f6;
   --panel: #ffffff;
   --paper: #fafbfc;
   --text: #101828;
@@ -10,10 +10,10 @@
   --muted: #8a94a6;
   --line: #e6e8ec;
   --line-strong: #d6dae1;
-  --accent: #1f2937;
-  --accent-strong: #0b1220;
-  --accent-soft: #eef1f6;
-  --link: #2563eb;
+  --accent: #14432f;
+  --accent-strong: #0c2e20;
+  --accent-soft: #e6f2ea;
+  --link: #14432f;
   --green: #067647;
   --amber: #b54708;
   --red: #b42318;
@@ -22,6 +22,14 @@
   --gray: #667085;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
   --shadow-lift: 0 4px 14px rgba(16, 24, 40, 0.08);
+  --wash-green: #e4f4ea;
+  --wash-green-line: #cbe8d6;
+  --wash-amber: #fdece1;
+  --wash-amber-line: #f6d7c3;
+  --wash-red: #fce8e8;
+  --wash-red-line: #f5cfcf;
+  --wash-gray: #eef0f3;
+  --wash-gray-line: #e2e5ea;
   --r: 10px;
   --r-lg: 14px;
   color-scheme: light;
@@ -75,6 +83,16 @@ h3 {
 /* ---------- utilities ---------- */
 .muted {
   color: var(--muted);
+}
+.off-screen {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .small {
   font-size: 12.5px;
@@ -144,7 +162,15 @@ ul.plain {
 .brand {
   display: flex;
   align-items: center;
+  gap: 8px;
   text-decoration: none;
+  color: var(--text);
+}
+
+.brand-name {
+  font-weight: 650;
+  font-size: 15px;
+  letter-spacing: -0.01em;
 }
 
 .brand-mark {
@@ -565,6 +591,108 @@ details.card[open] > summary {
   min-width: 0;
 }
 
+/* ---------- the filter bar ---------- */
+.filters-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.filters-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  flex-wrap: wrap;
+}
+
+.filters-row.bottom {
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.filters-what {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--soft);
+  padding-right: 12px;
+  border-right: 1px solid var(--line);
+}
+
+.filters-row .search {
+  border: 0;
+  padding: 0;
+  flex: 1 1 260px;
+}
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.section-head h2 {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.section-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---------- the count tabs ---------- */
+.count-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.count-tabs button {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--soft);
+  font-weight: 500;
+  font-size: 12.5px;
+  padding: 4px 11px;
+  border-radius: 999px;
+}
+
+.count-tabs button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.count-tabs button.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.count-tabs .tab-count {
+  margin-left: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.count-tabs button.on .tab-count {
+  color: rgba(255, 255, 255, 0.72);
+}
+
 /* ---------- the figures, in one line ---------- */
 .metrics {
   display: grid;
@@ -694,66 +822,76 @@ a.metric:hover {
   background: #f8f5ff;
 }
 
-/* ---------- the drafts strip ---------- */
+/* ---------- the drafts to read ---------- */
 .strip {
-  margin-bottom: 14px;
+  margin-bottom: 18px;
 }
 
-.strip-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 9px;
-  gap: 10px;
-}
-
-.strip-head h2 {
-  font-size: 13.5px;
-}
-
-.draft-cards {
+.matches {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(215px, 1fr);
+  grid-auto-columns: minmax(230px, 1fr);
   gap: 12px;
   overflow-x: auto;
   padding-bottom: 2px;
 }
 
-.draft-card {
+.match {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  padding: 14px;
+  gap: 10px;
+  padding: 14px 16px 12px;
   border-radius: var(--r-lg);
-  border: 1px solid var(--line);
-  background: var(--panel);
-  box-shadow: var(--shadow);
-  text-decoration: none;
-  color: var(--text);
+  border: 1px solid var(--wash-gray-line);
+  background: var(--wash-gray);
   min-width: 0;
-  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.draft-card:hover {
-  border-color: var(--line-strong);
-  box-shadow: var(--shadow-lift);
+.match.green {
+  background: var(--wash-green);
+  border-color: var(--wash-green-line);
+}
+.match.amber {
+  background: var(--wash-amber);
+  border-color: var(--wash-amber-line);
+}
+.match.red {
+  background: var(--wash-red);
+  border-color: var(--wash-red-line);
 }
 
-.draft-card-top {
+.match-top {
   display: flex;
-  align-items: center;
-  gap: 9px;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.match-meta {
+  display: flex;
+  flex-direction: column;
+  font-size: 11.5px;
+  color: var(--soft);
   min-width: 0;
 }
 
-.draft-card-top h3 {
+.match-meta span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.draft-card-line {
+.match h3 {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.match-line {
   margin: 0;
   font-size: 12.5px;
   line-height: 1.45;
@@ -766,29 +904,41 @@ a.metric:hover {
   min-height: 54px;
 }
 
-.draft-card-to {
-  margin: 0;
-  font-size: 11.5px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.draft-card-foot {
+.match-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding-top: 9px;
+  gap: 10px;
   margin-top: auto;
-  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  border-top: 1px solid rgba(16, 24, 40, 0.08);
 }
 
-.draft-card-open {
+.match-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.match .avatar {
+  background: rgba(255, 255, 255, 0.75);
+  border-color: rgba(16, 24, 40, 0.08);
+}
+
+.match-who-text {
+  font-size: 12px;
   font-weight: 600;
-  font-size: 12.5px;
-  color: var(--link);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.match-who-text .muted {
+  font-weight: 400;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---------- callouts ---------- */

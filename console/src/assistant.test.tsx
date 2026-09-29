@@ -106,7 +106,7 @@ describe("the assistant", () => {
     await act(async () => within(panel).getByRole("button", { name: "Hide the assistant" }).click());
     expect(screen.queryByRole("complementary", { name: "Assistant" })).toBeNull();
     expect(window.localStorage.getItem("outreach.assistant")).toBe("off");
-    await act(async () => screen.getByRole("button", { name: "Ask" }).click());
+    await act(async () => screen.getByRole("button", { name: "Ask the assistant" }).click());
     expect(screen.getByRole("complementary", { name: "Assistant" })).toBeTruthy();
     expect(window.localStorage.getItem("outreach.assistant")).toBe("on");
   });
@@ -124,7 +124,24 @@ describe("on a phone", () => {
     render(<App load={loaded} ask={answering({})} />);
     await screen.findAllByRole("heading", { level: 1 });
     expect(screen.queryByRole("complementary", { name: "Assistant" })).toBeNull();
-    await act(async () => screen.getByRole("button", { name: "Ask" }).click());
+    await act(async () => screen.getByRole("button", { name: "Ask the assistant" }).click());
+    expect(screen.getByRole("complementary", { name: "Assistant" })).toBeTruthy();
+  });
+});
+
+describe("the toggle in the top bar", () => {
+  it("opens the assistant and closes it again", async () => {
+    window.localStorage.setItem("outreach.assistant", "on");
+    window.location.hash = "#/";
+    render(<App load={loaded} ask={answering({})} />);
+    await screen.findAllByRole("heading", { level: 1 });
+    const inBar = () => within(screen.getByRole("banner")).getAllByRole("button")[0]!;
+    expect(screen.getByRole("complementary", { name: "Assistant" })).toBeTruthy();
+    expect(inBar().getAttribute("aria-pressed")).toBe("true");
+    await act(async () => inBar().click());
+    expect(screen.queryByRole("complementary", { name: "Assistant" })).toBeNull();
+    expect(inBar().getAttribute("aria-pressed")).toBe("false");
+    await act(async () => inBar().click());
     expect(screen.getByRole("complementary", { name: "Assistant" })).toBeTruthy();
   });
 });

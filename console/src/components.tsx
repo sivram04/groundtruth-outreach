@@ -1,7 +1,7 @@
 import {
   ExternalLink as ExternalIcon,
   Info,
-  MessageSquare,
+  PanelLeft,
   RefreshCw,
   TriangleAlert,
   type LucideIcon,
@@ -26,7 +26,7 @@ export function Layout(props: {
   draftsWaiting: number;
   assistant: ReactNode;
   assistantShown: boolean;
-  onShowAssistant: () => void;
+  onAssistant: (shown: boolean) => void;
   onRefresh: () => void;
   children: ReactNode;
 }) {
@@ -40,7 +40,17 @@ export function Layout(props: {
             <span className="brand-mark" aria-hidden="true">
               {NAME.slice(0, 1)}
             </span>
+            <span className="brand-name">{NAME.toLowerCase()}</span>
           </a>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={() => props.onAssistant(!props.assistantShown)}
+            aria-label={props.assistantShown ? "Hide the assistant" : "Ask the assistant"}
+            aria-pressed={props.assistantShown}
+          >
+            <PanelLeft size={17} aria-hidden="true" />
+          </button>
           <nav aria-label="Pages">
             {NAV.map(([page, link, label]) => (
               <a
@@ -59,14 +69,9 @@ export function Layout(props: {
             ))}
           </nav>
           <div className="topbar-side">
-            {!props.assistantShown && (
-              <button type="button" className="ghost" onClick={props.onShowAssistant}>
-                <MessageSquare size={15} aria-hidden="true" /> Ask
-              </button>
-            )}
             <span className="muted small read-at">{props.readAt && `Read ${props.readAt}`}</span>
             <button type="button" className="ghost" onClick={props.onRefresh} disabled={props.refreshing}>
-              <RefreshCw size={15} aria-hidden="true" className={props.refreshing ? "spin" : undefined} />
+              <RefreshCw size={14} aria-hidden="true" className={props.refreshing ? "spin" : undefined} />
               {props.refreshing ? "Reading…" : "Refresh"}
             </button>
             {props.signedInAs && (
@@ -79,6 +84,42 @@ export function Layout(props: {
         <main>{props.children}</main>
         <footer>Nothing on these pages changes the Sheet or Gmail.</footer>
       </div>
+    </div>
+  );
+}
+
+/** A section: its name on the left, what can be done with it on the right. */
+export function SectionHead(props: { title: string; children?: ReactNode }) {
+  return (
+    <div className="section-head">
+      <h2>{props.title}</h2>
+      {props.children && <div className="section-actions">{props.children}</div>}
+    </div>
+  );
+}
+
+/** The tabs over a table: each says how many rows it holds. */
+export function CountTabs(props: {
+  label: string;
+  tabs: [string, string, number][];
+  on: string;
+  onPick: (key: string) => void;
+}) {
+  return (
+    <div className="count-tabs" role="tablist" aria-label={props.label}>
+      {props.tabs.map(([key, label, count]) => (
+        <button
+          key={key}
+          type="button"
+          role="tab"
+          aria-selected={props.on === key}
+          className={props.on === key ? "on" : undefined}
+          onClick={() => props.onPick(key)}
+        >
+          {label}
+          <span className="tab-count">{count}</span>
+        </button>
+      ))}
     </div>
   );
 }

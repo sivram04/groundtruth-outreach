@@ -129,7 +129,7 @@ export function App({ load = loadSnapshot, ask }: { load?: () => Promise<Snapsho
       refreshing={loading}
       draftsWaiting={data?.drafts.length ?? 0}
       assistantShown={assistantShown}
-      onShowAssistant={() => show(true)}
+      onAssistant={show}
       assistant={<Assistant companies={companies} ask={ask} onClose={() => show(false)} />}
       onRefresh={refresh}
     >
