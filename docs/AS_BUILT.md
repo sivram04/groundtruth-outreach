@@ -24,7 +24,7 @@ moved on (the handbook was already in Drive and all 26 eligible leads were profi
 | 4 Sync and follow-ups | **Sync deployed and scheduled every 10 minutes** 2026-09-28; no follow-up drafted | 396 tests pass offline in the container with no network; 69 deliberate breaks of the new code, all caught. Revision `outreach-worker-00017-nin` serves 100%; Cloud Scheduler `outreach-sync` (`*/10`, America/New_York) is ENABLED, and its first run returned 200 in 2.4 s. The first real sync (run locally) recorded the 14 hand-sent emails in a new Events tab and 14 A rows. See "Stage 4" below. Its pass test (the founder sends real drafts; SENT, REPLIED and a bounce land correctly) has not been run. |
 | 5 Tracking | **Built and deployed 2026-09-28; off for new drafts; t.lakshyaa.ai live over HTTPS (DNS added by the founder, certificate issued 23:55 UTC); pass test: both test emails in the Inbox (personal Gmail and a Google Workspace inbox), one genuine open and one click recorded on the personal one; tracking not yet switched on for drafts** | 460 tests pass offline in the container; 49 deliberate breaks, 48 caught, 1 equivalent. Public tracker `outreach-tracker` smoke-tested live (forged links counted nothing, an off-site click was refused, genuine hits queued with no IP address); the worker picks up hits every 5 minutes (`outreach-tracking`); the Dashboard tab computes 14 emailed, 1 match to check. Its pass test (a test email to the founder's other inbox shows an open and a click) waits for the DNS record and certificate. See "Stage 5" below. |
 | 6 Calls | Not started | |
-| Console (web app) | **Step 2 deployed 2026-09-29: drafts in the app, redesigned; still read-only, behind Google's sign-in gate.** 25 first emails written into a new Drafts tab (21 waiting only for the offer approval, 4 held). Steps 3-4 (approve the offer, edit and Approve-sends; sources and uploads) not built | 548 Python and 33 React tests pass; step 2's 46 deliberate breaks, 43 caught, 3 equivalent (step 1's 42 all caught). Live: revision `outreach-console-00002-kjx`; strangers go to Google sign-in; the founder opened step 1 (data loaded in 1.6 s) and asked for this redesign; **the redesigned pages over the real drafts are not yet seen by the founder**. See "Console" below. |
+| Console (web app) | **Step 2 deployed 2026-09-29, with an assistant and a light redesign.** 25 first emails in a Drafts tab (21 waiting only for the offer approval, 4 held); the assistant answers questions about the Sheet and can change nothing. Steps 3-4 (approve the offer, edit and Approve-sends; sources and uploads) not built | 571 Python and 43 React tests pass; 30 more deliberate breaks all caught (step 2: 43 of 46; step 1: 42 of 42). Live: revision `outreach-console-00003-b9v`; strangers go to Google sign-in and the assistant route answers 401 without it. **The founder has not yet seen the redesign or asked the live assistant anything.** See "Console" below. |
 
 ## What runs where
 
@@ -1321,7 +1321,49 @@ and phone width (no sideways scrolling; the menu keeps icons only under 480 px),
 and Escape tried. Deployed as `outreach-console-00002-kjx`; strangers still go to Google sign-in;
 no errors. **Not yet seen by the founder with the real drafts.**
 
+### The assistant, and the light redesign (2026-09-29)
+
+**Why.** The founder sent a dashboard of another product as a reference — top tabs, a filter
+row, a strip of pastel cards, one table with status tabs and counts — and asked for that shape
+in light colours ("use light colours"), with a real assistant beside it, as that reference has.
+The reference guided the layout only; nothing was copied, and it is named nowhere in the code.
+
+**The assistant** (`outreach/assistant.py`; `POST /api/ask`, the one route that is not a GET,
+and it only reads). It is handed the console's own data and nothing else: no mailbox, no Sheet
+client, no way to write (a test reads its source and holds that). **Nothing it says is trusted
+on its own.** Before an answer reaches the screen:
+  - every run of digits in it must already appear in the facts, so it cannot invent a count, an
+    amount, a rate or a date;
+  - every email address in it must be one the facts carry;
+  - every lead it names must exist, and any link must be a page this app has, with a filter the
+    Leads page really offers (a test holds that list equal to the pages' own).
+An answer that fails a check is not shown: the question is refused in plain words and the reason
+is logged. A question over 400 characters never reaches the model, one process may ask at most
+60 times an hour, and the facts describe at most 120 active leads — the rest are counted, never
+hidden. What the facts may hold is pinned by a test, so a new field reaches the model only
+deliberately. The console's service account may now call Gemini (`roles/aiplatform.user`).
+A question costs a fraction of a cent; the answer says how many tokens it took, in the log.
+
+**The pages,** light throughout (the dark theme is gone): the assistant is a column on the left
+with its own suggested questions, or a sheet over the page on a phone, where it stays shut until
+asked for; whether it is open is remembered in that browser. Top tabs in place of the dark
+sidebar; the drafts to read as a strip of pastel cards; one leads table with a tab per status,
+each with its count, and a search. The per-tier numbers are still there, folded away at the
+bottom.
+
+**Proof.** Python 571, React 43. 30 deliberate breaks of the assistant, its route and the pages,
+all caught — five first survived and became tests (a too-long question still reaching the model,
+the lead cap, what the facts may hold, and the table's tabs and search). Seen in the browser with
+made-up drafts at 1180 wide and at phone width, including asking a question and following the
+link in its answer. Deployed as `outreach-console-00003-b9v`. **Not seen by the founder yet, and
+the live assistant has never been asked a real question**, so how Gemini answers over the real
+Sheet — and how often the checks refuse it — is unknown.
+
 ## Change log
+
+- **2026-09-29** The console gets an assistant (grounded in the Sheet, refuses any answer whose
+  figures the data does not carry, can change nothing) and the pages are rebuilt light in the
+  shape of a dashboard the founder sent as a reference. Deployed as `outreach-console-00003-b9v`.
 
 - **2026-09-29** Console step 2: 25 first emails written into a new Drafts tab on the founder's
   yes (21 waiting only for the offer approval, 4 held by the pipeline's checks), and the console
