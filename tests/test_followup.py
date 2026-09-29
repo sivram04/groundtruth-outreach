@@ -214,8 +214,9 @@ def test_hold_and_suppression_end_the_sequence():
 
 
 def test_a_missing_suppression_tab_is_unknown_and_drafts_nothing():
+    """The gate now names the cause, because that is what the founder has to act on."""
     store = MemoryStore([lead()], events=[initial_sent()], suppression=None)
-    assert run(store, dry_run=True)["gates"] == ["the Suppression tab is missing or unreadable"]
+    assert run(store, dry_run=True)["gates"] == ["there is no Suppression tab in the Sheet"]
 
 
 # --- creating the draft ---------------------------------------------------------------------

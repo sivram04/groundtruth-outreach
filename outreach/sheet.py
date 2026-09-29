@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from googleapiclient.discovery import build
 
+from outreach import suppression
 from outreach.google_auth import founder_credentials
 
 SHEET_ID = "1eEVkxc0gJMFptYSr_u9prQ5O850TOX28AEq17CKaFiA"
@@ -243,11 +244,23 @@ class Store:
         return rows
 
     def suppression(self):
-        """The Suppression entries, or None when the tab is missing: unknown, never empty."""
-        table = self.table(SUPPRESSION_TAB)
-        if table is None or "Address or domain" not in table[0]:
-            return None
-        return table[1]
+        """The Suppression entries, through the one contract in `outreach/suppression.py`.
+
+        Raises `suppression.Unreadable` when the list cannot be read: a missing tab, a header with
+        no address column or with two of them, a row with no address in it, or a read that failed.
+        An empty list is valid and means nobody is suppressed. The tab's own rows are read here
+        rather than through `table`, which drops blank lines, so a refusal can name its row."""
+        if SUPPRESSION_TAB not in self.titles:
+            raise suppression.Unreadable(f"there is no {SUPPRESSION_TAB} tab in the Sheet")
+        try:
+            values = self.api.values().get(
+                spreadsheetId=SHEET_ID, range=f"'{SUPPRESSION_TAB}'").execute().get("values", [])
+        except suppression.Unreadable:
+            raise
+        except Exception as exc:
+            raise suppression.Unreadable(
+                f"the {SUPPRESSION_TAB} tab could not be read ({type(exc).__name__})") from exc
+        return suppression.of_values(values)
 
     def run_rows(self):
         """The Runs tab's rows, oldest first; none when there is no Runs tab."""
@@ -312,9 +325,18 @@ class Store:
         self._append(EVENTS_TAB, EVENTS_HEADER, [[e.get(h, "") for h in EVENTS_HEADER] for e in events])
 
     def append_suppression(self, entries):
+        """New entries, written under the tab's own header.
+
+        `suppression.cell` puts the address in whichever column the header uses for it, so a tab
+        headed with an alias is not given a row with a blank address; a header with no address
+        column at all is refused rather than written to."""
+        if not entries:
+            return
         table = self.table(SUPPRESSION_TAB)
         header = table[0] if table and table[0] else SUPPRESSION_HEADER
-        self._append(SUPPRESSION_TAB, SUPPRESSION_HEADER, [[e.get(h, "") for h in header] for e in entries])
+        suppression.address_column(header)
+        self._append(SUPPRESSION_TAB, SUPPRESSION_HEADER,
+                     [[suppression.cell(e, h) for h in header] for e in entries])
 
     def write_leads(self, updates, columns):
         """updates: {Lead ID: {system column: value}}. Returns (written, skipped reasons)."""

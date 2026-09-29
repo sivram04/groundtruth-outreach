@@ -338,7 +338,9 @@ and nothing else.
 ### Findings
 
 1. **Finding 2 — the sync treats an unreadable suppression list as an empty one. CONFIRMED by
-   reading `sync.py:363-364`.** `drafts.py:99` and `followup.py:237` fail closed on
+   reading `sync.py:363-364`. FIXED 2026-09-29 in the working tree; see the end of this finding,
+   and `docs/AS_BUILT.md`'s change log for what was built. NOT DEPLOYED: the running services
+   still carry the behaviour described below.** `drafts.py:99` and `followup.py:237` fail closed on
    `entries is None`; `sync.run` uses `entries or []`. If the tab is renamed or its header changed,
    the sync recomputes every historical bounce and opt-out as missing and re-appends them — and
    because `append_suppression` maps by the *existing* header (`sheet.py:314-317`), the appended
@@ -372,6 +374,20 @@ and nothing else.
    `on_list` (`sync.py:255`) looks up only the key `"Address or domain"`, so those rows would parse
    and then suppress nobody, silently. Fixing the fail-open without settling on one column name
    would leave that path intact.
+
+   **FIXED 2026-09-29, both halves together, in the working tree.** `outreach/suppression.py` is now
+   the one contract all five readers use: the canonical `Address or domain`, `Address` and `Domain`
+   normalised onto it, one membership test, one write-back, one header check. An empty tab with its
+   header is a valid empty list; a missing tab, a header with no address column or two of them, a row
+   with no address, and a failed read all raise `Unreadable` with a reason. `sync.run` reads it before
+   anything else and, when it cannot, writes no events, no suppression rows and no lead updates, does
+   not advance its cursor, and records `BLOCKED` with the reason — never OK. `append_suppression` puts
+   the address in whichever column the header uses, so the blank-address path above is closed, and a
+   header with no address column is refused rather than written to. 40 new tests in
+   `tests/test_suppression.py` cover every case across all five consumers, and **23 deliberate
+   breaks are all caught by those tests alone**, the fail-open and the header mismatch reintroduced
+   separately. **The deployed services are unchanged until the worker and console images are
+   rebuilt**, so everything stated above about the *running* system still holds today.
 2. **A follow-up can still be drafted to someone who has replied**, if the reply arrives in a
    *different* thread, or between the thread check (`followup.py:284`) and the draft call (`:321`),
    or via a concurrent sync after the run's snapshot (`:230`). The in-thread case is blocked and
@@ -557,9 +573,11 @@ sending mechanism. Items 2 and 3 change what the founder reads and can correct a
 Items 1 and 5 are now one piece of work, because fixing the fail-open without settling the column
 name leaves a path that parses rows and suppresses nobody (§5, finding 1).
 
-1. **The sync's `entries or []`, with the column names** (§5, finding 1). Make `sync.run` fail
-   closed as its three sibling jobs already do, settle on one suppression column name across all
-   four readers, and have the run row say *why* it stopped rather than reporting OK.
+1. ~~**The sync's `entries or []`, with the column names**~~ (§5, finding 1). **DONE 2026-09-29,
+   not deployed.** `sync.run` fails closed as its siblings do, one contract
+   (`outreach/suppression.py`) serves all five readers, and a blocked run records `BLOCKED` with the
+   reason and no cursor. 40 tests, 23 deliberate breaks all caught. The running services keep the old
+   behaviour until their images are rebuilt.
 2. **The negation hole** (§3.1). A sentence that reverses its quote is accepted. Fix: treat negation
    and hedging words as content rather than stopwords, and extend `_polarity_reversed` to the
    sentence side. 0 of 25 current drafts are affected — see §3.1 for why that is not a pass rate.
@@ -572,8 +590,8 @@ name leaves a path that parses rows and suppresses nobody (§5, finding 1).
    them. `AS_BUILT.md:909` records quotes being *"independently re-fetched from the pages they cite
    and found there"*, which was a **one-off manual check of 10 quotes during profiling**, not a step
    any job runs; read as a standing guarantee it would be wrong, and it is not one.
-5. **Suppression header names disagree** across three readers (`job_draft.py:47` vs `sheet.py:248`
-   vs `sync.py:255`) — **folded into item 1**, not a separate task.
+5. ~~**Suppression header names disagree** across three readers~~ — folded into item 1 and **DONE
+   with it**: `outreach/suppression.py` owns the canonical name and its two aliases.
 6. **The approval path is not wired**: `Approval hash` and `Written` are stored in the Drafts tab
    and read by nothing. `job_draft.create` still takes them as parameters. Editing the recipient,
    the body or the handbook must invalidate the stored approval; the hash already covers all three

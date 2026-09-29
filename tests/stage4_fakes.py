@@ -199,10 +199,15 @@ class MemoryTab:
 class MemoryStore:
     """The Sheet as `outreach.sheet.Store` presents it, held in memory."""
 
-    def __init__(self, rows, events=(), suppression=(), runs=(), drafts=(), research=()):
+    def __init__(self, rows, events=(), suppression=(), runs=(), drafts=(), research=(),
+                 suppression_values=None):
         self.rows = {row["Lead ID"]: dict(row) for row in rows}
         self.event_rows = [dict(e) for e in events]
-        self.entries = None if suppression is None else [dict(s) for s in suppression]
+        self.values = suppression_values
+        if suppression is None or hasattr(suppression, "reason"):
+            self.entries = suppression
+        else:
+            self.entries = [dict(s) for s in suppression]
         self.runs = [dict(r) for r in runs]
         self.draft_rows = [dict(d) for d in drafts]
         self.research_rows = [dict(r) for r in research]
@@ -235,7 +240,18 @@ class MemoryStore:
         return [dict(e) for e in self.event_rows]
 
     def suppression(self):
-        return None if self.entries is None else [dict(e) for e in self.entries]
+        """The real Store's contract: entries, or `Unreadable` with a reason. [] is valid.
+
+        A test passes `suppression=None` for a list that cannot be read at all, or an
+        `Unreadable` for a named cause, or raw sheet values to exercise the reading itself."""
+        from outreach import suppression as suppression_contract
+        if isinstance(self.entries, suppression_contract.Unreadable):
+            raise self.entries
+        if self.entries is None:
+            raise suppression_contract.Unreadable("there is no Suppression tab in the Sheet")
+        if self.values is not None:
+            return suppression_contract.of_values(self.values)
+        return [dict(e) for e in self.entries]
 
     def run_rows(self):
         return [dict(r) for r in self.runs]

@@ -33,7 +33,7 @@ import json
 from collections import Counter, defaultdict
 from datetime import datetime, time, timedelta, timezone
 
-from outreach import checks, gmail_drafts, job_draft, mailbox, sequence
+from outreach import checks, gmail_drafts, job_draft, mailbox, sequence, suppression
 from outreach.business_days import NEW_YORK, new_york_date
 from outreach.gmail_drafts import ACTION_HEADER
 from outreach.sheet import SYNC_COLUMNS, TRACKING_COLUMNS, Store, now_utc
@@ -248,16 +248,10 @@ def plan(gmail, index, events, *, since, sender):
 
 
 def on_list(entries, address):
-    """True when an address, or its whole domain, is on the Suppression list."""
-    address = (address or "").strip().lower()
-    if not address:
-        return False
-    domain = address.rpartition("@")[2]
-    for entry in entries:
-        value = (entry.get("Address or domain") or "").strip().lower()
-        if value and (value == address or ("@" not in value.lstrip("@") and value.lstrip("@") == domain)):
-            return True
-    return False
+    """True when an address, or its whole domain, is on the Suppression list.
+
+    One test, in `outreach/suppression.py`, so every job answers this the same way."""
+    return suppression.covers(entries, address)
 
 
 def lead_suppressed(entries, row, events):
@@ -351,17 +345,28 @@ def run(where="local", *, dry_run=False, store=None, gmail=None, settings=None, 
     if expected and address != expected:
         raise SyncBlocked(f"the signed-in mailbox {address} is not the configured sender {expected}")
 
+    # Read the list before anything else is read or written. A sync that cannot tell who is
+    # suppressed writes lead state as though nobody were, and that state is what the founder reads
+    # before sending by hand, so it stops here: no events, no suppression rows, no lead updates and
+    # no cursor. The Runs row says BLOCKED, which `last_cursor` does not read, and why.
+    try:
+        entries = store.suppression()
+    except suppression.Unreadable as exc:
+        if not dry_run:
+            store.run_row("sync", where, "BLOCKED", f"nothing was recorded: {exc.reason}")
+        raise SyncBlocked(f"the Suppression list cannot be read, so nothing was "
+                          f"recorded: {exc.reason}") from exc
+
     start = start_of(settings)
     cursor = store.last_cursor()
     since = max(start, cursor - OVERLAP) if cursor else start
     index = LeadIndex(store.leads())
     events = unique(store.events())
-    entries = store.suppression()
     new, by_lead, read = plan(gmail, index, events, since=since, sender=address)
     gone = drafts_gone(gmail, index, by_lead)
     stamp = now_utc()
-    suppress = suppression_rows(events + new, entries or [], stamp)
-    updates = summaries(index.rows, by_lead, (entries or []) + suppress, new_york_date(now), gone)
+    suppress = suppression_rows(events + new, entries, stamp)
+    updates = summaries(index.rows, by_lead, entries + suppress, new_york_date(now), gone)
     report = {"dry_run": dry_run, "mailbox": address, "read_since": _iso(since),
               "messages_read": read, "new_events": dict(Counter(e["Event"] for e in new)),
               "events": new, "suppression": suppress, "lead_updates": updates, "cursor": _iso(now)}

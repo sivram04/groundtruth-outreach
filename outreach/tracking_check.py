@@ -15,7 +15,7 @@ import os
 import re
 from datetime import datetime, timezone
 
-from outreach import drafting, followup, gmail_drafts, job_draft, sequence, sync, tracking
+from outreach import drafting, followup, gmail_drafts, job_draft, sequence, suppression, sync, tracking
 from outreach.sheet import Store
 from outreach.tracking_job import TEST_LEAD
 
@@ -62,9 +62,12 @@ def create(to, *, store=None, gmail=None, settings=None, secret=None, now=None, 
     index = sync.LeadIndex(store.leads())
     if index.by_address.get(to) or index.by_domain.get(sync.company_domain(to)):
         raise CheckBlocked("that address, or its company, is a lead: the test goes to your own inbox")
-    entries = store.suppression()
-    if entries is None or sync.on_list(entries, to):
-        raise CheckBlocked("the address is on Suppression, or Suppression cannot be read")
+    try:
+        entries = store.suppression()
+    except suppression.Unreadable as exc:
+        raise CheckBlocked("no test can be drafted: " + exc.reason) from exc
+    if sync.on_list(entries, to):
+        raise CheckBlocked("the address, or its whole domain, is on the Suppression list")
     now = now or datetime.now(timezone.utc)
     action = hashlib.sha256(f"test:{to}:{now.isoformat()}".encode()).hexdigest()[:32]
     subject, body = SUBJECT, BODY.format(website=website)

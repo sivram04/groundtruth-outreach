@@ -12,7 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from outreach import drafting, gemini, gmail_drafts, handbook_drive, research, tracking, writer
+from outreach import (drafting, gemini, gmail_drafts, handbook_drive, research, suppression,
+                      tracking, writer)
 from outreach.sheet import DRAFT_COLUMNS, LEAD_TABS, SHEET_ID, SYSTEM_COLUMNS, Tab, _api
 
 MAX_PILOT = 4
@@ -39,23 +40,18 @@ def _records(api, tab_name, header_row=1):
 
 
 def _suppressed(api, email):
-    """An absent or unreadable Suppression tab is unknown, never an empty list."""
+    """Whether the address is suppressed, or None when the list cannot be read: never a guess.
+
+    `drafting.preview` treats None as unknown and blocks on it. The tab is read through the one
+    contract in `outreach/suppression.py`, the same one the Store uses, so this reader and that
+    one accept the same headers and refuse the same rows."""
     try:
-        values = api.values().get(spreadsheetId=SHEET_ID, range="'Suppression'").execute().get("values", [])
+        values = api.values().get(spreadsheetId=SHEET_ID,
+                                  range="'Suppression'").execute().get("values", [])
+        entries = suppression.of_values(values)
     except Exception:
         return None
-    if not values or not any(h in values[0] for h in ("Address or domain", "Address", "Domain")):
-        return None
-    header = values[0]
-    rows = [{name: row[i] if i < len(row) else "" for i, name in enumerate(header) if name}
-            for row in values[1:]]
-    address = email.strip().lower()
-    domain = address.rpartition("@")[2]
-    for row in rows:
-        value = (row.get("Address or domain") or row.get("Address") or row.get("Domain") or "").lower().strip()
-        if value == address or value.lstrip("@") == domain:
-            return True
-    return False
+    return suppression.covers(entries, email)
 
 
 def _read(api, ids):

@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from urllib.parse import quote, urlparse
 
 from outreach import drafts as drafts_tab
-from outreach import sequence, sync
+from outreach import sequence, suppression, sync
 from outreach.business_days import NEW_YORK, add_business_days, new_york_date
 from outreach.dashboard import NOTES
 from outreach.dashboard import TIERS as SHEET_TIERS
@@ -311,9 +311,10 @@ def draft_view(row, lead, now=None):
 
 
 def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", draft_rows=(),
-          drafts_error=None):
+          drafts_error=None, suppression_error=None):
     """The whole console, worked out once per request. `draft_rows` is the Drafts tab's rows,
-    or None when it could not be read (`drafts_error` says why)."""
+    or None when it could not be read (`drafts_error` says why); `entries` is None when the
+    Suppression list could not be read (`suppression_error` says why)."""
     today = new_york_date(now)
     events = sync.unique(events)
     by_lead = defaultdict(list)
@@ -345,7 +346,9 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", dr
     warnings = []
     if entries is None:
         warnings.append("The Suppression tab cannot be read, so nobody is shown as ready for a "
-                        "first draft and a suppressed address may not be marked.")
+                        "first draft and a suppressed address may not be marked."
+                        + (f" {suppression_error[:1].upper()}{suppression_error[1:]}."
+                           if suppression_error else ""))
     broken = [v["id"] for v in views if v["error"]]
     if broken:
         warnings.append("Where these leads stand could not be worked out from their events: "
@@ -399,6 +402,11 @@ def snapshot(store, *, settings, now, handbook_doc_id=""):
         draft_rows, drafts_error = [row for _, row in store.drafts()], None
     except RuntimeError as exc:
         draft_rows, drafts_error = None, str(exc)
-    return build(store.leads(), store.events(), store.suppression(), store.run_rows(),
+    try:
+        entries, suppression_error = store.suppression(), None
+    except suppression.Unreadable as exc:
+        entries, suppression_error = None, exc.reason
+    return build(store.leads(), store.events(), entries, store.run_rows(),
                  settings=settings, now=now, handbook_doc_id=handbook_doc_id,
-                 draft_rows=draft_rows, drafts_error=drafts_error)
+                 draft_rows=draft_rows, drafts_error=drafts_error,
+                 suppression_error=suppression_error)

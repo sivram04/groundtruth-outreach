@@ -1372,6 +1372,42 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-29** **One reading of the Suppression tab, and the sync stops instead of guessing.**
+  `outreach/suppression.py` is now the single contract: `FIELD` (`Address or domain`) is canonical,
+  `Address` and `Domain` are aliases **normalised onto it**, and `of_values`, `covers`, `cell` and
+  `address_column` are the one reader, one membership test, one write-back and one header check.
+  An empty tab that still has its header is a **valid empty list** — nobody is suppressed, and every
+  job goes on. Everything else is unknown and raises `suppression.Unreadable` with a reason: no tab,
+  no header at all, no address column, **two** address columns (position is not a tiebreaker), a row
+  with nothing in its address, or a read that failed (reported by exception class, never its text).
+
+  **The defect this closes:** `Store.suppression()` documented "None means unknown, never empty" and
+  four jobs consumed it — `drafts`, `followup` and `tracking_check` failed closed, and **`sync.run`
+  alone wrote `entries or []`**. Since `summaries` computes each lead's state from that list and
+  `sync.run` writes those columns to the Sheet, an unreadable tab made the ten-minute job rewrite
+  lead state as though nobody were suppressed — and that state is what the founder reads before
+  sending by hand. A blocked sync now writes **no** events, suppression rows or lead updates, does
+  not advance its cursor, and records `BLOCKED` with the reason (`last_cursor` reads only OK and
+  PARTIAL, so the cursor cannot move); a blocked dry run writes nothing at all.
+
+  **The second, latent half:** `job_draft._suppressed` accepted a tab headed `Address` while the
+  Store rejected it, so the same tab was readable to one job and unknown to three; and
+  `append_suppression` wrote new rows under the tab's *existing* header while keying them by
+  `Address or domain`, so a tab headed with an alias would have received rows with a **blank
+  address**, which `covers` then skips for ever. Both readers now call `of_values`, a test asserts
+  they agree case by case, and `cell` puts the address in whichever column the header uses. A header
+  with no address column is refused rather than written to. **No live Sheet column was renamed**: the
+  live tab is headed `Address or domain` already, so the aliases are only a safety net.
+
+  The console is the fifth reader and only displays: `snapshot` catches `Unreadable`, `build` still
+  receives `entries=None`, and the warning now carries the reason instead of saying only that the tab
+  cannot be read. Proof: `tests/test_suppression.py`, 40 tests — missing tab, wrong header, two
+  address columns, failed read, malformed row, valid empty list, short row, blank line, address and
+  whole-domain suppression, and each of the five consumers — and **23 deliberate breaks, all 23
+  caught by the new tests alone**, including the fail-open and the header mismatch reintroduced
+  separately. Suite 615 Python (was 575) and 46 React. **Not deployed: the running Cloud Run
+  services still carry the old behaviour until `deploy_console.sh` / the worker image is rebuilt.**
+
 - **2026-09-29** The console gets an assistant (grounded in the Sheet, refuses any answer whose
   figures the data does not carry, can change nothing) and the pages are rebuilt light in the
   shape of a dashboard the founder sent as a reference. Deployed as `outreach-console-00003-b9v`.

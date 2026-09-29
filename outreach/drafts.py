@@ -22,7 +22,7 @@ import argparse
 import json
 from datetime import datetime, timezone
 
-from outreach import drafting, gemini, job_draft, sequence, sync
+from outreach import drafting, gemini, job_draft, sequence, suppression, sync
 from outreach.sheet import Store
 
 READY, WAITING, HELD = "READY", "WAITING", "HELD"
@@ -95,9 +95,10 @@ def written_row(lead, preview, settings, facts, *, suppressed, handbook, now):
 def plan(store):
     """(leads ready for a first draft in Lead ID order, the Drafts tab as {Lead ID: sheet row})."""
     leads = store.leads()
-    entries = store.suppression()
-    if entries is None:
-        raise DraftsBlocked("the Suppression tab cannot be read, so no lead can be called ready")
+    try:
+        entries = store.suppression()
+    except suppression.Unreadable as exc:
+        raise DraftsBlocked("no lead can be called ready: " + exc.reason) from exc
     by_lead = {}
     for event in sync.unique(store.events()):
         by_lead.setdefault(event.get("Lead ID", ""), []).append(event)

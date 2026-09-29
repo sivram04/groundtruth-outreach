@@ -30,7 +30,7 @@ import re
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from outreach import drafting, gmail_drafts, job_draft, mailbox, sequence, sync, tracking
+from outreach import drafting, gmail_drafts, job_draft, mailbox, sequence, suppression, sync, tracking
 from outreach.business_days import new_york_date
 from outreach.sheet import FOLLOWUP_COLUMNS, Store
 
@@ -227,11 +227,13 @@ def run(where="local", *, dry_run=True, store=None, gmail=None, settings=None, h
     today = new_york_date(now)
     settings = job_draft.load_settings() if settings is None else settings
     store = store or Store()
-    leads, events, entries = store.leads(), sync.unique(store.events()), store.suppression()
+    leads, events = store.leads(), sync.unique(store.events())
     report = {"dry_run": dry_run, "today": today.isoformat(), "due": [], "later": [],
               "created": [], "blocked": [], "gates": []}
-    if entries is None:
-        report["gates"] = ["the Suppression tab is missing or unreadable"]
+    try:
+        entries = store.suppression()
+    except suppression.Unreadable as exc:
+        report["gates"] = [exc.reason]
         return report
     due, later = due_now(leads, events, entries, today)
     report["due"], report["later"] = [i for i, _ in due], [i for i, _ in later]
