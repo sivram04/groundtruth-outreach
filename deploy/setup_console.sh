@@ -10,16 +10,20 @@
 # After the first deploy (deploy/deploy_console.sh), the two grants at the end let the gate call
 # the service and let admin@lakshyaa.ai through the gate.
 set -e
-# Git Bash on Windows rewrites an argument like NAME=/projects/... into a Windows path; this
-# stops it (it means nothing elsewhere).
-export MSYS_NO_PATHCONV=1
 P=lakshyaa-outreach
 R=us-central1
 SA=outreach-console@$P.iam.gserviceaccount.com
+NUMBER=$(gcloud projects describe $P --format='value(projectNumber)')
 
 if [ "$1" != "after-deploy" ]; then
-  gcloud services enable iap.googleapis.com --project=$P
-  gcloud beta services identity create --service=iap.googleapis.com --project=$P
+  # IAP, and Resource Manager, which `gcloud iap web add-iam-policy-binding` needs.
+  gcloud services enable iap.googleapis.com cloudresourcemanager.googleapis.com --project=$P
+  # IAP's service agent, service-NUMBER@gcp-sa-iap: what `gcloud beta services identity create`
+  # does, called directly so the beta commands need not be installed.
+  curl -s -f -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+    -H "Content-Length: 0" \
+    "https://serviceusage.googleapis.com/v1beta1/projects/$NUMBER/services/iap.googleapis.com:generateServiceIdentity"
+  echo
   gcloud iam service-accounts describe $SA --project=$P >/dev/null 2>&1 ||
     gcloud iam service-accounts create outreach-console --project=$P \
       --display-name="Outreach console: reads the leads Sheet"
@@ -33,7 +37,6 @@ if [ "$1" != "after-deploy" ]; then
   exit 0
 fi
 
-NUMBER=$(gcloud projects describe $P --format='value(projectNumber)')
 gcloud run services add-iam-policy-binding outreach-console --region=$R --project=$P \
   --member=serviceAccount:service-$NUMBER@gcp-sa-iap.iam.gserviceaccount.com \
   --role=roles/run.invoker

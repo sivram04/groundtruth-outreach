@@ -7,6 +7,11 @@ The founder's own cold-email funnel. `docs/ARCHITECTURE.md` is authoritative;
 
 - **The system never sends email.** It only creates Gmail drafts. The founder reviews each one
   and presses Send in Gmail. No send call, SMTP client or auto-send path, ever.
+  *Changing by the founder's decision (2026-09-28):* in the console web app, Approve on one draft
+  will send that one email instead. That is console step 3, not built; until then this rule and
+  `tests/test_no_send.py` stand, and step 3 rewrites both to allow exactly that one path.
+- **Web pages are React built with Vite** (`console/`), with Python serving data only. Not
+  server-made HTML (founder, 2026-09-28).
 - **Google Sheets is the only record** of leads, results, events and metrics. No database.
 - **No third-party tools.** Only Google: Workspace (Gmail, Sheets), GCP, Gemini on Vertex AI.
   Apollo only supplied the email addresses.

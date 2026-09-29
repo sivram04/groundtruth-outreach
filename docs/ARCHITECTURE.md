@@ -28,7 +28,7 @@ The founder keeps tiered leads in a Google Sheet. The system:
 
 | Rule | How it is enforced |
 | --- | --- |
-| **The system never sends.** | No send call exists in the code. A test fails the build if `drafts.send`, `messages.send` or an SMTP client appears. Google has no drafts-only permission — `gmail.compose` also allows sending — so this is our code's promise, and the Sent folder is the founder's check. |
+| **The system never sends.** | No send call exists in the code. A test fails the build if `drafts.send`, `messages.send` or an SMTP client appears. Google has no drafts-only permission — `gmail.compose` also allows sending — so this is our code's promise, and the Sent folder is the founder's check. **Changing, by the founder's decision of 2026-09-28:** in the console (the web app, below), pressing Approve on one draft will send that one email, in place of pressing Send in Gmail. That is console step 3, not built; until it is, this rule and its test stand unchanged, and step 3 rewrites both to allow exactly that one path. |
 | **Google Sheets is the only outreach business record.** | No database. Every lead, result, event and metric is a row in the Sheet. Pub/Sub temporarily buffers tracking hits; Gmail retains the actual drafts and messages. A hit is not recorded until the worker has written its event to Sheets. |
 | **The founder's future Drive document is the only production handbook.** | Stage 3 waits until the founder puts the final handbook in Drive. The private GCP worker then reads that file with read-only authorization. Each preview and draft records its version or content hash. If it cannot read the file or the version changes after approval, drafting stops for review; no local copy silently takes its place. |
 | **No third-party tools.** | Only Google: Workspace (Gmail, Sheets), GCP (Cloud Run, Scheduler, Pub/Sub, Secret Manager), Gemini on Vertex AI. Apollo only supplied the addresses. |
@@ -213,6 +213,10 @@ Each stage is usable on its own and must pass before the next starts.
 | 4 Sync | `sync` and `followup` jobs, Suppression, auto opt-out | Founder sends a few real drafts; SENT, REPLIED and a bounce all land correctly | Founder sends |
 | 5 Tracking | Tracker service, `t.lakshyaa.ai`, Pub/Sub, Dashboard | A test email to the founder's own other inbox shows open and click | Founder sends |
 | 6 Calls | Call outcome columns drive reply drafts | — | Drafts only |
+| Console 1 | A private web app (`outreach-console`): React pages built with Vite, a Python service that reads the Sheet, Google's sign-in gate (IAP) in front for admin@lakshyaa.ai only. Dashboard, drafts, leads, sources. Reads only | The founder opens it and sees their own leads and what needs them | No |
+| Console 2 | Drafts written into a store the app reads, and the offer wording approved in the app | Drafts appear in the table and open | No |
+| Console 3 | Edit a draft, Approve sends that one email (guards: one per click, suppression, replies and bounces checked again, the daily cap) | A test send to the founder's own inbox, then one real email | **Yes: one email per Approve** |
+| Console 4 | Sources: choose the Sheet or handbook, upload a list of leads | A new list arrives as lead rows | No |
 
 ## 12. Decisions the founder owns
 
@@ -231,6 +235,18 @@ Each stage is usable on its own and must pass before the next starts.
 Decided 2026-09-28: the holiday calendar (major US holidays), follow-ups for hand-sent threads
 (reminders, never drafts) and how follow-up wording is approved (once per handbook version).
 See `AS_BUILT.md`, stage 4.
+
+Decided 2026-09-28, for the console (the web app): drafts appear in a table in a web app;
+opening one shows it with Edit and Approve; **Approve sends that one email** ("we are sending
+manually right, that's like approving it, so now the webapp will do that"); Google files are
+connected rather than uploaded; the pages are **React built with Vite**, not server-made HTML.
+Asked whether the tool could be sold as a business, the founder chose, after web research on
+competitors, demand, Google's rules for Gmail apps and the economics of small email tools, to
+**build it for themselves first** and decide on selling it only once it has proved itself on
+their own outreach. The bar proposed (not fixed): replies at or above about 6% over at least 100
+emails the system drafted, and other founders asking to use it. Selling it would need Google's
+restricted-scope verification and a yearly security assessment, because the app reads the
+mailbox and makes drafts in it. See `AS_BUILT.md`, "Console".
 
 ## 13. Not yet tested — to prove in the stages above
 

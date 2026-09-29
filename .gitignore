@@ -14,3 +14,4 @@ __pycache__/
 console/node_modules/
 console/dist/
 console/dist-demo/
+.console-env.yaml

@@ -3,10 +3,12 @@
 What exists and runs today. `ARCHITECTURE.md` is the plan; this file is the truth about what
 is actually built. **Updated after every change**, newest entry first in the change log.
 
-Last updated: 2026-09-28.
+Last updated: 2026-09-29.
 
 Pilot-readiness evidence and blockers: `docs/PILOT_READINESS_AUDIT.md`. Nothing is sent by
-this system, ever; drafts wait for the founder's approval.
+this system; drafts wait for the founder's approval. The founder decided on 2026-09-28 that
+Approve in the console (the web app) will send one approved email; that is console step 3 and
+not built, so today nothing sends.
 
 ## Stage status
 
@@ -20,8 +22,9 @@ moved on (the handbook was already in Drive and all 26 eligible leads were profi
 | 2 Research | **Bulk fit research paused; all 26 draft-eligible leads profiled** 2026-09-23 | 69 leads fit-researched (sample 30 + batch 1 39); 26 draft-eligible, all profiled: 25 READY, 1 REVIEW_NEEDED (A-0028). 396 pending, not to be resumed for now. No research schedule exists. |
 | 3 Drafts (pilot) | **Drive → Gemini → checks pipeline built and run read-only; blocked only by the unapproved offer** 2026-09-23 | The handbook is a Google Doc in Drive and the sign-in holds `drive.readonly`. Read-only over all 26 eligible leads: 21 pass, 5 held. Every passing preview's only blocker is that the founder has not approved the offer wording, so no approval hash exists, Gmail drafting has never run and no draft exists. Since 2026-09-28 the draft endpoints are in the deployed revision, and draft creation is refused there (403): `ENABLE_GMAIL_DRAFTS` is not set on the service. |
 | 4 Sync and follow-ups | **Sync deployed and scheduled every 10 minutes** 2026-09-28; no follow-up drafted | 396 tests pass offline in the container with no network; 69 deliberate breaks of the new code, all caught. Revision `outreach-worker-00017-nin` serves 100%; Cloud Scheduler `outreach-sync` (`*/10`, America/New_York) is ENABLED, and its first run returned 200 in 2.4 s. The first real sync (run locally) recorded the 14 hand-sent emails in a new Events tab and 14 A rows. See "Stage 4" below. Its pass test (the founder sends real drafts; SENT, REPLIED and a bounce land correctly) has not been run. |
-| 5 Tracking | **Built and deployed 2026-09-28; off for new drafts; t.lakshyaa.ai live over HTTPS (DNS added by the founder, certificate issued 23:55 UTC); pass-test drafts made, waiting for the founder to send, open and click** | 460 tests pass offline in the container; 49 deliberate breaks, 48 caught, 1 equivalent. Public tracker `outreach-tracker` smoke-tested live (forged links counted nothing, an off-site click was refused, genuine hits queued with no IP address); the worker picks up hits every 5 minutes (`outreach-tracking`); the Dashboard tab computes 14 emailed, 1 match to check. Its pass test (a test email to the founder's other inbox shows an open and a click) waits for the DNS record and certificate. See "Stage 5" below. |
+| 5 Tracking | **Built and deployed 2026-09-28; off for new drafts; t.lakshyaa.ai live over HTTPS (DNS added by the founder, certificate issued 23:55 UTC); pass test: both test emails in the Inbox (personal Gmail and a Google Workspace inbox), one genuine open and one click recorded on the personal one; tracking not yet switched on for drafts** | 460 tests pass offline in the container; 49 deliberate breaks, 48 caught, 1 equivalent. Public tracker `outreach-tracker` smoke-tested live (forged links counted nothing, an off-site click was refused, genuine hits queued with no IP address); the worker picks up hits every 5 minutes (`outreach-tracking`); the Dashboard tab computes 14 emailed, 1 match to check. Its pass test (a test email to the founder's other inbox shows an open and a click) waits for the DNS record and certificate. See "Stage 5" below. |
 | 6 Calls | Not started | |
+| Console (web app) | **Step 1 deployed 2026-09-29: private, read-only, behind Google's sign-in gate.** Steps 2-4 (drafts in the app, edit and Approve-sends, sources and uploads) not built | 515 Python and 26 React tests pass; 42 of 42 deliberate breaks caught. Live: a stranger is sent to Google sign-in, a request marked as the app's own gets 401, forged headers get nowhere, only IAP's agent may call the service. **Not yet seen by the founder**, so the real leads on its pages are unverified. See "Console" below. |
 
 ## What runs where
 
@@ -39,6 +42,10 @@ flowchart LR
   W -->|reads only: list and get| G[Gmail admin@lakshyaa.ai]
   W -->|DNS via 8.8.8.8 / 8.8.4.4<br/>HTTP GET company sites, robots.txt honoured| NET[Public internet]
   W -->|gemini-2.5-flash, JSON only| V[Vertex AI]
+  F[The founder's browser<br/>signed in as admin@lakshyaa.ai] -->|Google sign-in| IAP[Identity-Aware Proxy]
+  IAP -->|signed token, as IAP's service agent| C[Cloud Run outreach-console<br/>private, React pages + data<br/>reads only]
+  SM -->|google-signin-token<br/>outreach-settings| C
+  C -->|Sheets API as admin@lakshyaa.ai<br/>reads only| S
 ```
 
 **The deployed worker reads Gmail, and writes nothing to it.** Since 2026-09-28 the scheduled
@@ -66,8 +73,11 @@ Org `lakshyaa.ai` (787760867942). Billing: "My Billing Account" `01A2E0-CC6FD1-A
 | Cloud Scheduler `outreach-tracking` | `2-59/5 * * * *` America/New_York (minutes 2, 7, 12 …) → `POST /jobs/tracking`; same OIDC; attempt deadline 300 s; **ENABLED** since 2026-09-28. First set to `*/5`, which fired together with sync at every ten minutes: the worker takes one request at a time, and at 20:30 UTC it refused the sync (429). Moved off sync's minutes the same day |
 | Secret `google-signin-token` | JSON: account, OAuth client id/secret, refresh token, scopes |
 | OAuth app | Internal to `lakshyaa.ai`; Desktop client `outreach-local-signin`; scopes `gmail.compose`, `gmail.readonly`, `spreadsheets` |
-| Build | Default compute account holds `cloudbuild.builds.builder` (source deploys) |
-| Enabled APIs | Sheets, Gmail, Drive, Cloud Run, Scheduler, Pub/Sub, Secret Manager, Vertex AI, Artifact Registry, Cloud Build, IAM Credentials |
+| Cloud Run `outreach-console` | `https://outreach-console-30387157876.us-central1.run.app`, created 2026-09-29. **Behind IAP** (`--iap`, Google-managed OAuth client, users of the organisation only); `--no-allow-unauthenticated`, and the only invoker is IAP's service agent `service-30387157876@gcp-sa-iap`. IAP access (`iap.httpsResourceAccessor`): `user:admin@lakshyaa.ai` only. The app checks IAP's token itself (`CONSOLE_IAP_AUDIENCE=/projects/30387157876/locations/us-central1/services/outreach-console`, `CONSOLE_ALLOWED_EMAILS=admin@lakshyaa.ai`). Image from `deploy/console.Dockerfile` via Cloud Build; runs as `outreach-console@`; secrets `GOOGLE_SIGNIN_TOKEN`, `OUTREACH_HANDBOOK_JSON` (= `outreach-settings`); `HANDBOOK_DOC_ID`; max 2 instances, concurrency 8, timeout 60 s, 512 MiB. Revision `outreach-console-00001-2x6` |
+| Service account `outreach-console@` | `secretAccessor` on `google-signin-token` and `outreach-settings`. Nothing else |
+| Secret `outreach-settings` | The drafting settings (`.secrets/pilot_handbook.json`), version 1 made 2026-09-29, so the console can say what drafting waits for. It holds the founder's postal address and phone for the signature; the console passes on only the approval flags, the daily cap and the sending address. After a local change: `gcloud secrets versions add outreach-settings --data-file=.secrets/pilot_handbook.json --project=lakshyaa-outreach` |
+| Build | Default compute account holds `cloudbuild.builds.builder` (source deploys). The console's image is built by `gcloud builds submit` into `cloud-run-source-deploy` |
+| Enabled APIs | Sheets, Gmail, Drive, Cloud Run, Scheduler, Pub/Sub, Secret Manager, Vertex AI, Artifact Registry, Cloud Build, IAM Credentials; **IAP and Cloud Resource Manager** (2026-09-29, for the console) |
 
 Deploy: `sh deploy/deploy_worker.sh` builds a new revision with **no traffic** under the tag
 `next`. Test it on `https://next---outreach-worker-z6borhtwoq-uc.a.run.app` (a POST needs
@@ -1189,7 +1199,98 @@ unproven: whether the image and links survive the founder editing a draft in the
 (architecture §13), how real mail programs load the image, and the effect on deliverability. Only
 emails this system drafts can be tracked, and none exists yet (the offer wording is unapproved).
 
+## Console — the web app (step 1 deployed 2026-09-29, read-only)
+
+**Founder decisions, 2026-09-28.** A web app where drafts appear in a table; opening one shows it
+with Edit and Approve; **Approve sends that one email**, in place of pressing Send in Gmail;
+Google files are connected rather than uploaded; built with **React on Vite**, not server-made
+HTML ("dont use html use react or vite"). Asked whether it could be sold, the founder had web
+research run first (competitors, demand, Google's rules for Gmail apps, the economics of small
+email tools) and then chose to **build it for themselves first**, and to decide on selling it
+only after it proves itself on their own outreach (bar proposed, not fixed: replies at about 6%
+or better over at least 100 system-drafted emails, and other founders asking for it). What the
+research found, briefly: no product found does the whole loop, but each piece is sold (GMass is
+closest on Gmail and Sheets; HubSpot, Reply.io and others already offer approve-before-send); no
+one guarantees a quote from the prospect's own site behind every sentence; low-priced AI tools
+keep few customers (ChartMogul 2025: 23% of revenue kept after a year under $50 a month); selling
+it needs Google's restricted-scope verification and a yearly security assessment. Plan: step 1
+read-only pages; step 2 drafts into a store and offer approval in the app; step 3 edit and
+Approve-sends (the no-send rule and its test rewritten then, for exactly that path); step 4
+sources and uploads.
+
+**What step 1 is.** `console/` is a React app built with Vite: Dashboard (what needs the founder
+in order: replies, follow-ups due or late, drafts waiting, checks; follow-ups coming up in the
+next 5 business days; the Sheet Dashboard's numbers per tier), Drafts (none yet; what drafting
+waits for; who is ready for a first draft), Leads (search, tier and status filters), a page per
+lead (next step, facts, emails, why it is or is not ready, its history, every column of its row),
+Sources (the Sheet, the scheduled jobs, the handbook link, the drafting settings). The pages sit
+after the `#`, so the server sends one page. `outreach/console.py` serves the built files and one
+data route, `GET /api/snapshot`; every route is a GET (anything else 405), and every response
+carries a content policy allowing only the app's own scripts and styles, no framing. The data is
+`outreach/console_model.py`: where each lead stands is worked out with the sync's own
+`sequence.lead_state` for today, so the console and the lead tabs cannot disagree (a test pins
+it; the one difference: the console does not look in Gmail, so a draft deleted there shows as
+deleted only after the next sync). Readiness for a first draft uses the drafting step's own
+checks (`drafting.lead_blockers`, now shared) plus "already emailed". From the settings it passes
+on only the approval flags, the daily cap and the sending address, never the postal address or
+phone. A website cell is a link only when it is an http(s) address (checked on both sides); text
+from the Sheet is shown as text. Reading holds one lock, because the process's one Sheets client
+is not safe across threads.
+
+**Who can open it.** Google's sign-in gate (IAP) sends anyone not signed in to Google's sign-in
+and lets through only admin@lakshyaa.ai. Behind it, `outreach/console_auth.py` checks, on every
+request including the page files, the token IAP signs: ES256 only, IAP's published keys (read
+again after an hour or on an unknown key), issuer IAP, this service's audience, not expired, and
+an address on the console's own allow-list. The plain `X-Goog-Authenticated-User-Email` header is
+never trusted. Without its settings the console opens for nobody (503).
+
+**Proof.** Python suite 515 passed (50 new), React suite 26 passed; 42 deliberate breaks across
+the sign-in check, the server, the data and the pages, all caught (5 first survived and got
+tests: a follow-up due exactly today, an event recorded twice, the Drafts page when Suppression
+is unreadable, and a token signed another way under a listed key). The pages were looked at in
+the browser pane from a one-file demo build of made-up leads (`npm run build:demo`;
+`tests/console_fixture.py` makes that data through the real model, and a test holds the two
+equal) at 1280 wide and phone width (no sideways scrolling on any page), and the search and
+filters were used. The image was run locally: every path 401 without IAP's token, the plain email
+header refused, security headers present. Live on 2026-09-29: not signed in → 302 to Google
+sign-in; a request marked as the app's own → 401 (the page then offers a reload); forged headers
+→ 302; IAP enabled; the environment exact; the only invoker IAP's agent; start-up clean.
+**Not proven:** the founder has not opened it yet, so its pages over the real Sheet, Google's
+sign-in for them and the time a page takes to read are unseen; the Gmail links (search by
+address, account chosen by `authuser`) have not been clicked.
+
+**Found on the way.** Git Bash on Windows rewrote `NAME=/projects/...` arguments into Windows
+paths (a local container got a mangled audience and refused to start, which is the safe
+failure); switching that rewriting off broke gcloud's own launcher. The deploy script now passes
+the console's settings to Cloud Run in a small file instead. `gcloud iap web` needs the Cloud
+Resource Manager API; `gcloud beta` is not installed here, so the setup calls the service-identity
+API directly for IAP's service agent.
+
+**Deploy:** `sh deploy/setup_console.sh` once (done), `sh deploy/deploy_console.sh` for each new
+version (builds, deploys, serves at once: it only reads), `sh deploy/setup_console.sh
+after-deploy` once after the first deploy (done). Update the settings secret after changing the
+local settings file (command above, "GCP").
+
 ## Change log
+
+- **2026-09-29** Console step 1 built and deployed (see "Console"): a private, read-only React app
+  over the Sheet behind Google's sign-in gate, for admin@lakshyaa.ai only. New in Google Cloud:
+  the IAP and Cloud Resource Manager APIs, IAP's service agent, `outreach-console@`, the secret
+  `outreach-settings` (from the local settings file), and the service. The founder has not opened
+  it yet.
+
+- **2026-09-28** Founder's decisions for the web app: Approve sends one email (step 3), React on
+  Vite, build it for themselves first and decide on selling it after it proves itself (after web
+  research on competitors, demand, Google's Gmail-app rules and small-tool economics). The
+  half-written server-made HTML version was set aside unmerged.
+
+- **2026-09-28** Pass test result, from the founder: both test emails landed in the Inbox, in
+  their personal Gmail and in their bettersnap.ai Google Workspace inbox. The personal one
+  recorded one genuine open and one click at 20:24 ET. The image was also loaded one to two
+  seconds before each send (the compose window), which the after-send rule correctly does not
+  count; they were first reported to the founder as opens ("100%") and corrected when the
+  founder asked for proof. No genuine open or click was recorded for the bettersnap.ai email as of the last check
+  that evening. Both inboxes are Google's; Microsoft's filtering is still untested.
 
 - **2026-09-29** t.lakshyaa.ai is live: the founder added the CNAME at Squarespace (seen on
   Squarespace's own server and Google's public DNS at 23:38 UTC), Google issued the certificate
