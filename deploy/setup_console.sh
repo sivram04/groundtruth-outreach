@@ -34,6 +34,9 @@ if [ "$1" != "after-deploy" ]; then
       --data-file=.secrets/pilot_handbook.json
   gcloud secrets add-iam-policy-binding outreach-settings --project=$P \
     --member=serviceAccount:$SA --role=roles/secretmanager.secretAccessor
+  # The assistant puts the founder's question, with the console's own data, to Gemini.
+  gcloud projects add-iam-policy-binding $P --condition=None \
+    --member=serviceAccount:$SA --role=roles/aiplatform.user
   exit 0
 fi
 

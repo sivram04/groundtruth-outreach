@@ -1,9 +1,11 @@
 """The outreach console: a private web app over the leads Sheet.
 
-The pages are a React app (built with Vite, in `console/`), served from here as files. The only
-data they are given is `GET /api/snapshot`: the console worked out from the Sheet by
-`console_model`. Step 1 (2026-09-28) only reads: nothing here writes to the Sheet or to Gmail,
-and every route is a GET.
+The pages are a React app (built with Vite, in `console/`), served from here as files. They are
+given the console worked out from the Sheet by `console_model` (`GET /api/snapshot`), and one
+question at a time may be put to the assistant (`POST /api/ask`, `outreach/assistant.py`).
+
+**Nothing here writes**, to the Sheet or to Gmail. The one route that is not a GET only reads
+the Sheet and asks the model; a test holds every other route to GET.
 
 Only the accounts on the allow-list can open it. Google's sign-in gate (IAP) stands in front of
 the service, and `console_auth` checks the gate's signed token on every request, the page files
@@ -20,7 +22,7 @@ from pathlib import Path
 
 from flask import Flask, g, jsonify, request, send_from_directory
 
-from outreach import console_auth, console_model, job_draft
+from outreach import assistant, console_auth, console_model, job_draft
 from outreach.sheet import Store
 
 DEFAULT_STATIC = Path(__file__).resolve().parent.parent / "console" / "dist"
@@ -86,10 +88,10 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
 
     @app.errorhandler(405)
     def not_allowed(_):
-        return refuse(405, "The console only reads: nothing can be sent to it.")
+        return refuse(405, "The console only reads: nothing else can be sent to it.")
 
-    @app.get("/api/snapshot")
-    def snapshot():
+    def console():
+        """The console worked out from the Sheet now, or a refusal to show instead."""
         try:
             chosen = settings() or {}
         except Exception:  # unreadable settings must not close the whole console
@@ -101,10 +103,32 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                                               handbook_doc_id=handbook_doc_id)
         except Exception:
             log.exception("the Sheet could not be read")
-            return refuse(502, "The Sheet could not be read just now. Nothing was changed; "
-                               "try again in a minute.")
+            return None, refuse(502, "The Sheet could not be read just now. Nothing was "
+                                     "changed; try again in a minute.")
         data["signed_in_as"] = g.email
-        return jsonify(data)
+        return data, None
+
+    @app.get("/api/snapshot")
+    def snapshot():
+        data, refused = console()
+        return refused or jsonify(data)
+
+    @app.post("/api/ask")
+    def ask():
+        """The assistant answers one question about the founder's own outreach. It reads the
+        Sheet, puts the question to the model with that data, and shows nothing the data does
+        not support. It writes nothing, here or anywhere."""
+        question = (request.get_json(silent=True) or {}).get("question", "")
+        data, refused = console()
+        if refused:
+            return refused
+        try:
+            answered = assistant.ask(question, data)
+        except assistant.Refused as exc:
+            log.info("assistant refused for %s: %s", g.email, exc.why)
+            return jsonify(answer=exc.said, refused=True), 200
+        log.info("assistant answered for %s (%s tokens)", g.email, answered.get("tokens"))
+        return jsonify(**answered, refused=False)
 
     @app.get("/")
     def page():

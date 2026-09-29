@@ -244,3 +244,28 @@ describe("when the data cannot be read", () => {
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 });
+
+describe("the dashboard's leads table", () => {
+  it("counts each tab and narrows the table when one is chosen", async () => {
+    await open("#/");
+    const tabs = screen.getByRole("tablist", { name: "Which leads" });
+    const named = (name: string) => within(tabs).getByRole("tab", { name: new RegExp(`^${name}`) });
+    expect(named("All leads").textContent).toBe("All leads17");
+    expect(named("Replied").textContent).toBe("Replied1");
+    expect(named("Ready for a first draft").textContent).toBe("Ready for a first draft4");
+    expect(within(screen.getAllByRole("table")[0]!).getAllByRole("row").length - 1).toBe(17);
+    await act(async () => named("Replied").click());
+    const rows = within(screen.getAllByRole("table")[0]!).getAllByRole("row");
+    expect(rows.length - 1).toBe(1);
+    expect(within(rows[1]!).getByRole("link", { name: "Acme Plumbing" })).toBeTruthy();
+  });
+
+  it("searches within the tab that is open", async () => {
+    await open("#/");
+    const box = screen.getByLabelText("Search leads");
+    fireEvent.change(box, { target: { value: "acme" } });
+    const rows = within(screen.getAllByRole("table")[0]!).getAllByRole("row");
+    expect(rows.length - 1).toBe(1);
+    expect(within(rows[1]!).getByRole("link", { name: "Acme Plumbing" })).toBeTruthy();
+  });
+});

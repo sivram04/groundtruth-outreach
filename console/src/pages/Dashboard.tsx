@@ -1,8 +1,10 @@
-import { ArrowRight, CalendarClock, Flag, Mail, MailOpen, Reply, Send, Workflow } from "lucide-react";
-import { Avatar, Callout, Card, Chip, ExternalLink, PageHead, StatCard, type Tone } from "../components";
+import { ArrowRight, CalendarClock, Flag, Mail, MailOpen, Reply, Search, Send, X } from "lucide-react";
+import { useState } from "react";
+import { Avatar, Callout, Card, Chip, ExternalLink, PageHead, StatCard, draftTone, leadTone, type Tone } from "../components";
+import { SHOW, filterLeads } from "../filters";
 import { gmailSearch } from "../format";
 import { href, leadHref } from "../router";
-import type { Snapshot, TierCounts } from "../types";
+import type { Draft, Snapshot, TierCounts } from "../types";
 
 // The tone of each kind of thing that needs the founder: an answer, something late, a draft,
 // a check. The order numbers come from the server (console_model NEED_LABELS).
@@ -26,6 +28,26 @@ const NUMBERS: [keyof TierCounts, string][] = [
   ["clicked", "Clicked"],
   ["click_rate", "Click rate"],
 ];
+
+/** A draft as a card: who it is to, what it says it is waiting for, and a way in. */
+function DraftCard({ draft }: { draft: Draft }) {
+  const tone = draftTone(draft.status);
+  return (
+    <a className={`draft-card ${tone}`} href={leadHref(draft.lead_id)}>
+      <div className="draft-card-top">
+        <Avatar name={draft.company} />
+        <Chip tone={tone}>{draft.status_label}</Chip>
+      </div>
+      <h3>{draft.company}</h3>
+      <p className="draft-card-subject">{draft.subject || draft.why[0] || "No subject"}</p>
+      <p className="draft-card-to muted small">
+        {draft.contact && `${draft.contact} · `}
+        {draft.to}
+      </p>
+      <span className="draft-card-open">Read it</span>
+    </a>
+  );
+}
 
 function Pipeline({ all }: { all: TierCounts }) {
   const steps: [string, number, string][] = [
@@ -56,10 +78,14 @@ function Pipeline({ all }: { all: TierCounts }) {
 }
 
 export function Dashboard({ data }: { data: Snapshot }) {
+  const [show, setShow] = useState("all");
+  const [words, setWords] = useState("");
   const leads = new Map(data.leads.map((lead) => [lead.id, lead]));
+  const drafts = new Map(data.drafts.map((draft) => [draft.lead_id, draft]));
   const all = data.tiers[data.tiers.length - 1];
   const account = data.links.gmail_account || data.signed_in_as;
   const waiting = data.drafts_summary.waiting_for_offer;
+  const rows = filterLeads(data, { q: words, tier: "", show });
   return (
     <>
       <PageHead
@@ -118,6 +144,22 @@ export function Dashboard({ data }: { data: Snapshot }) {
         />
       </div>
 
+      {data.drafts.length > 0 && (
+        <section className="strip">
+          <div className="strip-head">
+            <h2>Drafts to read</h2>
+            <a className="button small ghost" href={href("/drafts")}>
+              Read them all <ArrowRight size={15} aria-hidden="true" />
+            </a>
+          </div>
+          <div className="draft-cards">
+            {data.drafts.slice(0, 5).map((draft) => (
+              <DraftCard key={`${draft.lead_id}-${draft.kind}`} draft={draft} />
+            ))}
+          </div>
+        </section>
+      )}
+
       <div className="grid-dash">
         <Card title="Needs you" icon={Flag}>
           {data.needs_you.length === 0 ? (
@@ -159,7 +201,7 @@ export function Dashboard({ data }: { data: Snapshot }) {
 
         <div className="stack">
           {all && (
-            <Card title="Pipeline" icon={Workflow}>
+            <Card title="Pipeline">
               <Pipeline all={all} />
             </Card>
           )}
@@ -185,7 +227,98 @@ export function Dashboard({ data }: { data: Snapshot }) {
         </div>
       </div>
 
-      <Card title="Numbers">
+      <section className="card flush">
+        <div className="table-head">
+          <div className="table-tabs" role="tablist" aria-label="Which leads">
+            {SHOW.map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={show === key}
+                className={show === key ? "on" : undefined}
+                onClick={() => setShow(key)}
+              >
+                {label}
+                <span className="tab-count">{filterLeads(data, { q: "", tier: "", show: key }).length}</span>
+              </button>
+            ))}
+          </div>
+          <div className="search small">
+            <Search size={15} aria-hidden="true" />
+            <input
+              type="search"
+              value={words}
+              onChange={(event) => setWords(event.target.value)}
+              placeholder="Search company…"
+              aria-label="Search leads"
+              maxLength={100}
+            />
+            {words && (
+              <button type="button" className="icon-button" onClick={() => setWords("")} aria-label="Clear the search">
+                <X size={15} aria-hidden="true" />
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="scroll">
+          <table className="leads-table">
+            <thead>
+              <tr>
+                <th scope="col">Company</th>
+                <th scope="col">Draft</th>
+                <th scope="col">Status</th>
+                <th scope="col">First sent</th>
+                <th scope="col">Next</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, 40).map((lead) => {
+                const draft = drafts.get(lead.id);
+                return (
+                  <tr key={lead.id}>
+                    <td>
+                      <div className="who-cell">
+                        <Avatar name={lead.company || lead.id} size="small" />
+                        <div>
+                          <a href={leadHref(lead.id)} className="strong">
+                            {lead.company || lead.id}
+                          </a>
+                          <span className="small muted block">
+                            {lead.id}
+                            {lead.contact && ` · ${lead.contact}`}
+                          </span>
+                        </div>
+                      </div>
+                    </td>
+                    <td>{draft ? <Chip tone={draftTone(draft.status)}>{draft.status_label}</Chip> : <span className="muted">—</span>}</td>
+                    <td>
+                      <Chip tone={leadTone(lead.status)}>{lead.status_label}</Chip>
+                    </td>
+                    <td className="nowrap small">{lead.cells["Sent at"] || "—"}</td>
+                    <td className="small next">{lead.action}</td>
+                  </tr>
+                );
+              })}
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="muted">
+                    No lead matches.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {rows.length > 40 && (
+          <p className="table-foot small muted">
+            The first 40 of {rows.length}. <a href={href("/leads", { show })}>See them all on the Leads page.</a>
+          </p>
+        )}
+      </section>
+
+      <details className="card">
+        <summary>All the numbers, by tier</summary>
         <div className="scroll">
           <table>
             <thead>
@@ -221,7 +354,7 @@ export function Dashboard({ data }: { data: Snapshot }) {
             <li key={note}>{note}</li>
           ))}
         </ul>
-      </Card>
+      </details>
     </>
   );
 }

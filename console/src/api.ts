@@ -49,3 +49,37 @@ export async function loadSnapshot(fetcher: typeof fetch = fetch): Promise<Snaps
   }
   return data;
 }
+
+export interface Answer {
+  answer: string;
+  refused: boolean;
+  lead_ids?: string[];
+  link?: { page: string; lead_id: string; show: string; label: string } | null;
+}
+
+/** Put one question to the assistant. It reads; it can change nothing. */
+export async function askAssistant(question: string, fetcher: typeof fetch = fetch): Promise<Answer> {
+  if (import.meta.env.VITE_DEMO === "1") {
+    const demo = await import("./demo/answers");
+    return demo.demoAnswer(question);
+  }
+  let response: Response;
+  try {
+    response = await fetcher("/api/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json",
+                 "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      body: JSON.stringify({ question }),
+    });
+  } catch {
+    throw new LoadError("The console could not be reached. Check the connection and try again.");
+  }
+  if (response.status === 401) throw new LoadError(SIGN_IN_ENDED, true);
+  const isJson = (response.headers.get("Content-Type") ?? "").includes("application/json");
+  const body: unknown = isJson ? await response.json().catch(() => null) : null;
+  if (!body || typeof body !== "object" || !("answer" in body)) {
+    throw new LoadError(isJson ? "The assistant could not answer just now." : SIGN_IN_ENDED, !isJson);
+  }
+  return body as Answer;
+}

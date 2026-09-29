@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
-import { LoadError, loadSnapshot } from "./api";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { LoadError, loadSnapshot, type askAssistant } from "./api";
+import { Assistant } from "./assistant";
 import { NAME } from "./brand";
 import { Card, Layout, Warnings } from "./components";
 import { Dashboard } from "./pages/Dashboard";
@@ -59,9 +60,33 @@ function Failed({ error, onRetry }: { error: LoadError; onRetry: () => void }) {
   );
 }
 
-export function App({ load = loadSnapshot }: { load?: () => Promise<Snapshot> }) {
+/** Whether the assistant is open is remembered in this browser, per person, and nowhere else. */
+const ASSISTANT_KEY = "outreach.assistant";
+
+function remembered(): boolean {
+  // On a phone the assistant covers the page, so it opens only when asked for; on a wide
+  // screen it sits beside the pages. Either way, what the founder last chose wins.
+  const wide = typeof window.matchMedia === "function" ? window.matchMedia("(min-width: 861px)").matches : true;
+  try {
+    const kept = window.localStorage.getItem(ASSISTANT_KEY);
+    return kept === null ? wide : kept !== "off";
+  } catch {
+    return wide;
+  }
+}
+
+function remember(shown: boolean) {
+  try {
+    window.localStorage.setItem(ASSISTANT_KEY, shown ? "on" : "off");
+  } catch {
+    // A browser that keeps nothing is fine; the assistant simply opens again next time.
+  }
+}
+
+export function App({ load = loadSnapshot, ask }: { load?: () => Promise<Snapshot>; ask?: typeof askAssistant }) {
   const route = useRoute();
   const [state, setState] = useState<State>({ data: null, error: null, loading: true });
+  const [assistantShown, setAssistantShown] = useState(remembered);
 
   const refresh = useCallback(() => {
     setState((current) => ({ ...current, loading: true }));
@@ -87,6 +112,15 @@ export function App({ load = loadSnapshot }: { load?: () => Promise<Snapshot> })
   }, [route, lead]);
 
   const { data, error, loading } = state;
+  const companies = useMemo(
+    () => new Map((data?.leads ?? []).map((item) => [item.id, item.company || item.id])),
+    [data],
+  );
+  const show = useCallback((shown: boolean) => {
+    setAssistantShown(shown);
+    remember(shown);
+  }, []);
+
   return (
     <Layout
       page={route.page}
@@ -94,6 +128,9 @@ export function App({ load = loadSnapshot }: { load?: () => Promise<Snapshot> })
       readAt={data?.read_at ?? ""}
       refreshing={loading}
       draftsWaiting={data?.drafts.length ?? 0}
+      assistantShown={assistantShown}
+      onShowAssistant={() => show(true)}
+      assistant={<Assistant companies={companies} ask={ask} onClose={() => show(false)} />}
       onRefresh={refresh}
     >
       {data ? (

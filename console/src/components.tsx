@@ -1,12 +1,9 @@
 import {
-  Database,
   ExternalLink as ExternalIcon,
   Info,
-  LayoutDashboard,
-  Mail,
+  MessageSquare,
   RefreshCw,
   TriangleAlert,
-  Users,
   type LucideIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -14,11 +11,11 @@ import { NAME } from "./brand";
 import type { Page } from "./router";
 import type { Approvals } from "./types";
 
-const NAV: [Page, string, string, LucideIcon][] = [
-  ["dashboard", "#/", "Dashboard", LayoutDashboard],
-  ["drafts", "#/drafts", "Drafts", Mail],
-  ["leads", "#/leads", "Leads", Users],
-  ["sources", "#/sources", "Sources", Database],
+const NAV: [Page, string, string][] = [
+  ["dashboard", "#/", "Dashboard"],
+  ["drafts", "#/drafts", "Drafts"],
+  ["leads", "#/leads", "Leads"],
+  ["sources", "#/sources", "Sources"],
 ];
 
 export function Layout(props: {
@@ -27,56 +24,58 @@ export function Layout(props: {
   readAt: string;
   refreshing: boolean;
   draftsWaiting: number;
+  assistant: ReactNode;
+  assistantShown: boolean;
+  onShowAssistant: () => void;
   onRefresh: () => void;
   children: ReactNode;
 }) {
   const active = props.page === "lead" ? "leads" : props.page;
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <a className="brand" href="#/">
-          <span className="brand-mark" aria-hidden="true">
-            {NAME.slice(0, 1)}
-          </span>
-          <span>{NAME}</span>
-        </a>
-        <nav aria-label="Pages">
-          {NAV.map(([page, link, label, Icon]) => (
-            <a
-              key={page}
-              href={link}
-              className={active === page ? "on" : undefined}
-              aria-current={active === page ? "page" : undefined}
-            >
-              <Icon size={18} aria-hidden="true" />
-              <span className="label">{label}</span>
-              {page === "drafts" && props.draftsWaiting > 0 && (
-                <span className="count" aria-label={`${props.draftsWaiting} drafts`}>
-                  {props.draftsWaiting}
-                </span>
-              )}
-            </a>
-          ))}
-        </nav>
-        <div className="sidebar-foot">
-          {props.signedInAs && (
-            <div className="who" title={props.signedInAs}>
-              <span className="avatar small" aria-hidden="true">
+    <div className={`shell${props.assistantShown ? " with-assistant" : ""}`}>
+      {props.assistantShown && props.assistant}
+      <div className="content">
+        <header className="topbar">
+          <a className="brand" href="#/">
+            <span className="brand-mark" aria-hidden="true">
+              {NAME.slice(0, 1)}
+            </span>
+          </a>
+          <nav aria-label="Pages">
+            {NAV.map(([page, link, label]) => (
+              <a
+                key={page}
+                href={link}
+                className={active === page ? "on" : undefined}
+                aria-current={active === page ? "page" : undefined}
+              >
+                {label}
+                {page === "drafts" && props.draftsWaiting > 0 && (
+                  <span className="count" aria-label={`${props.draftsWaiting} drafts`}>
+                    {props.draftsWaiting}
+                  </span>
+                )}
+              </a>
+            ))}
+          </nav>
+          <div className="topbar-side">
+            {!props.assistantShown && (
+              <button type="button" className="ghost" onClick={props.onShowAssistant}>
+                <MessageSquare size={15} aria-hidden="true" /> Ask
+              </button>
+            )}
+            <span className="muted small read-at">{props.readAt && `Read ${props.readAt}`}</span>
+            <button type="button" className="ghost" onClick={props.onRefresh} disabled={props.refreshing}>
+              <RefreshCw size={15} aria-hidden="true" className={props.refreshing ? "spin" : undefined} />
+              {props.refreshing ? "Reading…" : "Refresh"}
+            </button>
+            {props.signedInAs && (
+              <span className="avatar small" title={props.signedInAs} aria-label={props.signedInAs}>
                 {props.signedInAs.slice(0, 1).toUpperCase()}
               </span>
-              <span className="who-text">{props.signedInAs}</span>
-            </div>
-          )}
-        </div>
-      </aside>
-      <div className="content">
-        <div className="topbar">
-          <span className="muted small">{props.readAt && `Read from the Sheet at ${props.readAt}`}</span>
-          <button type="button" className="ghost" onClick={props.onRefresh} disabled={props.refreshing}>
-            <RefreshCw size={15} aria-hidden="true" className={props.refreshing ? "spin" : undefined} />
-            {props.refreshing ? "Reading…" : "Refresh"}
-          </button>
-        </div>
+            )}
+          </div>
+        </header>
         <main>{props.children}</main>
         <footer>Nothing on these pages changes the Sheet or Gmail.</footer>
       </div>
@@ -139,7 +138,13 @@ export function Avatar(props: { name: string; size?: "small" | "large" }) {
   );
 }
 
-export function Card(props: { title?: string; icon?: LucideIcon; children: ReactNode; className?: string; action?: ReactNode }) {
+export function Card(props: {
+  title?: string;
+  icon?: LucideIcon;
+  children: ReactNode;
+  className?: string;
+  action?: ReactNode;
+}) {
   const Icon = props.icon;
   return (
     <section className={`card ${props.className ?? ""}`.trim()}>
@@ -159,7 +164,14 @@ export function Card(props: { title?: string; icon?: LucideIcon; children: React
   );
 }
 
-export function StatCard(props: { icon: LucideIcon; tone: Tone; value: ReactNode; label: string; sub?: string; href?: string }) {
+export function StatCard(props: {
+  icon: LucideIcon;
+  tone: Tone;
+  value: ReactNode;
+  label: string;
+  sub?: string;
+  href?: string;
+}) {
   const Icon = props.icon;
   const inner = (
     <>

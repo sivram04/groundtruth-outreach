@@ -4,7 +4,7 @@ page files are served only behind the same check."""
 import pytest
 
 import console_fixture as fx
-from outreach import console, console_auth
+from outreach import assistant, console, console_auth
 from stage4_fakes import MemoryStore
 from test_console_auth import AUDIENCE, ALLOWED, Keys, token
 
@@ -109,8 +109,10 @@ def test_the_console_only_reads(built):
         assert response.status_code == 405, method
     unsigned = client.post("/api/snapshot")
     assert unsigned.status_code == 401  # the sign-in check comes first, whatever the method
-    routes = console.create_app(verifier=None).url_map.iter_rules()
-    assert all(rule.methods <= {"GET", "HEAD", "OPTIONS"} for rule in routes)
+    routes = {rule.rule: rule.methods for rule in console.create_app(verifier=None).url_map.iter_rules()}
+    # The assistant's is the one route that is not a GET, and it only reads.
+    assert routes.pop("/api/ask") <= {"POST", "OPTIONS"}
+    assert all(methods <= {"GET", "HEAD", "OPTIONS"} for methods in routes.values())
 
 
 def test_serving_the_data_writes_nothing_to_the_sheet(built):
@@ -121,6 +123,73 @@ def test_serving_the_data_writes_nothing_to_the_sheet(built):
         assert client.get("/api/snapshot", headers=signed()).status_code == 200
     assert (shared.leads(), shared.events(), shared.suppression(), list(shared.runs)) == before
     assert shared.lead_writes == [] and shared.columns_added == []
+
+
+# --- the assistant --------------------------------------------------------------------------
+
+def answering(said):
+    def model(prompt, schema):
+        model.prompt = prompt
+        return said, {"totalTokenCount": 120}
+    model.prompt = ""
+    return model
+
+
+def asked(client, question="What needs me today?", **body):
+    return client.post("/api/ask", headers=signed(), json={"question": question, **body})
+
+
+def test_the_assistant_answers_one_question_about_the_sheet(built, monkeypatch):
+    model = answering({"answer": "Acme Plumbing replied. Answer it by hand.",
+                       "lead_ids": ["A-0002"],
+                       "link": {"page": "lead", "lead_id": "A-0002", "label": "Open it"}})
+    monkeypatch.setattr(assistant.gemini, "generate_json", model)
+    response = asked(app(built))
+    assert response.status_code == 200
+    assert response.get_json() == {"answer": "Acme Plumbing replied. Answer it by hand.",
+                                   "lead_ids": ["A-0002"], "tokens": 120, "refused": False,
+                                   "link": {"page": "lead", "lead_id": "A-0002",
+                                            "label": "Open it", "show": ""}}
+    assert "Acme Plumbing" in model.prompt and "What needs me today?" in model.prompt
+
+
+def test_a_refused_answer_is_said_in_words_and_never_shown(built, monkeypatch):
+    monkeypatch.setattr(assistant.gemini, "generate_json",
+                        answering({"answer": "You have 4,318 leads waiting."}))
+    body = asked(app(built)).get_json()
+    assert body["refused"] is True and "4,318" not in body["answer"]
+    assert "have not answered" in body["answer"]
+
+
+def test_nobody_may_ask_without_signing_in(built, monkeypatch):
+    def forbidden(prompt, schema):
+        raise AssertionError("the model was called")
+
+    monkeypatch.setattr(assistant.gemini, "generate_json", forbidden)
+    assert app(built).post("/api/ask", json={"question": "anything"}).status_code == 401
+
+
+def test_asking_writes_nothing_to_the_sheet(built, monkeypatch):
+    monkeypatch.setattr(assistant.gemini, "generate_json", answering({"answer": "Nothing needs you."}))
+    shared = store()
+    before = (shared.leads(), shared.events(), shared.suppression(), list(shared.runs))
+    client = app(built, store=lambda: shared)
+    assert asked(client).status_code == 200
+    assert (shared.leads(), shared.events(), shared.suppression(), list(shared.runs)) == before
+    assert shared.lead_writes == [] and shared.draft_writes == []
+
+
+def test_a_sheet_that_cannot_be_read_is_never_answered_from(built, monkeypatch):
+    def forbidden(prompt, schema):
+        raise AssertionError("the model was called")
+
+    monkeypatch.setattr(assistant.gemini, "generate_json", forbidden)
+
+    def broken():
+        raise RuntimeError("no Sheet")
+
+    response = asked(app(built, store=broken))
+    assert response.status_code == 502
 
 
 def test_a_sheet_that_cannot_be_read_is_a_clear_error_without_details(built):
