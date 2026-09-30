@@ -230,3 +230,107 @@ def test_unreadable_settings_leave_the_rest_of_the_console_working(built):
     response = app(built, settings=broken).get("/api/snapshot", headers=signed())
     assert response.status_code == 200
     assert response.get_json()["approvals"] is None
+
+
+# --- the human evidence-review flow (only when explicitly enabled) ---------------------------
+# The console is read-only by default. When the review flow is switched on, a person can read a
+# candidate beside its cited evidence and confirm or reject it; the decision is attributed to the
+# IAP-verified signed-in reviewer and written to the injected store, never to the live Sheet.
+
+import json  # noqa: E402
+
+from outreach import review  # noqa: E402
+
+WRITTEN = {
+    "subject": "A conversation about a preview next week",
+    "sentences": [{"text": "Cobalt Glass installs glass facades for commercial buildings.",
+                   "kind": "COMPANY", "quote_id": "q1"},
+                  {"text": "I'm building a cash-flow tool for subcontractors.", "kind": "PRODUCT",
+                   "quote_id": ""}],
+    "evidence": {"quote_id": "q1", "category": "OFFERING",
+                 "quote": "We install glass facades for commercial buildings.",
+                 "url": "https://cobalt-glass.test/services"},
+}
+
+
+def review_rows():
+    row = {"Lead ID": "A-0014", "Email": "First email", "To": "rene@cobalt-glass.test",
+           "Company": "Cobalt Glass", "Subject": WRITTEN["subject"],
+           "Body": "Hi Rene,\n\n" + WRITTEN["sentences"][0]["text"] + "\n\nBest,",
+           "Opening quote": WRITTEN["evidence"]["quote"], "Quote page": WRITTEN["evidence"]["url"],
+           "Status": "READY", "Why": "", "Approval hash": "", "Handbook hash": "hash-one",
+           "Written": json.dumps(WRITTEN), "Prepared at (UTC)": "2026-09-28 12:40:00"}
+    return [row]
+
+
+def review_app(static, reviews=None, **changes):
+    shared = MemoryStore(fx.rows(), events=fx.events(), suppression=fx.suppression(),
+                         runs=fx.runs(), drafts=review_rows())
+    return app(static, store=lambda: shared, enable_review=True,
+               review_store=reviews if reviews is not None else review.MemoryReviewStore(),
+               **changes)
+
+
+def test_the_review_routes_are_absent_unless_the_flow_is_enabled(built):
+    client = app(built)  # default: review off
+    assert client.get("/api/review/A-0014", headers=signed()).status_code == 404
+    assert client.post("/api/review/A-0014", headers=signed(),
+                       json={"decision": "confirm"}).status_code == 404
+
+
+def test_the_candidate_is_shown_beside_its_evidence(built):
+    response = review_app(built).get("/api/review/A-0014", headers=signed())
+    assert response.status_code == 200
+    view = response.get_json()
+    assert view["subject"] == WRITTEN["subject"]
+    assert view["evidence"]["quote"] == WRITTEN["evidence"]["quote"]
+    assert view["claims"][0]["kind"] == "COMPANY"
+    assert "not automated proof" in view["note"]
+    assert view["review"]["decision"] is None and len(view["fingerprint"]) == 64
+
+
+def test_a_lead_with_no_candidate_has_nothing_to_review(built):
+    assert review_app(built).get("/api/review/A-9999", headers=signed()).status_code == 404
+
+
+def test_confirming_records_the_signed_in_reviewer(built):
+    reviews = review.MemoryReviewStore()
+    client = review_app(built, reviews=reviews)
+    fingerprint = client.get("/api/review/A-0014", headers=signed()).get_json()["fingerprint"]
+    done = client.post("/api/review/A-0014", headers=signed(),
+                       json={"decision": "confirm", "fingerprint": fingerprint})
+    assert done.status_code == 200 and done.get_json()["review"]["current"] is True
+    record = reviews.get("A-0014")
+    # The reviewer is the IAP-verified signed-in identity, not anything the client sent.
+    assert record["reviewer"] == "admin@lakshyaa.ai" and record["decision"] == "confirmed"
+    assert record["fingerprint"] == fingerprint
+
+
+def test_a_review_of_a_changed_candidate_is_refused(built):
+    client = review_app(built)
+    stale = client.post("/api/review/A-0014", headers=signed(),
+                        json={"decision": "confirm", "fingerprint": "a" * 64})
+    assert stale.status_code == 409
+
+
+def test_rejecting_is_recorded(built):
+    reviews = review.MemoryReviewStore()
+    client = review_app(built, reviews=reviews)
+    fingerprint = client.get("/api/review/A-0014", headers=signed()).get_json()["fingerprint"]
+    client.post("/api/review/A-0014", headers=signed(),
+                json={"decision": "reject", "fingerprint": fingerprint})
+    assert reviews.get("A-0014")["decision"] == "rejected"
+
+
+def test_a_review_action_needs_a_valid_decision(built):
+    client = review_app(built)
+    fingerprint = client.get("/api/review/A-0014", headers=signed()).get_json()["fingerprint"]
+    bad = client.post("/api/review/A-0014", headers=signed(),
+                      json={"decision": "maybe", "fingerprint": fingerprint})
+    assert bad.status_code == 400
+
+
+def test_the_review_routes_still_require_signing_in(built):
+    client = review_app(built)
+    assert client.get("/api/review/A-0014").status_code == 401
+    assert client.post("/api/review/A-0014", json={"decision": "confirm"}).status_code == 401

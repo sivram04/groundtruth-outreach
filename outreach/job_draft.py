@@ -12,8 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from outreach import (drafting, gemini, gmail_drafts, handbook_drive, research, suppression,
-                      tracking, writer)
+from outreach import (drafting, gemini, gmail_drafts, handbook_drive, research, review,
+                      suppression, tracking, writer)
 from outreach.sheet import DRAFT_COLUMNS, LEAD_TABS, SHEET_ID, SYSTEM_COLUMNS, Tab, _api
 
 MAX_PILOT = 4
@@ -219,11 +219,17 @@ def _revalidated(lead, facts, written, settings, handbook=None, drive=None, page
 
 
 def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
-           gmail=None, drive=None, handbook=None, pages=None):
+           gmail=None, drive=None, handbook=None, pages=None, review_store=None):
     """Reserve in Sheets, create one Gmail draft, then finalize the Sheet row.
 
     A failed/uncertain create leaves RESERVED. No second create is attempted for that
     action, even if Gmail search cannot find it. A human must reconcile it.
+
+    This is the only path that turns a model-written, grounded-claim draft into a Gmail draft,
+    and the HTTP `create` route calls it, so the human evidence-review gate lives here — not in
+    the console UI, which a direct API call would bypass. A valid, current, confirmed review of
+    this exact candidate is required (`outreach/review.py`), rechecked against the rebuilt
+    candidate at this boundary.
     """
     if os.environ.get("ENABLE_GMAIL_DRAFTS") != "true":
         raise DraftBlocked("Gmail draft creation is disabled")
@@ -243,6 +249,10 @@ def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
         raise DraftBlocked("; ".join(result["blockers"]))
     if result["preview_hash"] != approved_hash:
         raise DraftBlocked("the approved hash does not match the current preview")
+    try:
+        review.enforce(result, book, settings, store=review_store or review.default_store())
+    except review.ReviewInvalid as exc:
+        raise DraftBlocked(f"human evidence review required ({exc.reason}): {exc}") from None
     if _actions_today(tabs) >= int(settings["daily_cap"]):
         raise DraftBlocked("the daily draft cap is reached")
 

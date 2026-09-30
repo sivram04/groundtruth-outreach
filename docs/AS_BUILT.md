@@ -1372,21 +1372,90 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-29 (third review) — An enforced, content-bound human evidence review gates final
+  approval (acceptance-contract option B).** The word-overlap validator cannot certify a claim is
+  faithful — the two measured false accepts (a same-clause recombination, a shared-subject stitch)
+  prove it, and three word-gate designs were each too blunt on the real drafts (the earlier "no
+  word rule can work" claim is withdrawn as an overclaim; those "supported sentences" were drafts
+  that currently *pass*, not verified-faithful text). So approval is gated on a person, not on more
+  regex.
+
+  **The burden, stated plainly: this contract requires a human evidence review of every draft
+  before it can become approval-ready.** It does NOT fix entailment, does NOT make the validator
+  semantically correct, and does NOT touch quote freshness. The raw validator false accepts stay
+  visible and unchanged in the grounding evaluation; the human gate is a control on approval, never
+  relabelled as improved validator accuracy.
+
+  **Built (`outreach/review.py`), three things kept separate:**
+  1. **Candidate fingerprint** — computed before any review, needing no approval hash. It binds the
+     recipient, the complete subject and body, the cited quote (text, id, source URL), the handbook
+     content hash and version, and the offer settings. It deliberately omits the send-day and
+     sender (still bound by the approval hash), so a review is about content, not the calendar.
+  2. **Evidence review** — `record_confirmation` / `record_rejection` write a record bound to that
+     fingerprint, carrying the authenticated reviewer, decision and timestamp. The reviewer must be
+     supplied by an authenticated caller; the model/worker never calls these, and the gate rejects
+     any reviewer not on the human allow-list, so the model cannot mint or approve its own review.
+  3. **Final approval** — `review.enforce` is called inside `outreach/job_draft.create` (the only
+     path to a Gmail draft, and the one the HTTP `create` route calls), immediately after the hash
+     check and before any Gmail write. The candidate fingerprint is recomputed there, so an edit to
+     the recipient, wording, cited evidence, handbook or offer between review and action makes the
+     review stale and blocks the draft. Missing, unreadable, malformed, rejected, stale, or
+     non-human reviews all block; a valid, current, confirmed human review permits approval.
+
+  **Every consuming path, not only the UI.** The gate lives in `job_draft.create`, so the worker's
+  `POST /jobs/draft/create` route — which takes `approved_hash` and `written` straight from the
+  request body — cannot bypass it. A direct API call still hits the gate. The follow-up path
+  (`followup._create`) produces verbatim handbook copy (no model claims, no cited evidence) with its
+  own per-handbook-version approval, and only for sequences whose initial email was itself a gated
+  system draft, so it is not a bypass for the grounding review. Existing suppression, handbook,
+  eligibility and approval checks are preserved (the gate is additive).
+
+  **Console review flow.** With the review flow explicitly enabled (`enable_review`, OFF in the
+  deployed console, so the read-only guarantee holds there), `GET /api/review/<lead>` shows the
+  candidate beside its cited evidence with the note that confirming is a human judgment, not proof;
+  `POST /api/review/<lead>` confirms or rejects, attributed to the IAP-verified signed-in reviewer,
+  written to the injected store. Sending and drafting stay disabled throughout. Built and tested at
+  the server + store level (the candidate/evidence view, confirm/reject, attribution, the
+  changed-candidate refusal); the React page that renders this flow for a person is NOT built, and the
+  deployed console is not rebuilt, so it stays read-only in production.
+
+  **Storage / migration (the live Sheet is untouched).** Reviews go through a small store interface.
+  `MemoryReviewStore` and `JsonFileReviewStore` back the tests and the local console flow. The
+  production `SheetReviewStore` is fail-closed and NOT migrated: `get` finds no review (so approval
+  stays blocked) and `put` refuses. Turning it on is one documented migration — an append-only
+  `Reviews` tab (`Lead ID | Fingerprint | Reviewer | Decision | Reviewed at (UTC)`), `get` reads the
+  latest row for the lead, `put` appends a row with the console's `g.email` as reviewer. Until then
+  nothing is written to the live Sheet, and (Gmail drafting being disabled) the gate is moot in
+  production but real and fully tested.
+
+  **Proof.** `tests/test_review.py` (the contract), `tests/test_draft_pipeline.py` (the gate at the
+  create boundary, the fail-closed default, missing/rejected/stale/forged/malformed/unreadable
+  reviews, an edit between review and action, and the worker route funnelling through the gated
+  create), `tests/test_console_api.py` (the review endpoints, attribution, the changed-candidate
+  refusal, and that the routes are absent unless enabled), and
+  `tests/test_writer.py` (the two measured false accepts cannot be approved without a valid review —
+  proven WITHOUT depending on the validator's verdict, so a future validator fix cannot force the
+  defect to persist; the four strict-xfail cases these replace are gone). The four strict-xfails are
+  removed. Whole suite: **761 Python passed** (0 xfailed), React unchanged. **11 deliberate breaks
+  of the gate and every guarantee — disabling the gate, making enforce never block, accepting a
+  rejected / stale / non-human / malformed review, recording without a reviewer, dropping the body
+  from the fingerprint, the sheet store no longer refusing writes, the default store no longer being
+  fail-closed, and the console ignoring a changed candidate — all caught.** Not deployed; nothing
+  pushed; item 1's authenticated dashboard check stays separately pending an authorized session.
+
 - **2026-09-29** **Grounding catches an added negation, a wrong number or date, an exaggerated
   scope, a dropped qualifier, and one narrow reversed-subject pattern - and two real bugs the real
   handbook found before this shipped.** `docs/testing/grounding-eval/RESULTS.md` has the full
   record; this is the summary.
 
-  **STATUS after a second review: item 2 is NOT complete.** Two false accepts (a same-clause
-  recombination and a shared-subject stitch) are UNRESOLVED - measured three ways as uncatchable by
-  word overlap without reviewing 20+ of ~36 real supported sentences, including the founder's own
-  copy - so they are pinned strict-xfail (not "left to review", which was corrected) and put to the
+  **SUPERSEDED by the THIRD-REVIEW entry above (option B, built): item 2's approval control now
+  exists.** Two validator false accepts (a same-clause recombination and a shared-subject stitch)
+  are still UNRESOLVED at the validator - three word-gate designs were each too blunt on the real
+  drafts (this was earlier overstated as "no word rule can work"; the "supported sentences" of the
+  measurement were drafts that currently PASS, not verified-faithful text). They were put to the
   founder as an acceptance-contract decision: (A) constrain product-claim generation to approved
-  copy [recommended], (B) require a per-draft human review record bound to the draft hash, or (C)
-  accept the risk under founder-in-the-loop sending. Enforcement (a flagged claim mints no approval
-  hash) is real and proven end to end for what the validator DOES catch; it cannot enforce review
-  for what it does not detect - the crux of the open decision. The validator (`writer.py`) was not
-  changed in this second pass; only the record, tests and one enforcement test.
+  copy, (B) require a per-draft human review record bound to the candidate, or (C) accept the risk.
+  The founder chose (B). The validator (`writer.py`) was not changed in the second or third pass.
 
   **CORRECTED 2026-09-29 (a second review), and extended with a review outcome - see the results
   doc for the authoritative numbers.** Two claims first written here are withdrawn: (a) the held-out

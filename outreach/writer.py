@@ -403,9 +403,11 @@ def _reversed_or_unqualified(text, source, company=""):
 # words in a grammatical shape the source never had, so no word-presence test can see it. Two such
 # shapes are structurally visible and are routed to review below; a third - a single clause that
 # recombines words which legitimately sit together in one source clause ("uses your bank balance
-# to explain recommended payroll", every word in the one handbook clause) - is not visible to any
-# word-based method, is measured in docs/testing/grounding-eval, and is left to human review, not
-# claimed as solved here.
+# to explain recommended payroll", every word in the one handbook clause) - is a measured false
+# accept: three word-gate designs were each too blunt on the real drafts (docs/testing/grounding-eval;
+# this is NOT a proof that no word-based method could work). Approval of it is blocked not by a word
+# rule but by the enforced human evidence review (outreach/review.py, option B), which requires a
+# person's judgment on every draft before it can become approval-ready.
 #
 # A review outcome is realised as a BLOCKING problem carrying REVIEW_PREFIX: like every problem it
 # makes `verify` return no draft, so no approval hash can ever be minted (the property the founder

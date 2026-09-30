@@ -208,20 +208,27 @@ Three corrections an external review required, all reflected in the results doc:
   16/18, **0 false rejects**, 2 review (delegation, both caught), 2 false accepts.
 - **The 21-draft recheck is compatibility evidence**, not proof the drafts' claims are true.
 
-**Two classes are caught (held for review, hash-blocked); TWO remain UNRESOLVED, and a second review
-corrected my earlier "left to human review" wording — see `docs/testing/grounding-eval/RESULTS.md`
-(top).** Delegation and the cross-paragraph stitch are caught. The two unresolved false accepts — a
+**Approval is now gated by an enforced human evidence review (option B, `outreach/review.py`); two
+validator false accepts remain at the validator but can no longer reach approval unreviewed — see
+`docs/testing/grounding-eval/RESULTS.md` (top).** At the validator: delegation and the
+cross-paragraph stitch are caught (held for review, hash-blocked); the two false accepts — a
 single-clause recombination ("uses your bank balance to explain recommended payroll") and a
 shared-subject stitch ("... is still being finished, and it already compares scenarios ...") — are
-**not detected**, so they were never actually "left to review"; nothing routed them. Measured three
-ways, no word-overlap or shallow-structural rule blocks either without reviewing 20+ of ~36 real
-supported product/company sentences (including the founder's own template copy), so they are pinned
-as strict-xfail regressions and put to the founder as an acceptance-contract decision (constrain
-product generation to approved copy / require a per-draft review record / accept the risk under
-founder-in-the-loop sending). **Enforcement is real for what IS caught**: a flagged claim mints no
-approval hash, proven end to end through the real pipeline (`test_draft_pipeline.py`), even with
-`offer_approved=True`. 29 deliberate breaks across both sessions, all caught. **Not deployed**:
-`outreach/writer.py` runs inside both `outreach-worker` and `outreach-console`, neither rebuilt.
+**not detected**. Three word-gate designs were each too blunt on the real drafts (the earlier "no
+word rule can work" was withdrawn as an overclaim; the "supported sentences" of that measurement
+were drafts that currently *pass*, not verified-faithful text). So the control is not more regex but
+a person: a valid, current, confirmed human review of the exact candidate, bound to a content
+fingerprint (recipient, subject, body, cited quote, handbook id/version, offer settings) and
+rechecked at the action boundary in `job_draft.create` — the only path to a Gmail draft, and the one
+the HTTP create route calls, so a direct API call cannot bypass it. Missing / unreadable / malformed
+/ rejected / stale / non-human reviews all block; the model cannot mint its own. **This gates
+approval on human judgment; it does not fix entailment or make the validator faithful, and the raw
+false accepts stay visible in the grounding eval.** The burden is honest: a human review of every
+draft. Proven by `tests/test_review.py`, `tests/test_draft_pipeline.py`, `tests/test_console_api.py`
+and `tests/test_writer.py`; the four strict-xfails are replaced by passing enforcement tests; 11
+deliberate breaks of the gate all caught. **Not deployed**: `outreach/writer.py` and the review gate
+run inside `outreach-worker`/`outreach-console`, neither rebuilt; the review store's Sheet migration
+is documented but not applied, so nothing touches the live Sheet.
 
 ### 3.2 Prompt injection
 
@@ -661,13 +668,19 @@ name leaves a path that parses rows and suppresses nobody (§5, finding 1).
    revision and bundled code confirmed live afterward. See §4.1's finding and `AS_BUILT.md` for the
    evidence; an authenticated dashboard load is the one thing not verified, because that needs a
    real sign-in as an allow-listed account.
-2. **The negation hole and its family** (§3.1). **PARTLY DONE, NOT COMPLETE; not deployed.** The
-   negation/scope/qualifier/number checks are in and reject; delegation and the cross-paragraph
-   stitch route to review and are hash-blocked (enforcement proven end to end). **TWO false accepts
-   remain unresolved** — a single-clause recombination and a shared-subject stitch — both measured
-   uncatchable by word overlap without reviewing 20+ real supported sentences, so they are pinned
-   strict-xfail and put to the founder as an acceptance-contract decision (A/B/C). See §3.1 and
-   `docs/testing/grounding-eval/RESULTS.md` (top). This item stays **open** until that decision.
+2. **The negation hole and its family** (§3.1). **APPROVAL CONTROL BUILT (option B); not deployed.**
+   The negation/scope/qualifier/number checks reject; delegation and the cross-paragraph stitch route
+   to review and are hash-blocked. **TWO validator false accepts remain** — a single-clause
+   recombination and a shared-subject stitch — which three word-gate designs were each too blunt to
+   catch on the real drafts (the earlier "uncatchable by any word rule" was an overclaim; those
+   "supported sentences" were drafts that currently pass, not verified-faithful text). The founder
+   chose option (B): an enforced, content-bound human evidence review before final approval
+   (`outreach/review.py`, gate in `job_draft.create`), so neither false accept — nor any draft — can
+   become approval-ready without a valid, current, confirmed human review of the exact candidate. The
+   validator's raw false accepts stay visible in the grounding eval; the gate is a control on
+   approval, not a validator fix, and requires a human review of every draft. See §3.1 and
+   `docs/testing/grounding-eval/RESULTS.md` (top). What remains open at the validator level (semantic
+   faithfulness, quote freshness) is unchanged and out of scope for this control.
 3. **The assistant's number check** (§4.2). Either compute each figure from the named field before
    presenting it, or say plainly on screen that the assistant's prose is not verified. The claim
    made to the founder on 2026-09-28 should be corrected in writing — it is corrected here.

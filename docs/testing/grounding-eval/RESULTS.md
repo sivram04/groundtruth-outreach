@@ -1,6 +1,48 @@
 # Grounding check, item 2: adversarial sets, a review outcome, and what it does and does not close
 
-## SECOND-REVIEW CORRECTION, 2026-09-29 (supersedes the claims below; originals kept for the record)
+## THIRD-REVIEW CORRECTION, 2026-09-29 (supersedes everything below; originals kept for the record)
+
+A third review corrected two overclaims in the SECOND-REVIEW section and chose the acceptance
+contract. Both corrections are also applied inline lower down, marked.
+
+1. **The "theorem" is withdrawn.** The SECOND-REVIEW section said the three word-gate experiments
+   *established a theorem* that "there is no word-based sweet spot." That is an overclaim. Three
+   heuristics tried at particular settings, each too blunt on the real drafts, is **evidence that
+   those three designs are inadequate — not a proof that no word-based approach can work.** No
+   search over methods was run and no lower bound was proved. The corrected, narrower conclusion:
+   these particular gates are too blunt, so the control chosen is a human evidence review, not more
+   regex. (Corrected inline at point 2 of the section below.)
+
+2. **"Supported sentences" is withdrawn as a label for the real drafts.** The measurements counted
+   sentences from **drafts that currently pass the validator**. A previously accepted production
+   draft is **not** automatically a ground-truth "supported" example — word overlap passing it is
+   exactly what cannot certify faithfulness. So "21 of 36 real *supported* sentences" was wrong; it
+   is "21 of 36 currently-*passing* sentences," and the figure is a review-burden/churn measure, not
+   a false-positive rate against known-good text. Denominators are explained inline. The same
+   mislabel is corrected in `docs/AS_BUILT.md`, `docs/ARCHITECTURE_REVIEW_2026-09-29.md` and
+   `tests/test_writer.py`. The measurement evidence itself (the numbers and method) is preserved.
+
+3. **The decision: option (B) — an enforced, content-bound human evidence review before final
+   approval.** For this single-founder pilot the review burden is accepted: **this contract requires
+   a human evidence review for every draft before it can become approval-ready.** Generation is NOT
+   constrained to fixed handbook copy in this change (option A is not taken). The two measured
+   validator false accepts are **not** treated as acceptable residual risk (option C is not taken);
+   instead every draft — those two included — is blocked from a final approval hash until a valid,
+   content-bound human review of the current candidate exists.
+
+**What this contract does and does not do.** It gates approval on a human's judgment bound to the
+exact candidate and its cited evidence; it does **not** fix entailment, does **not** make the
+validator semantically correct, and does **not** touch quote freshness. The raw validator false
+accepts remain visible and unchanged in the grounding evaluation below — the human gate is a
+*control on approval*, not an improvement in the validator's accuracy, and is not relabelled as one.
+
+Enforcement evidence, the storage/migration design, and the honest burden statement are recorded in
+`docs/AS_BUILT.md` (this pass's change-log entry) and proven by `tests/test_review.py` and
+`tests/test_draft_pipeline.py`. Item 1's authenticated dashboard check stays separately pending.
+
+---
+
+## SECOND-REVIEW CORRECTION, 2026-09-29 (superseded by the THIRD-REVIEW correction above)
 
 A second review made three points that this section corrects. **The validator (`outreach/writer.py`)
 was NOT changed in this pass** — it is frozen at commit `597bfcc`; only the record, the tests, and
@@ -15,19 +57,34 @@ one enforcement test changed.
      ..." — two clauses sharing the subject, so both localise to one clause and the stitch check's
      different-cluster requirement does not fire).
 
-2. **They cannot be caught by any word-overlap or shallow-structural rule without an unacceptable
-   false-review rate — measured three ways on the real drafts (read-only):**
-   - A content-bigram "tight restatement" auto-pass gate reviews **21 of 36** real product sentences
-     and **10 of 21** real company sentences — including the founder's own template product line.
-   - A verbatim-span gate reviews **21 of 36** real product sentences and even rejects a genuine
-     handbook quote (any added word like "building" breaks contiguity).
-   - Relaxing the stitch check to fire on any two predicate-bearing clauses reviews **23** real
-     sentences, including legitimate compound-predicate company sentences ("... designs, builds,
-     installs, services, and maintains ...") and the founder's own product line.
+2. **Three word-based gate designs were tried against the real drafts and each held back a large
+   share of the drafts that currently pass. This is measured evidence that these three designs are
+   too blunt — it is NOT a proof that no word-based approach can work** (see the THIRD-REVIEW
+   correction at the very top, which withdraws the "theorem" language). Each was a one-off,
+   read-only probe against the live handbook and the real Drafts-tab rows; the probe scripts were
+   not committed (the handbook is not in the repo), so only these figures and their method survive.
+   The denominators: **36** = the distinct product-claim sentences across the real drafts;
+   **21** = the distinct company-description sentences across the same drafts. These sentences are
+   **drafts that currently pass the validator — not independently verified-faithful examples**, so
+   the counts below are a *review-burden / churn* figure ("how many currently-passing sentences this
+   gate would newly hold"), NOT a false-positive rate against known-good text.
+   - A content-bigram "tight restatement" auto-pass gate would newly hold **21 of 36** currently-passing
+     product sentences and **10 of 21** currently-passing company sentences — including the founder's
+     own template product line.
+   - A verbatim-span gate would newly hold **21 of 36** currently-passing product sentences and even
+     hold a genuine handbook quote (any added word like "building" breaks contiguity).
+   - Relaxing the stitch check to fire on any two predicate-bearing clauses would newly hold **23**
+     currently-passing sentences, including legitimate compound-predicate company sentences
+     ("... designs, builds, installs, services, and maintains ...") and the founder's own product line.
 
-   The theorem this establishes: an order-preserving word test reviews honest paraphrases (which
-   reorder); an order-free word test lets the recombination through (all its words co-occur in one
-   clause). There is no word-based sweet spot. More regex would only chase the score.
+   What these three experiments show, and their limits: the two designs that preserve word order
+   hold honest paraphrases (which reorder the enumerated middle items of a handbook clause), and the
+   order-free design lets the single-clause recombination through (all its words co-occur in one
+   clause). That is a real tension for *these three designs*. It is **not** a demonstration that some
+   other word-based, structural or shallow-semantic method could not do better — no such search was
+   run, and no lower bound was proved. The honest conclusion is narrower than the earlier draft
+   claimed: **these particular gates are too blunt at the settings tried, so the chosen control is a
+   human evidence review (option B), not more regex.**
 
 3. **The enforcement the founder demanded IS real for what the validator flags:** a review/blocking
    outcome (delegation, cross-paragraph stitch) makes `verify()` return no draft, so no approval
@@ -216,8 +273,8 @@ measurement honest and avoid overfitting**:
    payroll" — whose every word sits in the one handbook clause, no joiner, no delegation. **No
    word-overlap method can catch this without also rejecting honest paraphrases** that skip
    enumerated middle items ("uses bank balances to compare scenarios") — verified: an
-   adjacency-novelty rule flags both. It is left to human review, pinned as the sole residual by
-   `_KNOWN_RESIDUAL` in `test_writer.py`, and not claimed as closed.
+   adjacency-novelty rule flags both. The validator still accepts it (a visible false accept in the
+   eval); approval of it is blocked by the human evidence-review gate (option B), not by a word rule.
 2. **A stitch the detector misses (`fresh-stitch-product`), found on fresh data.** "Example Product
    is still being finished, and it already compares scenarios for construction subcontractors" — a
    genuine two-clause stitch, but both halves share the subject "Example Product", which pulls both
@@ -240,23 +297,41 @@ measurement honest and avoid overfitting**:
   widening using no absolute word. The founder reviews the exact words of every draft; the approval
   hash binds them.
 
-## Acceptance criteria status (item 2) — NOT complete; see the top correction
+## Acceptance criteria status (item 2) — the approval control (option B) is built; see the top
 
-- Corrections to the report/audit/AS_BUILT — **done** (the top of this document; §3.1; the change log).
-- A review/blocking outcome for out-of-scope claims — **done for two classes** (delegation,
-  cross-paragraph stitch), which are blocked from an approval hash. **Two classes remain unresolved**
-  (same-clause recombination, shared-subject stitch): measured uncatchable by word overlap without
-  reviewing 20+ real supported sentences, so they are pinned as strict-xfail, not routed anywhere.
-  Closing them needs the founder's acceptance-contract decision (A/B/C at the top). **Open.**
-- Enforcement (no approval hash for a flagged claim) — **done and proven end to end** for what the
-  validator flags (`tests/test_draft_pipeline.py`); it cannot enforce review for what it does not
-  detect, which is the crux of the open decision.
-- Tests requiring rejection/review, and no approval hash for uncertain claims — **done for the caught
-  classes**; the two unresolved false accepts are pinned strict-xfail (asserting the correct outcome,
-  currently failing), **not** with any assertion that their acceptance is acceptable.
-- Fresh set kept separate — **done**, with its full run history recorded above (not "run once").
-- Report false accepts / false rejects / reviews / supported-claims-requiring-review separately —
-  **done** (above and the JSON).
+- Correct the report (theorem overclaim; "supported" denominators) — **done** (top of this document,
+  applied inline, and in `docs/AS_BUILT.md`, `docs/ARCHITECTURE_REVIEW_2026-09-29.md`,
+  `tests/test_writer.py`); the measurement evidence is preserved.
+- Separate draft identity / evidence review / final approval; candidate fingerprint before review, no
+  approval hash needed to create the review record — **done** (`outreach/review.py`
+  `candidate_fingerprint`, `record_confirmation`/`record_rejection`; `test_review.py`).
+- Review covers company/product claims and the subject vs their cited evidence; records reviewer /
+  decision / timestamp / fingerprint; missing / unreadable / malformed / rejected / stale block; the
+  model cannot create or approve its own review — **done** (`review.enforce`; the reviewer must be an
+  authorized human, supplied by an authenticated caller; `test_review.py`).
+- Bind the review to recipient / subject / body / cited quote text+IDs / source URLs / handbook
+  identity+version / offer settings; changes invalidate it; recheck at the action boundary — **done**
+  (the fingerprint binds these and is recomputed inside `job_draft.create`; the "edit between review
+  and action" test and the console changed-candidate refusal prove it).
+- Console review flow (candidate beside evidence, confirm/reject, confirmation is human judgment not
+  proof, sending/drafting disabled, no live-Sheet writes) — **done** behind `enable_review`
+  (`outreach/console.py`; `test_console_api.py`); the deployed console keeps it off and read-only.
+- Cover every consuming path; a direct API/lower-level call cannot bypass — **done**: the gate is in
+  `job_draft.create` (the only path to a Gmail draft, and the one the HTTP create route calls); the
+  follow-up path carries no cited-evidence claims and only follows an already-gated initial. Existing
+  suppression / handbook / eligibility / approval checks are preserved.
+- Replace the four strict-xfail cases with passing tests that those candidates cannot be approved
+  without a valid review, WITHOUT relabelling human gating as validator accuracy — **done**: the raw
+  false accepts stay visible in this eval (still in `_UNRESOLVED_FALSE_ACCEPTS`); the enforcement
+  tests do not depend on the validator's verdict. Forged / stale / rejected reviews, changed
+  evidence/content/recipient, and an edit between review and action are all tested; disabling the gate
+  is caught by a deliberate break.
+- Fresh set kept separate, run history recorded (not "run once"), false accepts / rejects / reviews /
+  supported-claims-requiring-review reported separately — **done** (above and the JSON). The validator
+  was not changed this pass, so no new reserved set is needed; one will be written if the validator
+  changes.
+- Honest burden — **stated**: this contract requires a human evidence review of every draft; it does
+  not fix entailment or quote freshness.
 - Item-1's authenticated dashboard check — **pending**, separate from item 2.
 
 ## Proof
@@ -264,20 +339,34 @@ measurement honest and avoid overfitting**:
 - `tests/grounding_eval.py` (development), `tests/grounding_eval_fresh.py` (reserved),
   `tests/grounding_eval_runner.py` (harness). Reproduce with
   `python -m tests.grounding_eval_runner` and `python -m tests.grounding_eval_fresh`.
-- `tests/test_writer.py` — 706-test suite includes every eval case as a permanent regression, the
-  delegation/stitch/review unit tests, and the "review flags mint no approval hash" tests for
-  company sentences and subjects.
-- **10 deliberate breaks of the review machinery, all caught** (delegation and stitch each disabled,
-  loosened, and removed from each sentence path; the review marker emptied), on top of the 19
-  word-level breaks from the prior session.
-- Whole suite: 706 Python, 46 React.
+- `tests/test_review.py` — the review contract (fingerprint stability and sensitivity, every
+  enforce block/pass, reviewer allow-list, the stores, the review view).
+- `tests/test_draft_pipeline.py` — the gate at the create boundary: no-review / fail-closed default /
+  rejected / stale / forged / malformed / unreadable, an offer edit between review and action, and
+  the worker create route funnelling through the gated create.
+- `tests/test_console_api.py` — the console review endpoints, reviewer attribution, the
+  changed-candidate refusal, and that the routes are absent unless enabled.
+- `tests/test_writer.py` — the two measured false accepts (product + subject variations) cannot be
+  approved without a valid review, proven WITHOUT depending on the validator's verdict; the four
+  strict-xfail cases are removed.
+- **11 deliberate breaks of the gate and every guarantee, all caught** (disable the gate; enforce
+  never blocks; accept a rejected / stale / non-human / malformed review; record without a reviewer;
+  drop the body from the fingerprint; the sheet store stops refusing writes; the default store is no
+  longer fail-closed; the console ignores a changed candidate).
+- Whole suite: **761 Python passed (0 xfailed)**, React unchanged.
 
 ## What this does not establish (limits of the evidence itself)
 
+- The human review is a control on *approval*, not a check of truth. It requires a person to judge
+  every draft; it does not verify entailment, does not make the word-overlap validator faithful, and
+  does not touch quote freshness.
+- The three word-gate experiments are three specific designs at specific settings, measured once,
+  read-only, against one handbook and its real drafts (the probe scripts were not committed). They
+  show those designs are too blunt; they are **not** a proof that no word-based method could work.
+- The "currently-passing" denominators (36 product, 21 company sentences) are drafts the validator
+  passes today, not verified-faithful examples — so those figures are review-burden, not accuracy.
 - The fresh set is 18 cases authored by the same person who wrote the fix; unseen while iterating,
   but not an independent or statistically powered benchmark.
-- The real-draft checks are 21 drafts from one handbook and one research batch — compatibility, not a
-  measured false-reject rate.
-- **Nothing here is deployed.** `outreach/writer.py` runs inside both `outreach-worker` and
-  `outreach-console`; neither image is rebuilt with this change.
-- Quote freshness (§3.3 of the audit) is untouched, as instructed.
+- **Nothing here is deployed.** The review store's Sheet migration is documented but not applied, so
+  nothing writes to the live Sheet; `outreach-worker`/`outreach-console` are not rebuilt; Gmail
+  drafting stays disabled.

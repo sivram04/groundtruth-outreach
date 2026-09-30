@@ -283,11 +283,11 @@ HELD_OUT_CASES = [
     {"id": "held-combination-same-paragraph", "category": "unsupported_combination", "kind": "PRODUCT",
      "source": HANDBOOK, "text": "Example Product uses your bank balance to explain recommended payroll.",
      "expect": "reject",
-     "because": "THE ONE RESIDUAL. 'bank', 'balance', 'explain', 'recommended' and 'payroll' all "
-                "sit in the ONE handbook clause describing the product, in a single clause with no "
-                "joiner, so neither the stitch check nor any word-overlap check can tell this "
-                "recombination from a true paraphrase without also rejecting honest ones that skip "
-                "enumerated middle items. EXPECTED to remain wrongly ACCEPTED; the results doc "
-                "measures it and names it as the gap word overlap cannot close. `_KNOWN_RESIDUAL` "
-                "in test_writer.py pins that it is the ONLY such case"},
+     "because": "A measured false accept. 'bank', 'balance', 'explain', 'recommended' and 'payroll' "
+                "all sit in the ONE handbook clause describing the product, in a single clause with "
+                "no joiner, and the three word-gate designs tried were each too blunt to tell this "
+                "recombination from an honest paraphrase that skips enumerated middle items. The "
+                "validator still ACCEPTS it (a visible false accept); approval of it is blocked by "
+                "the human evidence-review gate (option B), not by a word rule. See RESULTS.md and "
+                "test_a_measured_false_accept_cannot_be_approved_without_a_human_review"},
 ]

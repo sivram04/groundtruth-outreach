@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from outreach import drafting, job_draft, writer
+from outreach import drafting, job_draft, review, writer
 from grounding_eval import HELD_OUT_CASES, TUNING_CASES
 from grounding_eval_fresh import FRESH_CASES
 from grounding_eval_runner import _correct, judge
@@ -644,14 +644,14 @@ def test_tuning_case_matches_its_expected_verdict(case):
     assert _correct(verdict, case["expect"]), f"{case['id']}: {verdict} -> {problems}"
 
 
-# The two UNRESOLVED false accepts, both of the unsupported-combination family: a single-clause
-# recombination whose words all sit in one source clause, and a two-clause stitch whose halves
-# share the subject noun. Measured three ways (RESULTS.md): NO word-overlap or shallow-structural
-# rule blocks either without reviewing 20+ of ~36 real supported product/company sentences,
-# including the founder's own approved copy. They are NOT "left to review" - the validator does
-# not detect them - and are pinned as strict-xfail cases below, NOT asserted as acceptable here.
-# Every OTHER case must be correct; the parametrized tests exclude these two ids so no green
-# assertion depends on their defective acceptance.
+# The two UNRESOLVED validator false accepts, both of the unsupported-combination family: a
+# single-clause recombination whose words all sit in one source clause, and a two-clause stitch
+# whose halves share the subject noun. Three word-gate designs were tried and each was too blunt
+# on the real drafts (RESULTS.md; the earlier "no word rule can work" was withdrawn as an
+# overclaim). The validator still accepts them - that raw false accept is left VISIBLE here and in
+# the eval, unchanged. The parametrized correctness tests exclude these ids so the suite does not
+# depend on their defective acceptance; approval of them is blocked instead by the human evidence-
+# review gate, proven in test_a_measured_false_accept_cannot_be_approved_without_a_human_review.
 _UNRESOLVED_FALSE_ACCEPTS = {"held-combination-same-paragraph", "fresh-residual-recombination",
                              "fresh-stitch-product"}
 
@@ -682,45 +682,72 @@ def test_the_fresh_set_has_no_false_rejects():
     assert bad == [], f"fresh supported claims wrongly blocked: {bad}"
 
 
-# --- the two unresolved false accepts, pinned as strict xfail (NOT asserted acceptable) ----------
-# Each test asserts the CORRECT outcome (the draft is blocked / no approval hash). It currently
-# FAILS, because the validator wrongly accepts the claim - so the test xfails. strict=True turns a
-# future PASS into a suite failure, forcing the record to be updated the day either is closed. This
-# is how a known, measured, unfixed defect is pinned WITHOUT any green assertion that acceptance is
-# acceptable. The founder asked that both require rejection/review; they cannot be made to without
-# reviewing 20+ real supported sentences (RESULTS.md), so they are marked openly unresolved here
-# and put to the founder as an acceptance-contract decision.
-_RESIDUAL_REASON = ("Unresolved: single-clause recombination; no word rule blocks it without "
-                    "reviewing 20+ real supported product sentences. See RESULTS.md.")
-_STITCH_REASON = ("Unresolved: two-clause stitch sharing the subject noun; relaxing the stitch "
-                  "check to catch it reviews 23 real supported sentences. See RESULTS.md.")
+# --- the two measured false accepts, gated at approval by a human review (option B) ---------------
+# The two UNRESOLVED validator false accepts, each in a product and a subject variation:
+#   - a single-clause recombination whose words all sit in one source clause, and
+#   - a two-clause stitch whose halves share the subject noun.
+# The validator wrongly ACCEPTS them; that raw defect is left VISIBLE and unchanged in the grounding
+# evaluation (they stay in _UNRESOLVED_FALSE_ACCEPTS, and the eval reports them as false accepts).
+# Approval is denied a different way: the human evidence-review gate (outreach/review.py) blocks any
+# candidate - these included - from becoming a Gmail draft without a valid, current, confirmed
+# review of that exact candidate. The four strict-xfail cases these replace asserted the validator
+# would block them (which it does not); these prove instead that APPROVAL is blocked without a review
+# and permitted with one, WITHOUT depending on the validator's verdict - so a future validator fix
+# does not force the defect to persist, and no green assertion requires the defective acceptance.
+
+_REVIEWER = "reviewer@lakshyaa.ai"
+_GATE_SETTINGS = {"version": "1", "review_reviewers": [_REVIEWER],
+                  **{field.lower(): "" for field in drafting.FIELDS}}
+
+_FALSE_ACCEPT_CANDIDATES = [
+    ("recombination-product",
+     {"product": {"text": "Example Product uses your bank balance to explain recommended payroll.",
+                  "kind": "PRODUCT", "quote_id": ""}}, None),
+    ("recombination-subject", {},
+     "Example Product explains recommended payroll from your bank balance"),
+    ("stitch-product",
+     {"product": {"text": "Example Product is still being finished, and it already compares "
+                          "scenarios for construction subcontractors.",
+                  "kind": "PRODUCT", "quote_id": ""}}, None),
+    ("stitch-subject", {},
+     "Example Product is still being finished and it compares scenarios"),
+]
 
 
-@pytest.mark.xfail(strict=True, reason=_RESIDUAL_REASON)
-def test_same_clause_recombination_product_is_blocked():
-    draft, _ = verify(product={"text": "Example Product uses your bank balance to explain "
-                                       "recommended payroll.", "kind": "PRODUCT", "quote_id": ""})
-    assert draft is None
+def _candidate_preview(changes, subject):
+    """A preview carrying the false-accept content. The validator's verdict is not asserted here
+    (its false accept is recorded in the eval, not relied on): whatever the validator decides, the
+    approval gate is what this test exercises."""
+    draft, _ = verify(subject=subject, **changes) if subject else verify(**changes)
+    parts = draft or {}
+    body = "\n\n".join([parts.get("company", ""), parts.get("product", ""), parts.get("ask", "")])
+    return {"lead_id": "A-0001", "to": "sam@example.test",
+            "subject": parts.get("subject") or subject or "", "body": body,
+            "evidence": parts.get("evidence"), "handbook_hash": BOOK["content_hash"],
+            "written": draft}
 
 
-@pytest.mark.xfail(strict=True, reason=_RESIDUAL_REASON)
-def test_same_clause_recombination_subject_is_blocked():
-    draft, _ = verify(subject="Example Product explains recommended payroll from your bank balance")
-    assert draft is None
+@pytest.mark.parametrize("name,changes,subject", _FALSE_ACCEPT_CANDIDATES,
+                         ids=[c[0] for c in _FALSE_ACCEPT_CANDIDATES])
+def test_a_measured_false_accept_cannot_be_approved_without_a_human_review(name, changes, subject):
+    preview = _candidate_preview(changes, subject)
+    fingerprint = review.candidate_fingerprint(preview, BOOK, _GATE_SETTINGS)
 
+    # No review: approval is refused.
+    with pytest.raises(review.ReviewInvalid) as missing:
+        review.enforce(preview, BOOK, _GATE_SETTINGS, store=review.MemoryReviewStore())
+    assert missing.value.reason == review.MISSING
 
-@pytest.mark.xfail(strict=True, reason=_STITCH_REASON)
-def test_shared_subject_stitch_product_is_blocked():
-    draft, _ = verify(product={
-        "text": "Example Product is still being finished, and it already compares scenarios for "
-                "construction subcontractors.", "kind": "PRODUCT", "quote_id": ""})
-    assert draft is None
+    # A valid, current, confirmed human review of this exact candidate permits approval.
+    store = review.MemoryReviewStore()
+    review.record_confirmation(store, "A-0001", _REVIEWER, fingerprint)
+    assert review.enforce(preview, BOOK, _GATE_SETTINGS, store=store) == fingerprint
 
-
-@pytest.mark.xfail(strict=True, reason=_STITCH_REASON)
-def test_shared_subject_stitch_subject_is_blocked():
-    draft, _ = verify(subject="Example Product is still being finished and it compares scenarios")
-    assert draft is None
+    # An edit after the review invalidates it.
+    edited = {**preview, "subject": preview["subject"] + " (edited)"}
+    with pytest.raises(review.ReviewInvalid) as stale:
+        review.enforce(edited, BOOK, _GATE_SETTINGS, store=store)
+    assert stale.value.reason == review.STALE
 
 
 # --- six gaps a mutation run found in the tests above, each pinned on its own -------------------

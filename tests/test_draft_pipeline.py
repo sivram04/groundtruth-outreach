@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from outreach import drafting, gmail_drafts, handbook_drive, job_draft, worker, writer
+from outreach import drafting, gmail_drafts, handbook_drive, job_draft, review, worker, writer
 
 HANDBOOK_TEXT = (Path(__file__).resolve().parent.parent / "examples" / "synthetic_handbook.txt"
                  ).read_text(encoding="utf-8")
@@ -39,7 +39,9 @@ def settings(**changes):
               "founder_title": "Founder", "sender_website": "https://example.test",
               "postal_address": "1 Example St, Columbus, OH 43215", "sender_phone": "614-555-0100",
               "sender_email": "admin@lakshyaa.ai", "daily_cap": 4, "offer_approved": True,
-              "version": "prelaunch-v1", "handbook_doc_id": "1AbCdEfGhIjKlMnOpQrStUvWxYz01234"}
+              "version": "prelaunch-v1", "handbook_doc_id": "1AbCdEfGhIjKlMnOpQrStUvWxYz01234",
+              "intended_use": "an early preview", "next_week_action": "a short call",
+              "cta_question": "Would next week work?", "review_reviewers": ["admin@lakshyaa.ai"]}
     config.update(changes)
     return config
 
@@ -197,6 +199,15 @@ class Mailbox:
         return {"emailAddress": "admin@lakshyaa.ai"}
 
 
+def confirmed_store(row=None, reviewer="admin@lakshyaa.ai"):
+    """A review store holding a valid confirmation of the standard candidate for `row`."""
+    out = preview(row)
+    store = review.MemoryReviewStore()
+    review.record_confirmation(store, out["lead_id"], reviewer,
+                               review.candidate_fingerprint(out, BOOK, settings()))
+    return store
+
+
 @pytest.fixture
 def ready(monkeypatch):
     monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
@@ -207,6 +218,10 @@ def ready(monkeypatch):
     monkeypatch.setattr(gmail_drafts, "prior_sends", lambda gmail, recipient: False)
     monkeypatch.setattr(gmail_drafts, "existing_drafts", lambda gmail, recipient: [])
     monkeypatch.setattr(job_draft, "Tab", lambda api, name, cols: tab)
+    # The candidate is confirmed by an authorized human, so the happy path clears the review gate.
+    # Built once here (the model is available now); the review-gate tests override the store.
+    store = confirmed_store(row)
+    monkeypatch.setattr(review, "default_store", lambda: store)
     created = []
     monkeypatch.setattr(gmail_drafts, "create",
                         lambda gmail, **kw: created.append(kw) or {"id": "draft-1"})
@@ -226,6 +241,170 @@ def test_one_approved_written_draft_reaches_gmail_once(ready):
     assert result["status"] == "CREATED" and len(created) == 1
     assert created[0]["to"] == "sam@example.test" and created[0]["body"].endswith(drafting.OPT_OUT)
     assert tab.lead["Draft status"] == "CREATED" and tab.lead["Draft hash"] == digest
+
+
+# --- the human evidence-review gate (acceptance-contract option B) --------------------------
+# The word-overlap validator cannot certify that a claim is faithful; the two measured false
+# accepts prove it. So no approved draft may become a Gmail draft without a valid, current,
+# confirmed human review of THIS exact candidate. The gate lives in job_draft.create (the only
+# path to a Gmail draft, and the one the HTTP create route calls), rechecked at the action
+# boundary, so a direct API call cannot bypass it.
+
+class BadStore:
+    def __init__(self, record):
+        self.record = record
+
+    def get(self, lead_id):
+        return self.record
+
+    def put(self, record):
+        raise AssertionError("the gate must never write")
+
+
+class BrokenStore:
+    def get(self, lead_id):
+        raise RuntimeError("the review store is unreachable")
+
+    def put(self, record):
+        raise AssertionError("the gate must never write")
+
+
+def test_no_confirmed_review_blocks_even_a_perfect_approved_draft(ready):
+    row, _, created = ready
+    written, digest = approved_written(row)
+    with pytest.raises(job_draft.DraftBlocked, match="REVIEW_MISSING"):
+        job_draft.create("A-0001", digest, written=written, settings=settings(),
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE,
+                         review_store=review.MemoryReviewStore())
+    assert created == []
+
+
+def test_the_default_review_store_is_fail_closed(monkeypatch):
+    """With no store injected, create uses the unmigrated production store, which finds no review
+    and blocks. Sending is disabled anyway, but the content gate is real without it."""
+    monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
+    row = lead()
+    tab = FakeTab(row)
+    monkeypatch.setattr(job_draft, "_read", lambda api, ids: ([tab], [(tab, 3, row)], facts()))
+    monkeypatch.setattr(job_draft, "_suppressed", lambda api, email: False)
+    monkeypatch.setattr(gmail_drafts, "prior_sends", lambda gmail, recipient: False)
+    monkeypatch.setattr(gmail_drafts, "existing_drafts", lambda gmail, recipient: [])
+    monkeypatch.setattr(job_draft, "Tab", lambda api, name, cols: tab)
+    created = []
+    monkeypatch.setattr(gmail_drafts, "create",
+                        lambda gmail, **kw: created.append(kw) or {"id": "draft-1"})
+    written, digest = approved_written(row)
+    with pytest.raises(job_draft.DraftBlocked, match="REVIEW_MISSING"):
+        job_draft.create("A-0001", digest, written=written, settings=settings(),
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert created == []
+
+
+def test_a_rejected_review_blocks(ready):
+    row, _, created = ready
+    written, digest = approved_written(row)
+    store = review.MemoryReviewStore()
+    review.record_rejection(store, "A-0001", "admin@lakshyaa.ai",
+                            review.candidate_fingerprint(preview(row), BOOK, settings()))
+    with pytest.raises(job_draft.DraftBlocked, match="REVIEW_REJECTED"):
+        job_draft.create("A-0001", digest, written=written, settings=settings(),
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE,
+                         review_store=store)
+    assert created == []
+
+
+def test_a_review_of_a_different_candidate_is_stale(ready):
+    row, _, created = ready
+    written, digest = approved_written(row)
+    store = review.MemoryReviewStore()
+    review.record_confirmation(store, "A-0001", "admin@lakshyaa.ai", "a" * 64)
+    with pytest.raises(job_draft.DraftBlocked, match="REVIEW_STALE"):
+        job_draft.create("A-0001", digest, written=written, settings=settings(),
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE,
+                         review_store=store)
+    assert created == []
+
+
+def test_an_offer_edit_between_review_and_action_invalidates_the_review(ready):
+    """A confirmed review, then an offer setting changes before the action: the candidate no
+    longer matches the fingerprint reviewed, so the draft is blocked (rechecked at the boundary)."""
+    row, _, created = ready
+    written, digest = approved_written(row)  # reviewed under the standard settings (via `ready`)
+    with pytest.raises(job_draft.DraftBlocked, match="REVIEW_STALE"):
+        job_draft.create("A-0001", digest, written=written,
+                         settings=settings(intended_use="a much longer paid pilot than described"),
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert created == []
+
+
+def test_a_forged_review_by_a_non_human_reviewer_is_rejected(ready):
+    row, _, created = ready
+    written, digest = approved_written(row)
+    store = review.MemoryReviewStore()
+    review.record_confirmation(store, "A-0001", "model@service.internal",
+                               review.candidate_fingerprint(preview(row), BOOK, settings()))
+    with pytest.raises(job_draft.DraftBlocked, match="REVIEW_NOT_HUMAN"):
+        job_draft.create("A-0001", digest, written=written, settings=settings(),
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE,
+                         review_store=store)
+    assert created == []
+
+
+@pytest.mark.parametrize("record", [
+    {"lead_id": "A-0001", "reviewer": "admin@lakshyaa.ai", "decision": "confirmed"},  # no fingerprint
+    {"lead_id": "A-0001", "fingerprint": "a" * 64, "reviewer": "admin@lakshyaa.ai",
+     "decision": "maybe", "reviewed_at": "2026-09-29T00:00:00+00:00"},  # bad decision
+    {"lead_id": "A-0001", "fingerprint": "nothex", "reviewer": "admin@lakshyaa.ai",
+     "decision": "confirmed", "reviewed_at": "2026-09-29T00:00:00+00:00"},  # bad fingerprint
+])
+def test_a_malformed_review_blocks(ready, record):
+    row, _, created = ready
+    written, digest = approved_written(row)
+    with pytest.raises(job_draft.DraftBlocked, match="REVIEW_MALFORMED"):
+        job_draft.create("A-0001", digest, written=written, settings=settings(),
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE,
+                         review_store=BadStore(record))
+    assert created == []
+
+
+def test_an_unreadable_review_store_blocks(ready):
+    row, _, created = ready
+    written, digest = approved_written(row)
+    with pytest.raises(job_draft.DraftBlocked, match="REVIEW_UNREADABLE"):
+        job_draft.create("A-0001", digest, written=written, settings=settings(),
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE,
+                         review_store=BrokenStore())
+    assert created == []
+
+
+def test_create_consults_the_review_gate_so_removing_it_would_be_caught(ready, monkeypatch):
+    """If the enforce call were deleted from create, this and the no-review test would fail."""
+    row, _, created = ready
+    written, digest = approved_written(row)
+    monkeypatch.setattr(review, "enforce",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            review.ReviewInvalid(review.MISSING, "gate reached")))
+    with pytest.raises(job_draft.DraftBlocked, match="review"):
+        job_draft.create("A-0001", digest, written=written, settings=settings(),
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert created == []
+
+
+def test_the_worker_create_route_goes_through_the_gated_create(monkeypatch):
+    """The HTTP create surface funnels through job_draft.create (where the gate lives), so it
+    cannot bypass review; here the gated create refuses and the route surfaces the refusal."""
+    monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
+    seen = {}
+
+    def spy(lead_id, approved_hash, *, written=None, **kwargs):
+        seen.update(lead_id=lead_id, approved_hash=approved_hash, written=written)
+        raise job_draft.DraftBlocked("human evidence review required (REVIEW_MISSING): none")
+    monkeypatch.setattr(job_draft, "create", spy)
+    response = worker.app.test_client().post(
+        "/jobs/draft/create",
+        json={"lead_id": "A-0001", "approved_hash": "h", "written": {"sentences": [{}]}})
+    assert seen == {"lead_id": "A-0001", "approved_hash": "h", "written": {"sentences": [{}]}}
+    assert response.status_code == 400 and "review" in response.get_json()["error"]
 
 
 def test_create_refuses_the_old_template_even_with_its_approved_hash(ready):
