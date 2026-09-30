@@ -84,6 +84,102 @@ export async function askAssistant(question: string, fetcher: typeof fetch = fet
   return body as Answer;
 }
 
+// --- the human evidence-review flow --------------------------------------------------------
+
+export interface ReviewClaim {
+  kind: string;
+  text: string;
+  quote_id: string;
+}
+
+export interface ReviewEvidence {
+  category: string;
+  quote: string;
+  url: string;
+  quote_id: string;
+}
+
+/** GET/POST /api/review/<lead>: outreach/review.py review_view. */
+export interface ReviewView {
+  lead_id: string;
+  to: string;
+  subject: string;
+  body: string;
+  claims: ReviewClaim[];
+  evidence: ReviewEvidence | null;
+  handbook_hash: string;
+  handbook_version: string;
+  fingerprint: string;
+  review: { decision: string | null; reviewer?: string; reviewed_at?: string; current: boolean };
+  note: string;
+}
+
+/** The candidate changed between being shown and a confirm/reject: the review must be redone. */
+export class ReviewStale extends Error {}
+
+async function reviewResponse(response: Response): Promise<ReviewView> {
+  if (response.status === 401) throw new LoadError(SIGN_IN_ENDED, true);
+  const isJson = (response.headers.get("Content-Type") ?? "").includes("application/json");
+  const body: unknown = isJson ? await response.json().catch(() => null) : null;
+  if (response.status === 409) {
+    const said =
+      typeof body === "object" && body !== null && "error" in body ? String(body.error) : "";
+    throw new ReviewStale(said || "The candidate changed since it was shown; reload and review it again.");
+  }
+  if (!response.ok || !body || typeof body !== "object") {
+    const said =
+      typeof body === "object" && body !== null && "error" in body ? String(body.error) : "";
+    throw new LoadError(said || (isJson ? "The review could not be loaded." : SIGN_IN_ENDED), !isJson);
+  }
+  return body as ReviewView;
+}
+
+export async function loadReview(leadId: string, fetcher: typeof fetch = fetch): Promise<ReviewView> {
+  if (import.meta.env.VITE_DEMO === "1") {
+    const demo = await import("./demo/review");
+    return demo.demoReview(leadId);
+  }
+  let response: Response;
+  try {
+    response = await fetcher(`/api/review/${encodeURIComponent(leadId)}`, {
+      headers: { Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+  } catch {
+    throw new LoadError("The console could not be reached. Check the connection and try again.");
+  }
+  return reviewResponse(response);
+}
+
+/** Record the reviewer's judgment. The reviewer identity is the signed-in session on the server;
+ *  nothing here sends or drafts. `fingerprint` is echoed back so a candidate that changed since it
+ *  was shown is refused (ReviewStale). */
+export async function recordReview(
+  leadId: string,
+  decision: "confirm" | "reject",
+  fingerprint: string,
+  fetcher: typeof fetch = fetch,
+): Promise<ReviewView> {
+  if (import.meta.env.VITE_DEMO === "1") {
+    const demo = await import("./demo/review");
+    return demo.demoRecord(leadId, decision, fingerprint);
+  }
+  let response: Response;
+  try {
+    response = await fetcher(`/api/review/${encodeURIComponent(leadId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json",
+                 "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      body: JSON.stringify({ decision, fingerprint }),
+    });
+  } catch {
+    throw new LoadError("The console could not be reached. Check the connection and try again.");
+  }
+  return reviewResponse(response);
+}
+
 /** The name of the script this page is running, e.g. "index-a1b2c3.js". The server says which
  *  it has; when the two differ, the page in front of the founder is out of date. */
 export function runningBuild(): string {

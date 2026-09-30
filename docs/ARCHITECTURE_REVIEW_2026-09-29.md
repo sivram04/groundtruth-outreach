@@ -225,10 +225,16 @@ the HTTP create route calls, so a direct API call cannot bypass it. Missing / un
 approval on human judgment; it does not fix entailment or make the validator faithful, and the raw
 false accepts stay visible in the grounding eval.** The burden is honest: a human review of every
 draft. Proven by `tests/test_review.py`, `tests/test_draft_pipeline.py`, `tests/test_console_api.py`
-and `tests/test_writer.py`; the four strict-xfails are replaced by passing enforcement tests; 11
-deliberate breaks of the gate all caught. **Not deployed**: `outreach/writer.py` and the review gate
-run inside `outreach-worker`/`outreach-console`, neither rebuilt; the review store's Sheet migration
-is documented but not applied, so nothing touches the live Sheet.
+and `tests/test_writer.py`; the four strict-xfails are replaced by passing enforcement tests.
+**Finishing pass (see AS_BUILT, "third review, finishing pass"):** approval-hash *issuance* is gated
+too (`written_preview`/the Drafts tab issue no hash without a review; the action-boundary recheck is
+retained); follow-ups are gated at their own action boundary under their own review id (fail-closed
+until a follow-up review path exists); the React review page is built and browser-verified; the
+console review write derives the reviewer only from the IAP session and ignores client fields;
+revocation works by supersession. Exact coverage: Python 778 passed, React 52 passed, **16 deliberate
+breaks of the gates all caught**. **Not deployed**: `outreach/writer.py` and the review gate run
+inside `outreach-worker`/`outreach-console`, neither rebuilt; the review store's Sheet migration is
+documented but not applied, so nothing touches the live Sheet.
 
 ### 3.2 Prompt injection
 
@@ -668,9 +674,11 @@ name leaves a path that parses rows and suppresses nobody (§5, finding 1).
    revision and bundled code confirmed live afterward. See §4.1's finding and `AS_BUILT.md` for the
    evidence; an authenticated dashboard load is the one thing not verified, because that needs a
    real sign-in as an allow-listed account.
-2. **The negation hole and its family** (§3.1). **APPROVAL CONTROL BUILT (option B); not deployed.**
-   The negation/scope/qualifier/number checks reject; delegation and the cross-paragraph stitch route
-   to review and are hash-blocked. **TWO validator false accepts remain** — a single-clause
+2. **The negation hole and its family** (§3.1). **APPROVAL CONTROL BUILT AND FINISHED (option B); not
+   deployed.** The finishing pass gated approval-hash issuance and follow-ups, built and
+   browser-verified the React review page, derived the reviewer only from the authenticated session,
+   and covered revocation (see §3.1 and AS_BUILT). The negation/scope/qualifier/number checks reject;
+   delegation and the cross-paragraph stitch route to review and are hash-blocked. **TWO validator false accepts remain** — a single-clause
    recombination and a shared-subject stitch — which three word-gate designs were each too blunt to
    catch on the real drafts (the earlier "uncatchable by any word rule" was an overclaim; those
    "supported sentences" were drafts that currently pass, not verified-faithful text). The founder

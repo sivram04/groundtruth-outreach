@@ -8,6 +8,7 @@ import { Drafts } from "./pages/Drafts";
 import { LeadPage } from "./pages/LeadPage";
 import { Leads } from "./pages/Leads";
 import { NotFound } from "./pages/NotFound";
+import { Review } from "./pages/Review";
 import { Sources } from "./pages/Sources";
 import { useRoute, type Route } from "./router";
 import type { Snapshot } from "./types";
@@ -22,6 +23,7 @@ const TITLES: Record<string, string> = {
   dashboard: "Dashboard",
   drafts: "Drafts",
   leads: "Leads",
+  review: "Review",
   sources: "Sources",
   missing: "Not found",
 };
@@ -36,6 +38,8 @@ function page(route: Route, data: Snapshot) {
       return <Leads key={route.query.toString()} data={data} query={route.query} />;
     case "lead":
       return <LeadPage data={data} id={route.id} />;
+    case "review":
+      return <Review leadId={route.id} from={data.approvals?.sender || data.links.gmail_account} />;
     case "sources":
       return <Sources data={data} />;
     default:

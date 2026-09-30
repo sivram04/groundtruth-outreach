@@ -1372,6 +1372,70 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-29 (third review, finishing pass) — Option B finished: hash issuance gated, follow-ups
+  gated, the React review page built, reviewer authenticity and revocation covered.** Six items:
+
+  1. **The approval-hash gap is closed.** The hash-producing path (`drafting._finish`, reached by
+     `job_draft.written_preview` and so by `drafts.prepare`/the Drafts tab) now issues NO approval
+     hash for a candidate with no valid review: `written_preview` recomputes the candidate
+     fingerprint and, unless `review.is_reviewed`, nulls `preview_hash` and adds an "awaiting review"
+     blocker (the words stay, so the candidate can be read and reviewed; a Drafts row is WAITING, not
+     READY). The final action-boundary recheck in `job_draft.create` (`review.enforce`) is retained.
+     Fail-closed by default (the unmigrated production store finds no review). Tested both ways: no
+     approval hash before review, and a stale review blocks the action.
+  2. **Follow-ups are gated too, not silently exempt.** `followup._create` enforces a valid review of
+     the follow-up's OWN content at its action boundary, under its own review id
+     (`followup:<lead>:<step>`), so reviewing the initial email never counts as reviewing a
+     follow-up. `followup.pending_reviews` is what a follow-up review path would read; none exists
+     yet, so follow-up creation is fail-closed (blocked) until it is built. The scheduled run, a
+     direct `_create` call, and a legacy hand-started thread (never due) are each tested.
+  3. **The React review page is built and verified** (`console/src/pages/Review.tsx`, route
+     `#/review/<lead>`, reachable from the Drafts pane). It shows the full recipient, subject and
+     body beside the cited evidence and the claims, with confirm/reject and clear pending / confirmed
+     / rejected / stale states, and says confirming is a human judgment, not proof, with sending and
+     drafting disabled. It uses the fixture-backed local API; an edit between display and action is
+     refused (409 → the candidate reloads to be reviewed afresh). Proven by `Review.test.tsx` (6
+     browser-flow tests incl. the edit-invalidates case) and seen rendering and confirming in a real
+     browser against the offline demo build.
+  4. **Reviewer authenticity.** The console review write derives the reviewer only from the
+     IAP-verified session (`g.email`) and ignores any reviewer field in the request body; the gate
+     additionally rejects any reviewer not on the human allow-list. Unauthenticated (401) and
+     signed-in-but-not-allow-listed (403) writes are refused. **Trust boundary, stated honestly (in
+     `review.py`):** none of the stores is tamper-resistant — a party with direct write access to the
+     JSON file or the migrated Sheet could forge a record with an allow-listed reviewer and the right
+     fingerprint. The protection is who can write the store plus the authenticated console path, not
+     cryptography; no signing is claimed.
+  5. **Revocation and concurrency.** A store keeps one effective record per key (the file store
+     replaces it; the proposed Sheet store appends and `get` returns the latest row), so a later
+     rejection supersedes an earlier confirmation of the same candidate — tested, including duplicate
+     submissions and confirmation of the same fingerprint. **Race windows, stated honestly:** the
+     file store is last-writer-wins with no locking, so concurrent writes can lose one; the
+     display→confirm window is closed by the console echoing the fingerprint (409 on change); the
+     confirm→action window is closed by the action-boundary recheck.
+  6. **Docs distinguish states** (this entry): **implemented API** (server `GET/POST
+     /api/review/<lead>`, `review.enforce`/`is_reviewed`/`candidate_fingerprint`); **completed local
+     UI** (the React page, vitest + a browser run); **fixture-tested storage** (`MemoryReviewStore`,
+     `JsonFileReviewStore`); **unapplied production migration** (`SheetReviewStore` fail-closed, the
+     `Reviews` tab not migrated, nothing deployed). The raw validator false accepts are preserved and
+     unchanged in the grounding eval — this is human-review enforcement, not improved entailment.
+
+  **Exact coverage.** Python **778 passed**; React **52 passed**. New/changed Python tests:
+  `test_review.py` (the contract: fingerprint stability and sensitivity, every enforce block/pass,
+  the allow-list, the stores, the view, revocation and concurrency); `test_draft_pipeline.py` (the
+  create-boundary gate, the hash-issuance gate — no hash before review, fail-closed default, stale —
+  and the two measured false accepts un-approvable without a review); `test_drafts.py` (the persisted
+  Drafts-tab hash gated: READY only with a review, an approved offer without a review waits);
+  `test_followup.py` (scheduled/direct/legacy/own-review-id); `test_console_api.py` (the review
+  endpoints, reviewer authenticity, the changed-candidate refusal, routes absent unless enabled);
+  `console/src/pages/Review.test.tsx` (the browser flow). **16 deliberate breaks of the gates all
+  caught**: disable the create gate; enforce never blocks; accept a rejected / stale / non-human /
+  malformed review; record without a reviewer; drop the body from the fingerprint; the sheet store
+  stops refusing writes; the default store no longer fail-closed; the console ignores a changed
+  candidate; `written_preview` issues a hash without a review; `is_reviewed` passes an invalid
+  review; follow-ups skip the gate; a follow-up shares the initial's review id; the console trusts a
+  client-supplied reviewer. **Not deployed, nothing pushed; the live Sheet is untouched; item 1's
+  authenticated dashboard check stays separately pending.**
+
 - **2026-09-29 (third review) — An enforced, content-bound human evidence review gates final
   approval (acceptance-contract option B).** The word-overlap validator cannot certify a claim is
   faithful — the two measured false accepts (a same-clause recombination, a shared-subject stitch)
@@ -1414,10 +1478,8 @@ Sheet — and how often the checks refuse it — is unknown.
   deployed console, so the read-only guarantee holds there), `GET /api/review/<lead>` shows the
   candidate beside its cited evidence with the note that confirming is a human judgment, not proof;
   `POST /api/review/<lead>` confirms or rejects, attributed to the IAP-verified signed-in reviewer,
-  written to the injected store. Sending and drafting stay disabled throughout. Built and tested at
-  the server + store level (the candidate/evidence view, confirm/reject, attribution, the
-  changed-candidate refusal); the React page that renders this flow for a person is NOT built, and the
-  deployed console is not rebuilt, so it stays read-only in production.
+  written to the injected store. Sending and drafting stay disabled throughout. (The finishing pass
+  above completed the React review page and gated approval-hash issuance and follow-ups too.)
 
   **Storage / migration (the live Sheet is untouched).** Reviews go through a small store interface.
   `MemoryReviewStore` and `JsonFileReviewStore` back the tests and the local console flow. The

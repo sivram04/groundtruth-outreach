@@ -6,7 +6,7 @@ a recipient must fail closed.
 
 import pytest
 
-from outreach import drafting, followup, gmail_drafts, sequence, sync
+from outreach import drafting, followup, gmail_drafts, review, sequence, sync
 from stage4_fakes import FakeGmail, MemoryStore, at, lead, message, parsed, sent
 
 SAM = "sam@example-electric.test"
@@ -85,7 +85,8 @@ def settings(**changes):
               "founder_title": "Founder", "sender_website": "https://example.test",
               "postal_address": "1 Example St, Columbus, OH 43215", "sender_phone": "614-555-0100",
               "sender_email": "admin@lakshyaa.ai", "daily_cap": 4, "offer_approved": True,
-              "version": "prelaunch-v1", followup.APPROVAL_KEY: "hash-one"}
+              "version": "prelaunch-v1", followup.APPROVAL_KEY: "hash-one",
+              "review_reviewers": ["admin@lakshyaa.ai"]}
     config.update(changes)
     return config
 
@@ -112,9 +113,26 @@ def enabled(monkeypatch):
     monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
 
 
-def run(store, gmail=None, *, dry_run=False, now=NOW, config=None, book=BOOK):
-    return followup.run(dry_run=dry_run, store=store, gmail=gmail, settings=config or settings(),
-                        handbook=book, now=now)
+def reviewed_store(store, gmail, *, config=None, book=BOOK, now=NOW, reviewer="admin@lakshyaa.ai"):
+    """Confirm every due follow-up's actual content, the same way a follow-up review path would,
+    so `run` can draft it. Composes each candidate exactly as `_create` does."""
+    cfg = config or settings()
+    rs = review.MemoryReviewStore()
+    for review_id, candidate in followup.pending_reviews(store, gmail, cfg, book, now):
+        review.record_confirmation(rs, review_id, reviewer,
+                                   review.candidate_fingerprint(candidate, book, cfg))
+    return rs
+
+
+def run(store, gmail=None, *, dry_run=False, now=NOW, config=None, book=BOOK, reviewed=True,
+        review_store=None):
+    cfg = config or settings()
+    # By default the due follow-ups are reviewed (a human evidence review exists), so the "creates a
+    # draft" tests exercise the whole path; pass reviewed=False to see an unreviewed follow-up held.
+    if review_store is None and gmail is not None and reviewed and not dry_run:
+        review_store = reviewed_store(store, gmail, config=cfg, book=book, now=now)
+    return followup.run(dry_run=dry_run, store=store, gmail=gmail, settings=cfg,
+                        handbook=book, now=now, review_store=review_store)
 
 
 # --- the founder's wording, read from the handbook ------------------------------------------
@@ -456,3 +474,66 @@ def test_a_draft_in_a_thread_carries_the_headers_that_keep_it_there():
     gmail_drafts.create(gmail, to=SAM, from_address="admin@lakshyaa.ai", subject="New",
                         body="Hello", action_id="a2")
     assert "threadId" not in gmail.created[1] and parsed(gmail.created[1])["In-Reply-To"] is None
+
+
+# --- follow-ups are review-gated too (not silently exempt from the per-draft contract) -------
+# The per-draft human evidence-review contract applies to follow-ups: no follow-up Gmail draft is
+# created without a valid, current, confirmed review of THIS follow-up's own content. No follow-up
+# review path exists yet, so this is fail-closed - follow-ups are blocked until it is built.
+
+def _due(store, now=NOW):
+    entries = store.suppression()
+    due, _later = followup.due_now(store.leads(), sync.unique(store.events()), entries,
+                                   followup.new_york_date(now))
+    return due
+
+
+def test_the_scheduled_run_does_not_draft_a_follow_up_without_a_review(enabled):
+    store, gmail = system_store(), gmail_with()
+    report = run(store, gmail, reviewed=False)
+    assert report["created"] == [] and gmail.created == [] and store.lead_writes == []
+    assert "human evidence review required" in report["blocked"][0]["why"][0]
+
+
+def test_a_direct_create_call_is_blocked_without_a_review(enabled):
+    store, gmail = system_store(), gmail_with()
+    item, state = _due(store)[0]
+    with pytest.raises(followup.FollowupBlocked, match="human evidence review required"):
+        followup._create(store, gmail, item, state, store.leads()[item["lead_id"]], BOOK,
+                         settings(), NOW, review_store=review.MemoryReviewStore())
+    assert gmail.created == [] and store.lead_writes == []
+
+
+def test_a_valid_review_of_the_follow_ups_own_content_lets_it_through(enabled):
+    store, gmail = system_store(), gmail_with()
+    reviews = followup.pending_reviews(store, gmail, settings(), BOOK, NOW)
+    assert [rid for rid, _ in reviews] == ["followup:A-0001:1"]  # its own review id, not the lead's
+    report = run(store, gmail)  # reviewed=True: the run helper confirms the follow-up's content
+    assert [c["lead_id"] for c in report["created"]] == ["A-0001"] and gmail.created
+
+
+def test_an_initial_email_review_does_not_count_as_the_follow_ups_review(enabled):
+    store, gmail = system_store(), gmail_with()
+    # A review recorded under the lead id (an initial email's key) must not admit the follow-up.
+    rs = review.MemoryReviewStore()
+    _rid, candidate = followup.pending_reviews(store, gmail, settings(), BOOK, NOW)[0]
+    review.record_confirmation(rs, "A-0001", "admin@lakshyaa.ai",
+                               review.candidate_fingerprint(candidate, BOOK, settings()))
+    report = run(store, gmail, review_store=rs)
+    assert report["created"] == [] and gmail.created == []
+    assert "human evidence review required" in report["blocked"][0]["why"][0]
+
+
+def test_a_legacy_hand_started_thread_is_never_drafted_so_no_review_applies(enabled, monkeypatch):
+    original = sequence.lead_state
+
+    def hand(*args, **kwargs):
+        state = original(*args, **kwargs)
+        if state.get("due"):
+            state["sequence"]["origin"] = sequence.HAND
+        return state
+    monkeypatch.setattr(followup.sequence, "lead_state", hand)
+    store, gmail = system_store(), gmail_with()
+    assert followup.pending_reviews(store, gmail, settings(), BOOK, NOW) == []
+    report = run(store, gmail)
+    assert report["due"] == [] and report["created"] == [] and gmail.created == []

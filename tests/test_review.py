@@ -231,3 +231,39 @@ def test_the_review_view_marks_a_matching_review_current():
     assert view["review"]["current"] is True and view["review"]["decision"] == "confirmed"
     stale = review.review_view(preview(subject="changed"), None, settings(), existing=existing)
     assert stale["review"]["current"] is False
+
+
+# --- item 5: revocation and concurrency -----------------------------------------------------
+
+def test_a_later_rejection_supersedes_an_earlier_confirmation_of_the_same_candidate():
+    store = review.MemoryReviewStore()
+    review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", fingerprint())
+    review.record_rejection(store, "A-0001", "founder@lakshyaa.ai", fingerprint())  # same fingerprint
+    with pytest.raises(review.ReviewInvalid) as exc:
+        review.enforce(preview(), None, settings(), store=store)
+    assert exc.value.reason == review.REJECTED_REASON
+
+
+def test_a_later_confirmation_supersedes_an_earlier_rejection():
+    store = review.MemoryReviewStore()
+    review.record_rejection(store, "A-0001", "founder@lakshyaa.ai", fingerprint())
+    review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", fingerprint())
+    assert review.enforce(preview(), None, settings(), store=store) == fingerprint()
+
+
+def test_duplicate_confirmations_are_idempotent():
+    store = review.MemoryReviewStore()
+    review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", fingerprint())
+    review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", fingerprint())
+    assert review.enforce(preview(), None, settings(), store=store) == fingerprint()
+
+
+def test_a_confirmation_of_an_old_candidate_does_not_admit_a_new_one():
+    """An edit between display and action: the confirmation is for the earlier fingerprint, so the
+    changed candidate is stale and blocked (the action boundary rechecks)."""
+    store = review.MemoryReviewStore()
+    review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", fingerprint())
+    changed = preview(subject="An edited subject after the review")
+    with pytest.raises(review.ReviewInvalid) as exc:
+        review.enforce(changed, None, settings(), store=store)
+    assert exc.value.reason == review.STALE

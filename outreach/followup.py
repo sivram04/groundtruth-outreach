@@ -30,7 +30,8 @@ import re
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from outreach import drafting, gmail_drafts, job_draft, mailbox, sequence, suppression, sync, tracking
+from outreach import (drafting, gmail_drafts, job_draft, mailbox, review, sequence, suppression,
+                      sync, tracking)
 from outreach.business_days import new_york_date
 from outreach.sheet import FOLLOWUP_COLUMNS, Store
 
@@ -221,8 +222,76 @@ def due_now(leads, events, entries, today):
     return due, later
 
 
+def followup_review_id(lead_id, step):
+    """The review store key for a follow-up: separate from the initial email's (its lead id) and
+    from the other step's, so reviewing one never counts as reviewing another."""
+    return f"followup:{lead_id}:{step}"
+
+
+def _prepare_followup(gmail, item, state, row, book, settings):
+    """Every pre-write check and the rendered body for one due follow-up, as a plan dict, or
+    FollowupBlocked. No Gmail write and no review check happen here."""
+    lead_id, step = item["lead_id"], state["due"]["step"]
+    thread_id, address = state["due"]["thread"], state["due"]["address"]
+    everything = mailbox.thread(gmail, thread_id).get("messages", [])
+    if (any("DRAFT" in m.get("labelIds", []) for m in everything)
+            or mailbox.drafts_in_thread(gmail, thread_id)):
+        raise FollowupBlocked("a draft already sits in this thread")
+    messages = [m for m in everything if "DRAFT" not in m.get("labelIds", [])]
+    if not messages:
+        raise FollowupBlocked("the thread is no longer in Gmail")
+    last = messages[-1]
+    if last["id"] != state["due"]["after_message"] or not mailbox.is_sent(last):
+        raise FollowupBlocked("the thread changed since the last sync; run sync first")
+    if not all(mailbox.is_sent(m) for m in messages):
+        raise FollowupBlocked("the thread holds a message from someone else")
+    first = messages[0]
+    if address not in mailbox.recipients(first):
+        raise FollowupBlocked("the address is not a recipient of the thread's first email")
+    subject = " ".join(mailbox.header(first, "Subject").split())
+    if not subject:
+        raise FollowupBlocked("the thread's first email has no subject")
+    reply_to = mailbox.header(last, "Message-ID").strip()
+    if not reply_to:
+        raise FollowupBlocked("the last email has no Message-ID to answer")
+    references = " ".join((mailbox.header(last, "References") + " " + reply_to).split())
+    first_name = (drafting.verified_first_name(row)
+                  if address == row.get("BEST EMAIL", "").strip().lower() else "there")
+    body, problems = render(step, book["text"], settings, first_name)
+    if problems:
+        raise FollowupBlocked("; ".join(problems))
+    review_id = followup_review_id(lead_id, step)
+    candidate = {"lead_id": lead_id, "to": address, "subject": subject, "body": body,
+                 "handbook_hash": book.get("content_hash", ""), "evidence": None, "written": None}
+    return {"lead_id": lead_id, "step": step, "thread_id": thread_id, "address": address,
+            "subject": subject, "body": body, "reply_to": reply_to, "references": references,
+            "last_id": last["id"], "review_id": review_id, "candidate": candidate}
+
+
+def pending_reviews(store, gmail, settings, book, now):
+    """[(review_id, candidate)] for each follow-up due now that would otherwise be drafted, so a
+    person - or a test - can review its actual content. Items blocked before drafting are skipped.
+    This is what a follow-up review UI would read; none exists yet, so follow-up creation stays
+    blocked (fail-closed) until it does."""
+    today = new_york_date(now)
+    leads, events = store.leads(), sync.unique(store.events())
+    try:
+        entries = store.suppression()
+    except suppression.Unreadable:
+        return []
+    due, _later = due_now(leads, events, entries, today)
+    reviews = []
+    for item, state in due:
+        try:
+            plan = _prepare_followup(gmail, item, state, leads[item["lead_id"]], book, settings)
+        except FollowupBlocked:
+            continue
+        reviews.append((plan["review_id"], plan["candidate"]))
+    return reviews
+
+
 def run(where="local", *, dry_run=True, store=None, gmail=None, settings=None, handbook=None,
-        drive=None, now=None):
+        drive=None, now=None, review_store=None):
     now = now or datetime.now(timezone.utc)
     today = new_york_date(now)
     settings = job_draft.load_settings() if settings is None else settings
@@ -260,7 +329,7 @@ def run(where="local", *, dry_run=True, store=None, gmail=None, settings=None, h
             continue
         try:
             report["created"].append(_create(store, gmail, item, state, leads[item["lead_id"]],
-                                             book, settings, now))
+                                             book, settings, now, review_store=review_store))
             remaining -= 1
         except FollowupBlocked as exc:
             report["blocked"].append({**item, "why": [str(exc)]})
@@ -269,39 +338,24 @@ def run(where="local", *, dry_run=True, store=None, gmail=None, settings=None, h
     return report
 
 
-def _create(store, gmail, item, state, row, book, settings, now):
-    """One follow-up draft: fresh checks against Gmail, reserve in the Sheet, create, finalize."""
-    lead_id, step = item["lead_id"], state["due"]["step"]
-    thread_id, address = state["due"]["thread"], state["due"]["address"]
-    everything = mailbox.thread(gmail, thread_id).get("messages", [])
-    if (any("DRAFT" in m.get("labelIds", []) for m in everything)
-            or mailbox.drafts_in_thread(gmail, thread_id)):
-        raise FollowupBlocked("a draft already sits in this thread")
-    messages = [m for m in everything if "DRAFT" not in m.get("labelIds", [])]
-    if not messages:
-        raise FollowupBlocked("the thread is no longer in Gmail")
-    last = messages[-1]
-    if last["id"] != state["due"]["after_message"] or not mailbox.is_sent(last):
-        raise FollowupBlocked("the thread changed since the last sync; run sync first")
-    if not all(mailbox.is_sent(m) for m in messages):
-        raise FollowupBlocked("the thread holds a message from someone else")
-    first = messages[0]
-    if address not in mailbox.recipients(first):
-        raise FollowupBlocked("the address is not a recipient of the thread's first email")
-    subject = " ".join(mailbox.header(first, "Subject").split())
-    if not subject:
-        raise FollowupBlocked("the thread's first email has no subject")
-    reply_to = mailbox.header(last, "Message-ID").strip()
-    if not reply_to:
-        raise FollowupBlocked("the last email has no Message-ID to answer")
-    references = " ".join((mailbox.header(last, "References") + " " + reply_to).split())
-    first_name = (drafting.verified_first_name(row)
-                  if address == row.get("BEST EMAIL", "").strip().lower() else "there")
-    body, problems = render(step, book["text"], settings, first_name)
-    if problems:
-        raise FollowupBlocked("; ".join(problems))
+def _create(store, gmail, item, state, row, book, settings, now, review_store=None):
+    """One follow-up draft: fresh checks against Gmail, the review gate, reserve, create, finalize.
+
+    The per-draft human evidence-review contract applies to follow-ups too: no follow-up Gmail draft
+    is created without a valid, current, confirmed review of THIS follow-up's actual content (its own
+    review id, rechecked here at the action boundary). No follow-up review path exists yet, so this
+    is fail-closed - follow-ups are blocked, never silently exempted, until that path is built."""
+    plan = _prepare_followup(gmail, item, state, row, book, settings)
+    try:
+        review.enforce(plan["candidate"], book, settings,
+                       store=review_store or review.default_store(), review_id=plan["review_id"])
+    except review.ReviewInvalid as exc:
+        raise FollowupBlocked(f"human evidence review required ({exc.reason}): {exc}") from None
+    lead_id, step, thread_id, address = plan["lead_id"], plan["step"], plan["thread_id"], plan["address"]
+    subject, body, reply_to, references = (plan["subject"], plan["body"], plan["reply_to"],
+                                           plan["references"])
     action_id = hashlib.sha256(
-        f"followup:{lead_id}:{step}:{thread_id}:{last['id']}".encode()).hexdigest()[:32]
+        f"followup:{lead_id}:{step}:{thread_id}:{plan['last_id']}".encode()).hexdigest()[:32]
     html = None
     if settings.get("tracking_enabled") is True:
         try:

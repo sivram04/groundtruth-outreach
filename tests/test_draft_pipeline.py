@@ -67,12 +67,33 @@ def model_for(company_text=None, subject="A conversation about Example Product n
     return model
 
 
-def preview(row=None, *, book=BOOK, model=None, config=None, suppressed=False):
+def _compose(row=None, *, book=BOOK, model=None, config=None, suppressed=False, review_store):
     row = row or lead()
     return job_draft.previews(["A-0001"], settings=config or settings(), write=True,
-                              handbook=book, model=model or model_for(),
+                              handbook=book, model=model or model_for(), review_store=review_store,
                               fixture={"leads": [row], "research": facts(), "pages": SITE,
                                        "suppressed": {"A-0001": suppressed}})[0]
+
+
+def confirmed_store(row=None, *, book=BOOK, model=None, config=None, reviewer="admin@lakshyaa.ai"):
+    """A store confirming the standard candidate for `row` (composed once, unreviewed, to get its
+    fingerprint)."""
+    bare = _compose(row, book=book, model=model, config=config, review_store=review.MemoryReviewStore())
+    store = review.MemoryReviewStore()
+    review.record_confirmation(store, bare["lead_id"], reviewer,
+                               review.candidate_fingerprint(bare, book, config or settings()))
+    return store
+
+
+def preview(row=None, *, book=BOOK, model=None, config=None, suppressed=False,
+            review_store=None, reviewed=True):
+    """A composed preview. Reviewed by default (a confirmed review lets the approval hash mint);
+    pass reviewed=False to see an unreviewed candidate (words, but no approval hash)."""
+    if review_store is None:
+        review_store = (confirmed_store(row, book=book, model=model, config=config)
+                        if reviewed else review.MemoryReviewStore())
+    return _compose(row, book=book, model=model, config=config, suppressed=suppressed,
+                    review_store=review_store)
 
 
 # --- the good path ------------------------------------------------------------------------
@@ -97,6 +118,38 @@ def test_a_written_preview_is_approvable_and_carries_its_sources():
     assert out["body"].startswith("Hi Sam,") and out["body"].endswith(drafting.OPT_OUT)
     assert "1 Example St" in out["body"] and "614-555-0100" in out["body"]
     assert out["written"]["sentences"] and "usage" not in out["written"]
+
+
+# --- no approval hash before review (the hash-producing path is gated) ----------------------
+
+def test_no_approval_hash_is_issued_before_review_but_the_words_are_kept():
+    """An otherwise-approvable candidate with no valid review carries NO approval hash - it is held
+    for a person to review, with its words intact so they can be read."""
+    out = preview(reviewed=False)
+    assert out["preview_hash"] is None
+    assert review.AWAITING_BLOCKER in out["blockers"]
+    assert out["written"]["sentences"] and out["body"].startswith("Hi Sam,")
+
+
+def test_a_confirmed_review_lets_the_approval_hash_mint():
+    out = preview()  # reviewed=True
+    assert out["preview_hash"] and review.AWAITING_BLOCKER not in out["blockers"]
+
+
+def test_the_default_hash_path_is_fail_closed_without_a_review():
+    """With no store injected, written_preview uses the fail-closed production store, so no approval
+    hash is issued."""
+    out = _compose(review_store=review.default_store())
+    assert out["preview_hash"] is None and review.AWAITING_BLOCKER in out["blockers"]
+
+
+def test_an_edit_after_review_stops_the_hash_being_reissued():
+    """A review confirmed for one candidate does not carry over to an edited one: the approval hash
+    is not reissued for the changed candidate (a stale review does not mint a hash)."""
+    store = confirmed_store()  # confirms the standard candidate under the default settings
+    out = _compose(config=settings(intended_use="a much longer paid pilot than described"),
+                   review_store=store)
+    assert out["preview_hash"] is None and review.AWAITING_BLOCKER in out["blockers"]
 
 
 # --- the handbook is the only source, and it must be readable ------------------------------
@@ -197,15 +250,6 @@ class Mailbox:
 
     def execute(self):
         return {"emailAddress": "admin@lakshyaa.ai"}
-
-
-def confirmed_store(row=None, reviewer="admin@lakshyaa.ai"):
-    """A review store holding a valid confirmation of the standard candidate for `row`."""
-    out = preview(row)
-    store = review.MemoryReviewStore()
-    review.record_confirmation(store, out["lead_id"], reviewer,
-                               review.candidate_fingerprint(out, BOOK, settings()))
-    return store
 
 
 @pytest.fixture
@@ -653,10 +697,16 @@ def test_the_operator_can_choose_which_verified_quote_is_written_from():
             {"text": "Would you be open to a twenty minute conversation next week about the "
                      "early preview?", "kind": "ASK"}]}, {}
 
-    out = job_draft.previews(["A-0001"], settings=settings(), write=True, handbook=BOOK,
-                             model=model, quote_choices={"A-0001": chosen},
-                             fixture={"leads": [row], "research": rows, "pages": SITE,
-                                      "suppressed": {"A-0001": False}})[0]
+    def compose(store):
+        return job_draft.previews(["A-0001"], settings=settings(), write=True, handbook=BOOK,
+                                  model=model, quote_choices={"A-0001": chosen}, review_store=store,
+                                  fixture={"leads": [row], "research": rows, "pages": SITE,
+                                           "suppressed": {"A-0001": False}})[0]
+    bare = compose(review.MemoryReviewStore())
+    store = review.MemoryReviewStore()
+    review.record_confirmation(store, bare["lead_id"], "admin@lakshyaa.ai",
+                               review.candidate_fingerprint(bare, BOOK, settings()))
+    out = compose(store)
     assert out["evidence"]["quote"] == market and out["preview_hash"]
 
 

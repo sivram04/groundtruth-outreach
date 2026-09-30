@@ -96,8 +96,13 @@ def site_text(lead):
 
 
 def written_preview(lead, facts, settings, handbook, *, suppressed, model, quote_id=None,
-                    pages=None):
-    """Gemini writes; `drafting` decides whether the result may ever become a draft."""
+                    pages=None, review_store=None):
+    """Gemini writes; `drafting` decides whether the result may ever become a draft.
+
+    No approval hash is issued for a candidate that has no valid human evidence review: this is the
+    hash-producing path for previews and the Drafts tab, so the gate lives here (the action
+    boundary in `create` rechecks separately). An unreviewed but otherwise-approvable candidate
+    keeps its words and is held for review, exactly as the offer-not-approved case is."""
     company, verified = drafting.verified_company_name(
         lead.get("Company", ""), site_text(lead) if pages is None else pages)
     options = drafting.opening_options(drafting.supported_quotes(lead, facts), company)
@@ -133,11 +138,18 @@ def written_preview(lead, facts, settings, handbook, *, suppressed, model, quote
         result["blockers"].append(
             f'the company name "{company}" was not found on its own site; check it')
         result["preview_hash"] = None
+    if result.get("preview_hash"):
+        store = review_store or review.default_store()
+        fingerprint = review.candidate_fingerprint(result, handbook, settings)
+        if not review.is_reviewed(store, result["lead_id"], fingerprint,
+                                  reviewers=review.allowed_reviewers(settings)):
+            result["preview_hash"] = None
+            result["blockers"].append(review.AWAITING_BLOCKER)
     return result
 
 
 def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
-             write=False, model=None, drive=None, handbook=None):
+             write=False, model=None, drive=None, handbook=None, review_store=None):
     settings = load_settings() if settings is None else settings
     quote_choices = quote_choices or {}
     if fixture is not None:
@@ -151,7 +163,8 @@ def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
             return [(written_preview(leads[i], fixture["research"], settings, book,
                                      suppressed=fixture.get("suppressed", {}).get(i, None),
                                      model=model or gemini.generate_json,
-                                     quote_id=quote_choices.get(i), pages=fixture.get("pages", ""))
+                                     quote_id=quote_choices.get(i), pages=fixture.get("pages", ""),
+                                     review_store=review_store)
                      if book else _blocked(leads[i], [], [why]))
                     for i in ids]
         return [drafting.preview(leads[lead_id], fixture["research"], settings,
@@ -167,7 +180,7 @@ def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
         return [(written_preview(by_id[i], facts, settings, book,
                                  suppressed=_suppressed(api, by_id[i].get("BEST EMAIL", "")),
                                  model=model or gemini.generate_json,
-                                 quote_id=quote_choices.get(i))
+                                 quote_id=quote_choices.get(i), review_store=review_store)
                  if book else _blocked(by_id[i], [], [why]))
                 for i in ids]
     return [drafting.preview(by_id[lead_id], facts, settings,

@@ -22,7 +22,7 @@ import argparse
 import json
 from datetime import datetime, timezone
 
-from outreach import drafting, gemini, job_draft, sequence, suppression, sync
+from outreach import drafting, gemini, job_draft, review, sequence, suppression, sync
 from outreach.sheet import Store
 
 READY, WAITING, HELD = "READY", "WAITING", "HELD"
@@ -48,9 +48,12 @@ def first_draft_blockers(row, events, entries):
 
 
 def _reviewable(blocker):
-    """A blocker that still lets the founder read the words: the offer approval itself, and
-    the company name not found on the company's own site, which the founder checks by eye."""
-    return blocker == OFFER_NOT_APPROVED or NAME_NOT_ON_SITE in blocker
+    """A blocker that still lets the founder read the words: the offer approval itself, the company
+    name not found on the company's own site (which the founder checks by eye), and a candidate
+    that is simply awaiting its human evidence review (the words must be shown so it can be
+    reviewed)."""
+    return (blocker == OFFER_NOT_APPROVED or NAME_NOT_ON_SITE in blocker
+            or blocker == review.AWAITING_BLOCKER)
 
 
 def written_row(lead, preview, settings, facts, *, suppressed, handbook, now):
@@ -112,8 +115,12 @@ def plan(store):
 
 
 def prepare(store=None, *, settings=None, handbook=None, drive=None, model=None, now=None,
-            limit=DEFAULT_LIMIT, refresh=False, dry_run=False, pages=None):
-    """Write the Drafts rows of up to `limit` ready leads. Returns what was done, by lead."""
+            limit=DEFAULT_LIMIT, refresh=False, dry_run=False, pages=None, review_store=None):
+    """Write the Drafts rows of up to `limit` ready leads. Returns what was done, by lead.
+
+    A row is READY (and carries an approval hash) only when the candidate also has a valid human
+    evidence review; otherwise it is WAITING with the words shown for review. `review_store`
+    defaults to the fail-closed production store, so until reviews exist nothing is READY."""
     if not 1 <= int(limit) <= MAX_LIMIT:
         raise DraftsBlocked(f"a run writes between 1 and {MAX_LIMIT} drafts")
     settings = job_draft.load_settings() if settings is None else settings
@@ -137,7 +144,8 @@ def prepare(store=None, *, settings=None, handbook=None, drive=None, model=None,
         suppressed = sync.on_list(entries, lead.get("BEST EMAIL", ""))
         preview = job_draft.written_preview(
             lead, facts, settings, book, suppressed=suppressed, model=model,
-            pages=None if pages is None else pages.get(lead["Lead ID"], ""))
+            pages=None if pages is None else pages.get(lead["Lead ID"], ""),
+            review_store=review_store)
         row = written_row(lead, preview, settings, facts, suppressed=suppressed, handbook=book,
                           now=now)
         if lead["Lead ID"] in existing:

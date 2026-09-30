@@ -22,6 +22,20 @@ Storage. The live Google Sheet is not touched by this change. The production sto
 (`SheetReviewStore`) is fail-closed and unmigrated: reading finds no review (so approval stays
 blocked) and writing is refused until the documented `Reviews` tab migration is applied. The
 local console review flow and the tests use `MemoryReviewStore` / `JsonFileReviewStore`.
+
+Trust boundary (stated honestly, not overclaimed). The one write path that carries an authenticated
+identity is the console `POST /api/review/<lead>`: it derives the reviewer from the IAP-verified
+session (`g.email`) and ignores any reviewer field in the request body, and the gate additionally
+rejects any reviewer not on the human allow-list. None of the stores here is tamper-resistant: a
+party with direct write access to the JSON file, or to the Sheet once migrated, could insert a
+record naming an allow-listed reviewer with the correct fingerprint and so forge an approval. The
+protection is who can write the store (file permissions; the Sheet's own ACLs and the service
+account) plus the authenticated console path - not cryptography. No signing or attestation is
+claimed. Revocation works by supersession: a store keeps one effective record per key (the file
+store replaces it; the proposed Sheet store appends and `get` returns the latest row), so a later
+rejection supersedes an earlier confirmation of the same candidate only if it is the later write.
+The file store is last-writer-wins with no locking, so concurrent writes can lose one; the action-
+boundary recheck (`enforce`) still closes the review-to-action window by re-deriving the fingerprint.
 """
 
 import json
@@ -53,6 +67,11 @@ MALFORMED = "REVIEW_MALFORMED"    # a record exists but is not a well-formed rev
 NOT_HUMAN = "REVIEW_NOT_HUMAN"    # the reviewer is not an authorized human (e.g. a forged record)
 STALE = "REVIEW_STALE"            # the candidate changed since it was reviewed
 REJECTED_REASON = "REVIEW_REJECTED"  # a human reviewed THIS candidate and rejected it
+
+# A blocker added to a preview when a would-be-approvable candidate has no valid review yet, so no
+# approval hash is issued. Distinct from writer.REVIEW_PREFIX (a claim the validator held): this one
+# still lets the words be read so a person can review them.
+AWAITING_BLOCKER = "awaiting a human evidence review of this candidate"
 
 
 class ReviewInvalid(ValueError):
@@ -145,29 +164,18 @@ def _well_formed(record):
     return True
 
 
-def enforce(preview, book, settings, *, store, reviewers=None):
-    """Raise `ReviewInvalid` unless a valid, current, confirmed human review of THIS candidate
-    exists. Returns the candidate fingerprint on success.
+def _reviewers(settings, reviewers):
+    return (allowed_reviewers(settings) if reviewers is None
+            else frozenset(r.strip().lower() for r in reviewers if r.strip()))
 
-    Called at the action boundary, after the candidate has been rebuilt and every existing gate
-    has passed, immediately before any Gmail write. Because the fingerprint is recomputed here,
-    an edit to the recipient, wording, cited evidence, handbook or offer between review and action
-    makes the stored review stale and blocks the draft.
-    """
-    reviewers = allowed_reviewers(settings) if reviewers is None else frozenset(
-        r.strip().lower() for r in reviewers if r.strip())
-    fingerprint = candidate_fingerprint(preview, book, settings)
-    lead_id = preview.get("lead_id", "")
 
-    try:
-        record = store.get(lead_id)
-    except Exception as exc:  # a store that cannot be read never permits approval
-        raise ReviewInvalid(UNREADABLE, f"the review record could not be read: {exc}") from None
+def _evaluate(record, fingerprint, reviewers):
+    """Raise `ReviewInvalid` unless `record` is a valid, current, confirmed human review of the
+    candidate with this fingerprint. `record` is None when the store held nothing."""
     if record is None:
         raise ReviewInvalid(MISSING, "no human evidence review exists for this candidate")
     if not _well_formed(record):
         raise ReviewInvalid(MALFORMED, "the review record is not a well-formed review")
-
     reviewer = record["reviewer"].strip().lower()
     if not reviewers or reviewer not in reviewers:
         raise ReviewInvalid(NOT_HUMAN, "the review was not made by an authorized human reviewer")
@@ -175,7 +183,42 @@ def enforce(preview, book, settings, *, store, reviewers=None):
         raise ReviewInvalid(STALE, "the candidate changed since it was reviewed; review it again")
     if record["decision"] != CONFIRMED:
         raise ReviewInvalid(REJECTED_REASON, "this candidate was rejected in review")
+
+
+def enforce(preview, book, settings, *, store, reviewers=None, review_id=None):
+    """Raise `ReviewInvalid` unless a valid, current, confirmed human review of THIS candidate
+    exists. Returns the candidate fingerprint on success.
+
+    Called at the action boundary, after the candidate has been rebuilt and every existing gate
+    has passed, immediately before any Gmail write. Because the fingerprint is recomputed here,
+    an edit to the recipient, wording, cited evidence, handbook or offer between review and action
+    makes the stored review stale and blocks the draft. `review_id` defaults to the lead id; a
+    follow-up passes its own id so its review is separate from the initial email's.
+    """
+    reviewers = _reviewers(settings, reviewers)
+    fingerprint = candidate_fingerprint(preview, book, settings)
+    key = review_id or preview.get("lead_id", "")
+    try:
+        record = store.get(key)
+    except Exception as exc:  # a store that cannot be read never permits approval
+        raise ReviewInvalid(UNREADABLE, f"the review record could not be read: {exc}") from None
+    _evaluate(record, fingerprint, reviewers)
     return fingerprint
+
+
+def is_reviewed(store, review_id, fingerprint, *, reviewers):
+    """True iff a valid, current, confirmed human review with this fingerprint exists for
+    `review_id`. Used to gate approval-hash issuance; an unreadable store returns False."""
+    reviewers = frozenset(r.strip().lower() for r in reviewers if r and r.strip())
+    try:
+        record = store.get(review_id)
+    except Exception:
+        return False
+    try:
+        _evaluate(record, fingerprint, reviewers)
+        return True
+    except ReviewInvalid:
+        return False
 
 
 def _record(store, lead_id, reviewer, decision, fingerprint, now=None):

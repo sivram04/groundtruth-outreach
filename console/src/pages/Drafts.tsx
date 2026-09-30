@@ -2,7 +2,7 @@ import { Inbox, MailOpen } from "lucide-react";
 import { useCallback, useState } from "react";
 import { Avatar, Callout, Card, Chip, DraftingSettings, PageHead, draftTone } from "../components";
 import { DraftDrawer, DraftPreview } from "../draft-view";
-import { leadHref } from "../router";
+import { leadHref, reviewHref } from "../router";
 import type { Draft, Snapshot } from "../types";
 
 function DraftRow(props: { draft: Draft; on: boolean; onPeek: () => void; onOpen: () => void }) {
@@ -99,6 +99,12 @@ export function Drafts({ data }: { data: Snapshot }) {
                   <MailOpen size={14} aria-hidden="true" /> {shown.company}
                   {" · "}
                   <a href={leadHref(shown.lead_id)}>{shown.lead_id}</a>
+                  {shown.body && (
+                    <>
+                      {" · "}
+                      <a href={reviewHref(shown.lead_id)}>Review this candidate</a>
+                    </>
+                  )}
                 </p>
                 <DraftPreview draft={shown} from={from} />
               </>

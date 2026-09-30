@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from outreach import drafting, drafts, sequence, sheet
+from outreach import drafting, drafts, job_draft, review, sequence, sheet
 from outreach.sync import _event
 from stage4_fakes import MemoryStore, at
 from test_draft_pipeline import BOOK, QUOTE, SITE, URL, facts, lead, model_for, settings
@@ -41,11 +41,28 @@ class Counting:
         return self.model(prompt, schema)
 
 
-def run(memory, *, config=None, model=None, pages=None, **options):
+def run(memory, *, config=None, model=None, pages=None, review_store=None, **options):
     return drafts.prepare(memory, settings=config or settings(offer_approved=False), handbook=BOOK,
                           model=model or model_for(), now=NOW,
                           pages=pages if pages is not None else {"A-0001": SITE, "A-0002": SITE},
-                          **options)
+                          review_store=review_store, **options)
+
+
+def reviewed_store(memory, *, config=None):
+    """A store confirming every currently-ready lead's candidate, so `run` can produce READY rows.
+    Composes each candidate the same way `prepare` does, then records a human confirmation."""
+    cfg = config or settings(offer_approved=True)
+    research = (memory.table("Research") or ([], []))[1]
+    ready, _existing, _entries = drafts.plan(memory)
+    store = review.MemoryReviewStore()
+    for row in ready:
+        bare = job_draft.written_preview(row, research, cfg, BOOK, suppressed=False,
+                                         model=model_for(), pages=SITE,
+                                         review_store=review.MemoryReviewStore())
+        if bare.get("written"):
+            review.record_confirmation(store, bare["lead_id"], "admin@lakshyaa.ai",
+                                       review.candidate_fingerprint(bare, BOOK, cfg))
+    return store
 
 
 def row_of(memory, lead_id="A-0001"):
@@ -81,10 +98,21 @@ def test_the_words_shown_while_waiting_are_the_words_an_approval_would_send():
 
 def test_with_the_offer_approved_a_row_is_ready_and_carries_its_approval_hash():
     memory = store(ready_lead())
-    run(memory, config=settings(offer_approved=True))
+    cfg = settings(offer_approved=True)
+    run(memory, config=cfg, review_store=reviewed_store(memory, config=cfg))
     row = row_of(memory)
     assert row["Status"] == drafts.READY and row["Why"] == ""
     assert len(row["Approval hash"]) == 64
+
+
+def test_an_approved_offer_without_a_review_waits_with_no_hash():
+    """Even with the offer approved and every check passing, no approval hash is issued until a
+    human evidence review exists; the words are kept and the row waits."""
+    memory = store(ready_lead())
+    run(memory, config=settings(offer_approved=True))  # no review store -> fail-closed
+    row = row_of(memory)
+    assert row["Status"] == drafts.WAITING and row["Approval hash"] == ""
+    assert review.AWAITING_BLOCKER in row["Why"] and row["Body"].startswith("Hi Sam,")
 
 
 @pytest.mark.parametrize("sentence", [
@@ -156,7 +184,8 @@ def test_a_lead_with_a_row_is_left_alone_unless_asked_to_write_it_again():
     second = run(memory)
     assert second["to_write"] == ["A-0002"] and second["already_drafted"] == 1
     assert [r["Lead ID"] for r in memory.draft_rows] == ["A-0001", "A-0002"]
-    again = run(memory, config=settings(offer_approved=True), refresh=True)
+    cfg = settings(offer_approved=True)
+    again = run(memory, config=cfg, refresh=True, review_store=reviewed_store(memory, config=cfg))
     assert again["to_write"] == ["A-0001", "A-0002"]
     assert [r["Lead ID"] for r in memory.draft_rows] == ["A-0001", "A-0002"]  # rewritten in place
     assert {r["Status"] for r in memory.draft_rows} == {drafts.READY}

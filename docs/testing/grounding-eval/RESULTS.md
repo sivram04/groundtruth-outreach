@@ -313,13 +313,21 @@ measurement honest and avoid overfitting**:
   identity+version / offer settings; changes invalidate it; recheck at the action boundary — **done**
   (the fingerprint binds these and is recomputed inside `job_draft.create`; the "edit between review
   and action" test and the console changed-candidate refusal prove it).
+- No approval hash before review — **done** (finishing pass): `written_preview` and the Drafts tab
+  issue no hash for an unreviewed candidate (fail-closed), and the action-boundary recheck is
+  retained. Tested both ways ("no approval hash before review", "stale review blocks action").
 - Console review flow (candidate beside evidence, confirm/reject, confirmation is human judgment not
-  proof, sending/drafting disabled, no live-Sheet writes) — **done** behind `enable_review`
-  (`outreach/console.py`; `test_console_api.py`); the deployed console keeps it off and read-only.
+  proof, sending/drafting disabled, no live-Sheet writes) — **done**: the server endpoints behind
+  `enable_review` (`outreach/console.py`) AND the React review page (`console/src/pages/Review.tsx`,
+  `#/review/<lead>`), tested in vitest and seen in a browser against the demo build; the deployed
+  console keeps it off and read-only.
 - Cover every consuming path; a direct API/lower-level call cannot bypass — **done**: the gate is in
-  `job_draft.create` (the only path to a Gmail draft, and the one the HTTP create route calls); the
-  follow-up path carries no cited-evidence claims and only follows an already-gated initial. Existing
-  suppression / handbook / eligibility / approval checks are preserved.
+  `job_draft.create` (the only path to a Gmail draft, and the one the HTTP create route calls), and
+  follow-ups are gated at their own action boundary (`followup._create`, own review id, fail-closed).
+  Existing suppression / handbook / eligibility / approval checks are preserved.
+- Reviewer authenticity, revocation, concurrency — **done** (finishing pass): the console write takes
+  the reviewer only from the IAP session and ignores client fields; a later rejection supersedes an
+  earlier confirmation; the trust boundary and race windows are documented honestly in `review.py`.
 - Replace the four strict-xfail cases with passing tests that those candidates cannot be approved
   without a valid review, WITHOUT relabelling human gating as validator accuracy — **done**: the raw
   false accepts stay visible in this eval (still in `_UNRESOLVED_FALSE_ACCEPTS`); the enforcement
@@ -344,16 +352,24 @@ measurement honest and avoid overfitting**:
 - `tests/test_draft_pipeline.py` — the gate at the create boundary: no-review / fail-closed default /
   rejected / stale / forged / malformed / unreadable, an offer edit between review and action, and
   the worker create route funnelling through the gated create.
-- `tests/test_console_api.py` — the console review endpoints, reviewer attribution, the
-  changed-candidate refusal, and that the routes are absent unless enabled.
+- `tests/test_console_api.py` — the console review endpoints, reviewer authenticity (client fields
+  ignored, 401/403), the changed-candidate refusal, and that the routes are absent unless enabled.
+- `tests/test_drafts.py` — the persisted Drafts-tab hash is gated (READY only with a review; an
+  approved offer without a review waits with the words shown).
+- `tests/test_followup.py` — follow-ups are review-gated at their own action boundary (scheduled,
+  direct-call and legacy-thread paths; the follow-up's own review id).
 - `tests/test_writer.py` — the two measured false accepts (product + subject variations) cannot be
   approved without a valid review, proven WITHOUT depending on the validator's verdict; the four
   strict-xfail cases are removed.
-- **11 deliberate breaks of the gate and every guarantee, all caught** (disable the gate; enforce
-  never blocks; accept a rejected / stale / non-human / malformed review; record without a reviewer;
-  drop the body from the fingerprint; the sheet store stops refusing writes; the default store is no
-  longer fail-closed; the console ignores a changed candidate).
-- Whole suite: **761 Python passed (0 xfailed)**, React unchanged.
+- `console/src/pages/Review.test.tsx` — the browser review flow, including an edit invalidating the
+  review.
+- **16 deliberate breaks of the gates, all caught** (disable the create gate; enforce never blocks;
+  accept a rejected / stale / non-human / malformed review; record without a reviewer; drop the body
+  from the fingerprint; the sheet store stops refusing writes; the default store no longer
+  fail-closed; the console ignores a changed candidate; written_preview issues a hash without a
+  review; is_reviewed passes an invalid review; follow-ups skip the gate; a follow-up shares the
+  initial's review id; the console trusts a client-supplied reviewer).
+- Whole suite: **778 Python passed (0 xfailed)**, **52 React passed**.
 
 ## What this does not establish (limits of the evidence itself)
 

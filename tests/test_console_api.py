@@ -334,3 +334,33 @@ def test_the_review_routes_still_require_signing_in(built):
     client = review_app(built)
     assert client.get("/api/review/A-0014").status_code == 401
     assert client.post("/api/review/A-0014", json={"decision": "confirm"}).status_code == 401
+
+
+# --- item 4: the reviewer is the verified identity, never a client-supplied field ------------
+
+def test_a_client_supplied_reviewer_field_is_ignored(built):
+    reviews = review.MemoryReviewStore()
+    client = review_app(built, reviews=reviews)
+    fingerprint = client.get("/api/review/A-0014", headers=signed()).get_json()["fingerprint"]
+    client.post("/api/review/A-0014", headers=signed(),
+                json={"decision": "confirm", "fingerprint": fingerprint,
+                      "reviewer": "ceo@evil.test", "email": "ceo@evil.test"})
+    # The recorded reviewer is the IAP-verified signed-in identity, not the forged body field.
+    assert reviews.get("A-0014")["reviewer"] == "admin@lakshyaa.ai"
+
+
+def test_an_unauthenticated_review_write_is_refused(built):
+    # No IAP token: nothing is written.
+    reviews = review.MemoryReviewStore()
+    client = review_app(built, reviews=reviews)
+    assert client.post("/api/review/A-0014", json={"decision": "confirm",
+                                                   "fingerprint": "a" * 64}).status_code == 401
+    assert reviews.get("A-0014") is None
+
+
+def test_a_signed_in_but_not_allow_listed_person_cannot_write_a_review(built):
+    reviews = review.MemoryReviewStore()
+    client = review_app(built, reviews=reviews)
+    forbidden = client.post("/api/review/A-0014", headers=signed(email="guest@lakshyaa.ai"),
+                            json={"decision": "confirm", "fingerprint": "a" * 64})
+    assert forbidden.status_code == 403 and reviews.get("A-0014") is None
