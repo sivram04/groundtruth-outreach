@@ -29,7 +29,7 @@ from pathlib import Path
 
 from flask import Flask, g, jsonify, request, send_from_directory
 
-from outreach import assistant, console_auth, console_model, importer, job_draft, review
+from outreach import assistant, calls, channels, console_auth, console_model, importer, job_draft, review
 from outreach.sheet import LEAD_TABS, DestinationMismatch, Store
 
 DEFAULT_STATIC = Path(__file__).resolve().parent.parent / "console" / "dist"
@@ -62,7 +62,7 @@ MAX_IMPORT_BYTES = 2_000_000
 
 def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings, clock=_now,
                static_dir=None, handbook_doc_id="", review_store=None, enable_review=False,
-               review_signer=None, enable_import=False):
+               review_signer=None, enable_import=False, enable_calls=False):
     """The console. `store`, `settings` and `clock` are called once per data request, and a test
     passes stand-ins for them. `verifier` None means not configured: every request is refused.
 
@@ -127,7 +127,8 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
         try:
             with reading:
                 data = console_model.snapshot(store(), settings=chosen, now=clock(),
-                                              handbook_doc_id=handbook_doc_id)
+                                              handbook_doc_id=handbook_doc_id,
+                                              calls_enabled=enable_calls)
         except Exception:
             log.exception("the Sheet could not be read")
             return None, refuse(502, "The Sheet could not be read just now. Nothing was "
@@ -416,6 +417,100 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             log.info("import: %s rows into %s by %s (%s)", len(lead_ids), prefix, g.email, outcome)
             return jsonify(outcome=outcome, written=len(lead_ids), already_present=len(already),
                            claimed_elsewhere=len(other), pending=len(pending), lead_ids=lead_ids)
+
+    if enable_calls:
+        # Recording a call outcome writes to the Sheet (the Call log, and Suppression for a stop), so it
+        # is OFF by default and in deployment. It never sends or drafts anything.
+        def _call_state_for(st, lead_id, now):
+            events = [e for e in st.call_events() if e.get("Lead ID") == lead_id]
+            state = calls.call_state(events, now=now)
+            return {"task": console_model.call_task_view(state["task"]),
+                    "history": console_model.call_history_view(state["history"]),
+                    "effect": state["email_effect"]}
+
+        @app.post("/api/calls/<lead_id>/outcome")
+        def call_outcome(lead_id):
+            """Record a call outcome and schedule the next call. Idempotent: the same outcome twice
+            adds no second task. A do-not-contact/not-interested outcome also suppresses the email."""
+            body = request.get_json(silent=True) or {}
+            outcome = str(body.get("outcome", "")).strip().upper()
+            if outcome not in calls.OUTCOMES:
+                return refuse(400, "That is not a call outcome I recognise.")
+            chosen = _chosen_settings()
+            try:
+                rule = int(chosen.get("call_no_answer_business_days",
+                                      calls.DEFAULT_NO_ANSWER_BUSINESS_DAYS))
+            except (TypeError, ValueError):
+                rule = calls.DEFAULT_NO_ANSWER_BUSINESS_DAYS
+            now = clock()
+            called_at = str(body.get("called_at", "")).strip() or now.isoformat()
+            try:
+                event = calls.outcome_event(lead_id, outcome, body.get("note", ""), called_at,
+                                            no_answer_business_days=rule,
+                                            callback_at=body.get("callback_at"), now=now)
+            except ValueError as exc:
+                return refuse(400, str(exc))  # e.g. a callback with no explicit time
+            with reading:
+                try:
+                    st = store()
+                    leads = st.leads()
+                except Exception:
+                    log.exception("the Sheet could not be read to record a call")
+                    return refuse(502, "The Sheet could not be read just now. Nothing was changed.")
+                if lead_id not in leads:
+                    return refuse(404, "There is no such lead.")
+                try:
+                    st.append_call_events([event])
+                except Exception:
+                    log.exception("a call outcome could not be recorded")
+                    return refuse(502, "The call could not be recorded just now. Try again; recording "
+                                       "the same outcome twice does not create a duplicate task.")
+                if calls.email_effect(outcome) == calls.STOP:
+                    email = channels.email_of(leads.get(lead_id, {}))
+                    if email:
+                        try:
+                            st.append_suppression([{
+                                "Address or domain": email,
+                                "Reason": f"call: {outcome.lower().replace('_', ' ')}",
+                                "Added at": now.astimezone(timezone.utc).isoformat(),
+                                "Source": f"call: {lead_id}"}])
+                        except Exception:  # the call is recorded; suppression is best-effort here
+                            log.exception("the call's suppression entry could not be written")
+                state = _call_state_for(st, lead_id, now)
+            log.info("call %s for %s by %s", outcome, lead_id, g.email)
+            return jsonify(recorded=True, **state)
+
+        @app.post("/api/calls/<lead_id>/task")
+        def call_task_action(lead_id):
+            """Complete, snooze or cancel the lead's current call task. Idempotent per task."""
+            body = request.get_json(silent=True) or {}
+            action = str(body.get("action", "")).strip().upper()
+            if action not in calls.ACTIONS:
+                return refuse(400, "That is not a task action I recognise.")
+            now = clock()
+            with reading:
+                try:
+                    st = store()
+                    events = [e for e in st.call_events() if e.get("Lead ID") == lead_id]
+                except Exception:
+                    log.exception("the Sheet could not be read to act on a call task")
+                    return refuse(502, "The Sheet could not be read just now. Nothing was changed.")
+                task = calls.call_state(events, now=now)["task"]
+                if not task or task["status"] != "scheduled":
+                    return refuse(409, "There is no open call task for this lead. Reload and try again.")
+                try:
+                    event = calls.action_event(lead_id, action, task["id"],
+                                               snooze_to=body.get("snooze_to"), now=now)
+                except ValueError as exc:
+                    return refuse(400, str(exc))
+                try:
+                    st.append_call_events([event])
+                except Exception:
+                    log.exception("a call task action could not be recorded")
+                    return refuse(502, "The task could not be updated just now. Try again.")
+                result = _call_state_for(st, lead_id, now)
+            log.info("call task %s for %s by %s", action, lead_id, g.email)
+            return jsonify(recorded=True, **result)
 
     return app
 

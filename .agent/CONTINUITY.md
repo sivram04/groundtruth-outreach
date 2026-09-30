@@ -70,6 +70,23 @@
 
 ## [DISCOVERIES]
 
+- 2026-09-30 [BUILD] First call-task workflow (local, flag-gated `enable_calls`, off by default+deploy).
+  `outreach/calls.py` (pure): outcomes (no answer/interested/not interested/callback/wrong number/do not
+  contact) + actions (complete/snooze/cancel) as an append-only event log; `call_state` replays to the
+  current task + history + email effect. No-answer schedules by `call_no_answer_business_days` (default 3,
+  NY dates); callback uses the explicit time; a note is never parsed. Event ID => repeated submission is a
+  no-op. `sheet.py` Call log tab (`call_events`/`append_call_events`, idempotent); do-not-contact/not-
+  interested also write Suppression (STOP the offline scheduler honours). `console.py` POST
+  /api/calls/<lead>/outcome and /task; `console_model` adds per-lead call_task/history/effect + top-level
+  call_tasks/calls_overdue. Frontend CallPanel on the lead page (log a call; due/overdue + complete/snooze/
+  cancel; effect note; history); api recordCallOutcome/actOnCallTask; datetime-local sent as real instants.
+  Containers: Python 906, frontend 74, tsc+build. Browser: log No answer -> task due Mon 2026-10-05 ->
+  survives reload -> Complete clears it. Email effect: STOP via suppression (enforced), HOLD persisted+shown
+  (offline enforcement a next step). REMAINING in call milestone: post-call email candidate, chat logging,
+  offline HOLD enforcement, dashboard overdue list. Live verification separate + NOT done (enable_calls off).
+  Ordering gotcha fixed: call_state stable-sorts by Recorded-at only (append order), so an action never
+  sorts before its outcome. Regenerate demo snapshot.json + rebuild the test image before the demo test.
+
 - 2026-09-30 [FIX] Import overlapping original-vs-resume duplicate (the review below). Removed
   write-taking Resume: `commit` now sets `writable = won`, so ONLY the request holding the earliest
   ledger claim ever writes a lead; a resume/any other request does read-only reconciliation and reports
@@ -177,6 +194,12 @@
   review handbook stays in `docs/`.
 
 ## [OUTCOMES]
+
+- 2026-09-30T22:18Z [TOOL] Independently verified 0b6ed5c with 43 targeted import
+  tests in a network-disabled container. Specific original-write/resume overlap now
+  writes one row; simultaneous checks of abandoned claims write none. Scoped race fix
+  accepted; automatic abandoned-import recovery and live verification remain open.
+  Evidence: docs/testing/import-review-2026-09-30.md. No product-code or live changes.
 
 - 2026-09-30T16:24Z [CODE] Continued the narrow review-status task from existing local
   `4c8f896` (descends from requested `f939d4a`). Removed the missing-state permission

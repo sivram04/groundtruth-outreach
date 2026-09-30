@@ -4,9 +4,10 @@ import { DraftPreview } from "../draft-view";
 import { gmailSearch, plural, safeHref } from "../format";
 import { href } from "../router";
 import type { Snapshot } from "../types";
+import { CallPanel } from "./CallPanel";
 import { NotFound } from "./NotFound";
 
-export function LeadPage({ data, id }: { data: Snapshot; id: string }) {
+export function LeadPage({ data, id, onChanged }: { data: Snapshot; id: string; onChanged?: () => void }) {
   const lead = data.leads.find((item) => item.id === id);
   if (!lead) return <NotFound what={`There is no lead ${id}.`} />;
   const account = data.links.gmail_account || data.signed_in_as;
@@ -112,6 +113,17 @@ export function LeadPage({ data, id }: { data: Snapshot; id: string }) {
           </dl>
         </Card>
       </div>
+
+      {data.calls_enabled && (
+        <CallPanel
+          leadId={lead.id}
+          phone={lead.phone}
+          task={lead.call_task ?? null}
+          history={lead.call_history}
+          effectSaid={lead.call_effect_said}
+          onChanged={onChanged ?? (() => {})}
+        />
+      )}
 
       <Card title="Emails" icon={Mail}>
         <dl className="facts">

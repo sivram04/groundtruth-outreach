@@ -29,6 +29,8 @@ SEED = [
     {"Lead ID": "A-0001", "Company": "Example Electric", "Decision maker": "Sam Rivers",
      "BEST EMAIL": "sam@example-electric.test", "Website": "https://example-electric.test/",
      "Phone": "", "Email check": "OK", "Fit": "QUALIFIED", "Profile status": "READY"},
+    {"Lead ID": "A-0002", "Company": "Redwood Plumbing", "Decision maker": "Sam Ford",
+     "BEST EMAIL": "", "Website": "https://redwood-plumbing.test/", "Phone": "(614) 555-0142"},
 ]
 
 
@@ -47,10 +49,11 @@ def main():
     app = console.create_app(
         verifier=StubVerifier(),
         store=lambda: store,
-        settings=lambda: {"sender_email": "admin@lakshyaa.ai"},
+        settings=lambda: {"sender_email": "admin@lakshyaa.ai", "call_no_answer_business_days": 3},
         clock=lambda: datetime.now(timezone.utc),
         static_dir=str(ROOT / "console" / "dist"),
         enable_import=True,
+        enable_calls=True,
     )
     app.run(host="0.0.0.0", port=8139)
 

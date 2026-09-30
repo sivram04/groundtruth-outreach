@@ -21,8 +21,8 @@ never the live Sheet.
 | 4 | Generate researched, personalized emails with inspectable evidence | **Implemented (email leads)** | `research.py`, `drafting.py`, `drafts.py`, `job_draft.py`; candidate + cited evidence surfaced for review. |
 | 5 | Review drafts; manual approval or configured automation; daily limits, scheduling, follow-up timing | **Partial** | Review + signed decision done (`review.py`, `Review.tsx`). Manual approval only; automation/sending is out of scope by rule. Daily cap/scheduling/follow-up timing exist as settings + `followup.py`/`business_days.py`. |
 | 6 | Handle replies: stop bad follow-ups; draft responses; booking link | **Partial** | Reply/opt-out/bounce stop the sequence (`sequence.py`, `sync.py`). Drafting a reply and a booking link are not built. |
-| 7 | Record a call outcome (dashboard or chat); save to the lead; draft email if address exists; schedule next call per playbook; phone-only leads usable | **Partial** | Phone-only/company-only leads are now first-class with a correct next action (this milestone). Call-outcome capture, next-call scheduling and the chat entry are not built. |
-| 8 | Keep overdue call tasks visible; no notification spam; coordinate calls with email | **Missing** | Needs a call-task record and schedule; depends on #7. |
+| 7 | Record a call outcome (dashboard or chat); save to the lead; draft email if address exists; schedule next call per playbook; phone-only leads usable | **Partial** | From the lead page a founder records an outcome (no answer / interested / not interested / callback / wrong number / do not contact); it is saved durably (`outreach/calls.py`, the Call log tab) and schedules the next call — no-answer by a configurable business-day rule, a callback by the explicit time. Phone-only and email+phone leads are both callable. **Not built:** a post-call email candidate when an address exists, and chat-based call logging (next steps). |
+| 8 | Keep overdue call tasks visible; no notification spam; coordinate calls with email | **Partial** | Tasks are due/overdue with complete / snooze / cancel and survive reload; they persist in the Sheet, not a notification queue (no spam). The email effect is persisted per outcome: STOP (do not contact / not interested) also writes a Suppression entry the offline scheduler already honours; HOLD (interested / callback) is persisted and shown. **Not built:** offline-scheduler enforcement of HOLD, and an overdue-task list on the dashboard/needs-you. |
 | 9 | A/B tests and reporting (delivery, replies, positive, meetings, opt-outs, calls, follow-ups); honest open/click labels | **Partial** | Reporting on emails/replies/opens/clicks exists in `console_model`/`dashboard.py`, opens labelled "(est.)". A/B assignment, meetings, calls and follow-up-completion reporting not built. |
 
 **Email and phone are independent contact capabilities.** A lead may have an email, a phone, both, or
@@ -111,9 +111,20 @@ each needs a founder decision before the conflicting capability ships.
   duplicate over an unsafe takeover). Disabling import in deploy prevents live exposure but does **not**
   prove concurrency safety. **Live verification is a separate milestone and NOT done** (a real Sheet
   write / signed-in browser / real API latency), `enable_import` off in deploy.
-- **M3 Call tasks:** a call outcome recorded through a real route saves to the correct lead (incl.
-  phone-only), drafts an email only when an address exists, schedules the next call per the playbook,
-  and the task stays visible until done/snoozed/cancelled without repeat notifications.
+- **M3 Call tasks (this change, partial):** through the real routes and the lead page, a founder
+  records a call outcome that saves durably (Lead ID, note, call time, outcome) and schedules the next
+  call — no-answer by a configurable business-day rule, a callback by the explicit time given, never a
+  time inferred from the note. Due/overdue tasks show with complete / snooze / cancel and survive reload
+  (overdue verified on a controlled clock, New York dates). A repeated submission makes no duplicate.
+  Phone-only and email+phone leads are both callable. Do-not-contact stops the email (a Suppression
+  entry, honoured by the scheduler) and is distinct from not-interested; suppression and holds are
+  respected. The email effect of each outcome is persisted (STOP / HOLD / CONTINUE). Verified in
+  containers (`test_calls.py`, `test_console_calls.py`, `CallPanel.test.tsx`) and browser-verified
+  through the actual local API (no-answer → dated task → reload → complete). **Write routes are flag-gated
+  (`enable_calls`), off by default and in deploy. Remaining in the call milestone:** a post-call email
+  candidate when an address exists; chat-based call logging; offline-scheduler enforcement of a HOLD
+  effect; an overdue-task list on the dashboard. **Live verification is separate and NOT done** (a real
+  Sheet write / signed-in browser / real API latency), `enable_calls` off in deploy.
 - Later milestones: criteria defined when reached.
 
 ## Local completion vs production / live verification

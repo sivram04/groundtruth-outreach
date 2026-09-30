@@ -39,7 +39,7 @@ function page(route: Route, data: Snapshot, onImported: () => void) {
     case "leads":
       return <Leads key={route.query.toString()} data={data} query={route.query} />;
     case "lead":
-      return <LeadPage data={data} id={route.id} />;
+      return <LeadPage data={data} id={route.id} onChanged={onImported} />;
     case "review":
       return <Review leadId={route.id} from={data.approvals?.sender || data.links.gmail_account} />;
     case "sources":

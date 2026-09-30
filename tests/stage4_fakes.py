@@ -217,6 +217,7 @@ class MemoryStore:
         self.lead_writes, self.columns_added, self.draft_writes = [], [], []
         self.lead_appends = []
         self._claims = []  # the import claim ledger: (Lead ID, claim key) in append order
+        self._call_rows = []  # the Call log (outreach/calls.py events), append order
         self.refuse_writes = False
 
     def table(self, name):
@@ -262,6 +263,21 @@ class MemoryStore:
         for row in fresh:
             self.rows[row["Lead ID"]] = {h: row.get(h, "") for h in self.lead_header}
         return [row["Lead ID"] for row in fresh]
+
+    def call_events(self):
+        return [dict(e) for e in self._call_rows]
+
+    def append_call_events(self, events):
+        """Mirror of Store.append_call_events: append, skipping any Event ID already present."""
+        present = {e.get("Event ID", "") for e in self._call_rows}
+        fresh = []
+        for event in events:
+            eid = event.get("Event ID", "")
+            if eid and eid not in present:
+                fresh.append(dict(event))
+                present.add(eid)
+        self._call_rows.extend(fresh)
+        return [e["Event ID"] for e in fresh]
 
     def claim_leads(self, lead_ids, op_key, attempt):
         """Mirror of Store.claim_leads: earliest claim wins; classify won / mine_prior / other."""

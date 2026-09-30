@@ -14,10 +14,10 @@ email, never over everyone emailed.
 """
 
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from urllib.parse import quote, urlparse
 
-from outreach import channels
+from outreach import calls, channels
 from outreach import drafts as drafts_tab
 from outreach import sequence, suppression, sync
 from outreach.business_days import NEW_YORK, add_business_days, new_york_date
@@ -32,6 +32,18 @@ TIER_LABELS = dict(TIERS)
 # "Coming up" lists follow-ups due within this many business days after today. This system's
 # choice, not a founder decision.
 COMING_UP_BUSINESS_DAYS = 5
+
+CALL_OUTCOME_LABELS = {
+    calls.NO_ANSWER: "No answer", calls.INTERESTED: "Interested",
+    calls.NOT_INTERESTED: "Not interested", calls.CALLBACK: "Callback requested",
+    calls.WRONG_NUMBER: "Wrong number", calls.DO_NOT_CONTACT: "Do not contact",
+}
+CALL_ACTION_LABELS = {calls.COMPLETE: "Completed", calls.SNOOZE: "Snoozed", calls.CANCEL: "Cancelled"}
+CALL_EFFECT_SAID = {
+    calls.STOP: "Email stopped by the call outcome",
+    calls.HOLD: "Email paused by the call outcome",
+    calls.CONTINUE: "",
+}
 
 STATUS_LABELS = {
     "": "Not emailed",
@@ -151,6 +163,41 @@ def event_view(event):
             "detail": event.get("Detail", "")}
 
 
+def _call_due_text(due, kind):
+    if not due:
+        return ""
+    if kind == "DATE":
+        try:
+            return sequence.day_text(date.fromisoformat(due))
+        except ValueError:
+            return due
+    return moment(due)  # a TIME (a requested callback): the New York clock time
+
+
+def call_task_view(task):
+    """One lead's current call task as the pages show it, or None when there is no task."""
+    if not task:
+        return None
+    return {
+        "status": task["status"], "outcome": task["outcome"],
+        "why": CALL_OUTCOME_LABELS.get(task["outcome"], task["outcome"]),
+        "note": task.get("note", ""), "due": task.get("due", ""),
+        "due_kind": task.get("due_kind", ""),
+        "due_text": _call_due_text(task.get("due", ""), task.get("due_kind", "")),
+        "overdue": bool(task.get("overdue")), "snoozed": bool(task.get("snoozed")),
+        "called_at": moment(task.get("called_at", "")),
+    }
+
+
+def call_history_view(history):
+    out = []
+    for item in history:
+        what = (CALL_OUTCOME_LABELS.get(item["outcome"], item["outcome"]) if item.get("outcome")
+                else CALL_ACTION_LABELS.get(item.get("detail", ""), item.get("detail", "")))
+        out.append({"when": moment(item.get("when", "")), "what": what, "note": item.get("note", "")})
+    return out
+
+
 def _in_order(events):
     try:
         return sorted(events, key=sequence._order)
@@ -173,7 +220,7 @@ def _drafts_of(row, sends, sent_steps):
     return found
 
 
-def _lead(lead_id, row, events, entries, today, now=None):
+def _lead(lead_id, row, events, entries, today, now=None, call_events=()):
     """(what the pages show about one lead, its next follow-up as (step, date) or None)."""
     tier = tier_of(lead_id)
     view = {
@@ -191,7 +238,14 @@ def _lead(lead_id, row, events, entries, today, now=None):
         "ready": False, "blockers": [], "error": None, "draft": None, "sent_ago": "",
         "events": [event_view(e) for e in _in_order(events)],
         "columns": [[column, value] for column, value in row.items()],
+        "call_task": None, "call_history": [], "call_effect": "", "call_effect_said": "",
     }
+    if now is not None and call_events:
+        state = calls.call_state(call_events, now=now)
+        view["call_task"] = call_task_view(state["task"])
+        view["call_history"] = call_history_view(state["history"])
+        view["call_effect"] = state["email_effect"]
+        view["call_effect_said"] = CALL_EFFECT_SAID.get(state["email_effect"], "")
     try:
         suppressed = None if entries is None else sync.lead_suppressed(entries, row, events)
         state = sequence.lead_state(row, events, suppressed=bool(suppressed), today=today)
@@ -318,20 +372,25 @@ def draft_view(row, lead, now=None):
 
 
 def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", draft_rows=(),
-          drafts_error=None, suppression_error=None):
+          drafts_error=None, suppression_error=None, call_events=(), calls_enabled=False):
     """The whole console, worked out once per request. `draft_rows` is the Drafts tab's rows,
     or None when it could not be read (`drafts_error` says why); `entries` is None when the
-    Suppression list could not be read (`suppression_error` says why)."""
+    Suppression list could not be read (`suppression_error` says why); `call_events` are the Call log
+    rows, and `calls_enabled` says whether the call-task flow is switched on for this server."""
     today = new_york_date(now)
     events = sync.unique(events)
     by_lead = defaultdict(list)
     for event in events:
         by_lead[event.get("Lead ID", "")].append(event)
+    by_call = defaultdict(list)
+    for event in call_events or ():
+        by_call[event.get("Lead ID", "")].append(event)
 
     views, needs_you, coming_up = [], [], []
     horizon = add_business_days(today, COMING_UP_BUSINESS_DAYS)
     for lead_id, row in sorted(leads.items(), key=lambda item: _lead_order(item[0])):
-        view, upcoming = _lead(lead_id, row, by_lead.get(lead_id, []), entries, today, now)
+        view, upcoming = _lead(lead_id, row, by_lead.get(lead_id, []), entries, today, now,
+                               call_events=by_call.get(lead_id, []))
         views.append(view)
         need = _needs_you(view, upcoming, today)
         if need:
@@ -376,6 +435,18 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", dr
     tiers = [{"prefix": prefix, "label": label, **_tier_counts(views, events, prefix)}
              for prefix, label in TIERS]
     tiers.append({"prefix": "", "label": "A and B", **_tier_counts(views, events, None)})
+
+    # The call tasks that are open, overdue first then by due date, so they stay visible until acted on.
+    call_tasks = []
+    for view in views:
+        task = view["call_task"]
+        if task and task["status"] == "scheduled":
+            call_tasks.append({"lead_id": view["id"], "company": view["company"],
+                               "contact": view["contact"], "phone": view["phone"],
+                               "why": task["why"], "note": task["note"], "due": task["due"],
+                               "due_text": task["due_text"], "overdue": task["overdue"]})
+    call_tasks.sort(key=lambda t: (not t["overdue"], t["due"], _lead_order(t["lead_id"])))
+
     chosen = approvals(settings)
     doc = str(handbook_doc_id or "").strip()
     return {
@@ -384,6 +455,8 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", dr
         "today": today.isoformat(), "today_text": sequence.day_text(today),
         "warnings": warnings, "leads": views, "needs_you": needs_you, "coming_up": coming_up,
         "coming_up_days": COMING_UP_BUSINESS_DAYS, "tiers": tiers, "notes": list(NOTES),
+        "calls_enabled": calls_enabled, "call_tasks": call_tasks,
+        "calls_overdue": sum(1 for t in call_tasks if t["overdue"]),
         "drafts": drafts,
         "drafts_summary": {"ready": sum(1 for d in drafts if d["status"] == drafts_tab.READY),
                            "waiting": sum(1 for d in drafts if d["status"] == drafts_tab.WAITING),
@@ -402,7 +475,7 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", dr
     }
 
 
-def snapshot(store, *, settings, now, handbook_doc_id=""):
+def snapshot(store, *, settings, now, handbook_doc_id="", calls_enabled=False):
     """Read the Sheet once through `store` and work the console out. A Drafts tab that cannot
     be read is said, and the rest is still shown."""
     try:
@@ -413,7 +486,12 @@ def snapshot(store, *, settings, now, handbook_doc_id=""):
         entries, suppression_error = store.suppression(), None
     except suppression.Unreadable as exc:
         entries, suppression_error = None, exc.reason
+    try:
+        call_events = store.call_events()
+    except (RuntimeError, AttributeError):
+        call_events = ()
     return build(store.leads(), store.events(), entries, store.run_rows(),
                  settings=settings, now=now, handbook_doc_id=handbook_doc_id,
                  draft_rows=draft_rows, drafts_error=drafts_error,
-                 suppression_error=suppression_error)
+                 suppression_error=suppression_error, call_events=call_events,
+                 calls_enabled=calls_enabled)

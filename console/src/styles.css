@@ -1767,3 +1767,7 @@ dl.facts dd {
 .field { display: inline-block; margin-right: 0.6rem; white-space: nowrap; }
 .unstorable { color: #9a6700; }
 .block { display: block; margin-bottom: 0.35rem; }
+
+/* Call panel */
+.call-task { margin-bottom: 0.75rem; }
+.call-task .chips { align-items: center; }

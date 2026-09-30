@@ -1372,6 +1372,37 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-30 (calls: the first call-task workflow, local)** — a founder can record a call outcome from
+  the lead page and the product schedules the next call. New, flag-gated (`enable_calls`, off by default
+  and in `_deployed()`), Google Sheets as persistence, synthetic-verified.
+
+  - `outreach/calls.py` (pure, like `sequence.py`): outcomes (no answer / interested / not interested /
+    callback / wrong number / do not contact) and task actions (complete / snooze / cancel) as an
+    append-only event log; `call_state` replays a lead's events into the one current task, its history
+    and the email effect. Timing is explicit: no-answer schedules by a configurable business-day rule
+    (`call_no_answer_business_days`, default 3, New York dates), a callback uses the explicit time given,
+    and a note is never parsed for a time. Each event's Event ID makes a repeated submission a no-op.
+  - `sheet.py`: an append-only **Call log** tab with `call_events` / `append_call_events` (idempotent by
+    Event ID). A do-not-contact / not-interested outcome also writes a Suppression entry (which the
+    offline email scheduler already honours), so the STOP effect cannot be ignored.
+  - `console.py`: `POST /api/calls/<lead>/outcome` and `/task` (flag-gated); `console_model` gives each
+    lead a `call_task` / `call_history` / `call_effect` and the snapshot a `call_tasks` list with
+    `calls_overdue`.
+  - `console/`: a **CallPanel** on the lead page (log a call, the current task with due/overdue and
+    complete/snooze/cancel, the email-effect note, call history), shown when `calls_enabled`; `api.ts`
+    `recordCallOutcome` / `actOnCallTask`; datetime-local values are sent as real instants.
+
+  **Verified in containers, no network.** Python **906 passed** (`test_calls.py`, `test_console_calls.py`
+  — no-answer dated task + reload, callback explicit time, complete/snooze/cancel, duplicate submission →
+  one task, do-not-contact vs not-interested + suppression, phone-only and email+phone callable, overdue
+  on a controlled clock, off-by-default 404). Frontend **74 passed** (`CallPanel.test.tsx`), typecheck and
+  build clean. **Browser-verified through the actual local API**: log "No answer" → task due Mon
+  2026-10-05 → survives reload → Complete clears it. **Email-sequence effect:** persisted per outcome —
+  STOP enforced via Suppression, HOLD persisted and shown (offline-scheduler HOLD enforcement is a listed
+  next step). **Remaining in the call milestone:** post-call email candidate when an address exists,
+  chat-based call logging, offline HOLD enforcement, a dashboard overdue list. **Live verification is a
+  separate milestone and NOT done** (`enable_calls` off in deploy). The full MVP is not complete.
+
 - **2026-09-30 (import: write-taking Resume removed; exclusive write ownership)** — a review
   (`docs/testing/import-review-2026-09-30.md`) reproduced an overlap: an original owner and a resume
   could both pass their presence check before either committed its append, and both wrote (two rows).

@@ -41,6 +41,34 @@ export interface Draft {
   prepared_ago: string;
 }
 
+/** A lead's current call task (outreach/calls.py), or null when there is none. */
+export interface CallTask {
+  status: string;
+  outcome: string;
+  why: string;
+  note: string;
+  due: string;
+  due_kind: string;
+  due_text: string;
+  overdue: boolean;
+  snoozed: boolean;
+  called_at: string;
+}
+
+export interface CallHistoryItem {
+  when: string;
+  what: string;
+  note: string;
+}
+
+/** POST /api/calls/<lead>/outcome or /task: the lead's resulting call state. */
+export interface CallResult {
+  recorded: boolean;
+  task: CallTask | null;
+  history: CallHistoryItem[];
+  effect: string;
+}
+
 export interface Lead {
   id: string;
   tier: string;
@@ -49,6 +77,10 @@ export interface Lead {
   contact: string;
   email: string;
   phone: string;
+  call_task?: CallTask | null;
+  call_history?: CallHistoryItem[];
+  call_effect?: string;
+  call_effect_said?: string;
   /** EMAIL, CALL or COMPANY_ONLY: how this lead can be reached (outreach/channels.py). */
   channel: string;
   website: string;
@@ -158,6 +190,14 @@ export interface Snapshot {
   build?: string;
   /** Whether the lead-import flow is switched on for this server (off by default and in deploy). */
   import_enabled?: boolean;
+  /** Whether the call-task flow is switched on for this server (off by default and in deploy). */
+  calls_enabled?: boolean;
+  /** Open call tasks, overdue first then by due date. */
+  call_tasks?: {
+    lead_id: string; company: string; contact: string; phone: string;
+    why: string; note: string; due: string; due_text: string; overdue: boolean;
+  }[];
+  calls_overdue?: number;
 }
 
 /** One accepted lead in an import preview: mapped to the destination's columns, with its channel and

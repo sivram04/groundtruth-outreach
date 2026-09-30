@@ -55,6 +55,11 @@ DRAFTS_HEADER = ["Lead ID", "Email", "To", "Company", "Subject", "Body", "Openin
 # (a shared key submitted twice at once) still resolve to a single writer.
 CLAIMS_TAB = "Import claims"
 CLAIMS_HEADER = ["Lead ID", "Op key", "Attempt", "Claimed at (UTC)"]
+# Call outcomes and the tasks they schedule, as an append-only event log (outreach/calls.py). Each
+# row is an OUTCOME or an ACTION; the Event ID makes a repeated submission a no-op.
+CALLS_TAB = "Call log"
+CALLS_HEADER = ["Event ID", "Lead ID", "Recorded at (UTC)", "Kind", "Outcome", "Note",
+                "Called at (UTC)", "Due", "Due kind", "Email effect", "Detail"]
 
 
 _SHEETS = None
@@ -395,6 +400,35 @@ class Store:
             insertDataOption="INSERT_ROWS",
             body={"values": [[row.get(h, "") for h in header] for row in fresh]}).execute()
         return [row["Lead ID"] for row in fresh]
+
+    def call_events(self):
+        """Every Call log row, oldest first; [] when there is no Call log tab. Refuses a tab whose
+        columns were changed, so an event is never read from the wrong column."""
+        table = self.table(CALLS_TAB)
+        if table is None:
+            return []
+        header, rows = table
+        if header[:len(CALLS_HEADER)] != CALLS_HEADER:
+            raise RuntimeError("the Call log tab's columns were changed; it is neither read nor written")
+        return rows
+
+    def append_call_events(self, events):
+        """Append call events, skipping any whose Event ID is already present (so a repeated submission
+        adds nothing). Returns the Event IDs actually written."""
+        events = [dict(e) for e in events]
+        if not events:
+            return []
+        present = {row.get("Event ID", "") for row in self.call_events()}
+        fresh, seen = [], set(present)
+        for event in events:
+            eid = event.get("Event ID", "")
+            if eid and eid not in seen:
+                fresh.append(event)
+                seen.add(eid)
+        if not fresh:
+            return []
+        self._append(CALLS_TAB, CALLS_HEADER, [[e.get(h, "") for h in CALLS_HEADER] for e in fresh])
+        return [e["Event ID"] for e in fresh]
 
     def claim_leads(self, lead_ids, op_key, attempt):
         """Resolve who may write each of `lead_ids`, and return a per-lead classification.

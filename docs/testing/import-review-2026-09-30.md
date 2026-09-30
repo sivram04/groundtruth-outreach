@@ -338,3 +338,20 @@ or recovered by a deliberate future mechanism.
   concurrency evidence is the container tests over the simulated Sheets API, not the live service.
 - **Live verification remains a separate milestone**: a real Google Sheet write, a signed-in browser,
   and behaviour under real Google API latency/errors are unverified; `enable_import` stays off in deploy.
+
+## Independent scoped verification of 0b6ed5c
+
+2026-09-30T22:18Z [TOOL] Codex inspected the removal of write-taking Resume and ran
+`python -m pytest -q -p no:cacheprovider tests/test_importer.py
+tests/test_console_import.py tests/test_sheet_append.py` against the current source,
+mounted read-only in a network-disabled Python test container: **43 passed in 2.41s**.
+
+The deterministic original-write/resume overlap now asserts one physical row, with
+the second request pending and written=0. Simultaneous checks of an abandoned claim
+write nothing. The route limits writable rows to this attempt's won claims.
+
+Verdict: the specifically reproduced takeover race is resolved under these local
+test conditions. Automatic recovery of abandoned claims remains incomplete, as
+documented. This does not establish live Sheets behavior, general exactly-once
+delivery, browser/parser integration, or the reported full Python/frontend suites;
+those were not independently rerun here. No production operations or code edits.

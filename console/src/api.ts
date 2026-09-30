@@ -1,4 +1,4 @@
-import type { ImportPreview, ImportResult, Snapshot } from "./types";
+import type { CallResult, ImportPreview, ImportResult, Snapshot } from "./types";
 
 export const EXPECTED_VERSION = 2;
 
@@ -297,6 +297,55 @@ export async function importCommit(
     throw new ImportError("The console could not be reached. Check the connection and try again.");
   }
   return (await importBody(response, "The import")) as ImportResult;
+}
+
+// --- call tasks (flag-gated on the server) -------------------------------------------------
+
+/** Why a call action could not be recorded, in words for the founder. */
+export class CallError extends Error {}
+
+async function callBody(response: Response): Promise<CallResult> {
+  if (response.status === 401) throw new LoadError(SIGN_IN_ENDED, true);
+  const isJson = (response.headers.get("Content-Type") ?? "").includes("application/json");
+  const body: unknown = isJson ? await response.json().catch(() => null) : null;
+  if (!response.ok || !body || typeof body !== "object" || !("recorded" in body)) {
+    const said = typeof body === "object" && body !== null && "error" in body ? String(body.error) : "";
+    throw new CallError(said || (isJson ? "That could not be recorded just now." : SIGN_IN_ENDED));
+  }
+  return body as CallResult;
+}
+
+async function callPost(path: string, payload: Record<string, unknown>, fetcher: typeof fetch): Promise<CallResult> {
+  let response: Response;
+  try {
+    response = await fetcher(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new CallError("The console could not be reached. Check the connection and try again.");
+  }
+  return callBody(response);
+}
+
+/** Record a call outcome for a lead; the server schedules the next call and returns the call state. */
+export function recordCallOutcome(
+  leadId: string,
+  outcome: { outcome: string; note?: string; callback_at?: string },
+  fetcher: typeof fetch = fetch,
+): Promise<CallResult> {
+  return callPost(`/api/calls/${encodeURIComponent(leadId)}/outcome`, outcome, fetcher);
+}
+
+/** Complete, snooze or cancel a lead's current call task. */
+export function actOnCallTask(
+  leadId: string,
+  action: { action: string; snooze_to?: string },
+  fetcher: typeof fetch = fetch,
+): Promise<CallResult> {
+  return callPost(`/api/calls/${encodeURIComponent(leadId)}/task`, action, fetcher);
 }
 
 /** The name of the script this page is running, e.g. "index-a1b2c3.js". The server says which
