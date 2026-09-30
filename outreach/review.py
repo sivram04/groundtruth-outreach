@@ -34,8 +34,12 @@ account) plus the authenticated console path - not cryptography. No signing or a
 claimed. Revocation works by supersession: a store keeps one effective record per key (the file
 store replaces it; the proposed Sheet store appends and `get` returns the latest row), so a later
 rejection supersedes an earlier confirmation of the same candidate only if it is the later write.
-The file store is last-writer-wins with no locking, so concurrent writes can lose one; the action-
-boundary recheck (`enforce`) still closes the review-to-action window by re-deriving the fingerprint.
+The file store is last-writer-wins with no locking, so concurrent writes can lose one. The
+action-boundary recheck (`enforce`) is the last gate before any write and re-derives the
+fingerprint from the exact candidate the action then uses, which NARROWS but does not close the
+window: a rejection or edit landing after the recheck and before the Gmail write is not caught. The
+recheck is not atomic with the external action; nothing here claims it is. In practice the window is
+the reservation write plus the create call, and drafting is disabled anyway.
 """
 
 import json

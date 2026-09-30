@@ -152,6 +152,38 @@ def test_an_edit_after_review_stops_the_hash_being_reissued():
     assert out["preview_hash"] is None and review.AWAITING_BLOCKER in out["blockers"]
 
 
+def _template_preview(review_store, row=None):
+    """The template (write=False) path a CLI run takes, which does not load the Drive handbook."""
+    return job_draft.previews(["A-0001"], settings=settings(), write=False, review_store=review_store,
+                              fixture={"leads": [row or lead()], "research": facts(),
+                                       "suppressed": {"A-0001": False}})[0]
+
+
+def test_the_template_cli_path_exposes_no_approval_hash_without_a_review():
+    """The lower-level producer's digest must not be exposed as an approval hash on the template
+    (write=False) path either - the path the `job_draft` CLI takes by default."""
+    out = _template_preview(review.MemoryReviewStore())
+    assert out["preview_hash"] is None and review.AWAITING_BLOCKER in out["blockers"]
+
+
+def test_a_reviewed_template_candidate_can_carry_a_hash_but_create_refuses_to_use_it(monkeypatch):
+    """It is the review gate, not a blanket disable: a confirmed review lets the template digest
+    become a hash. But that hash is not an actionable approval token - create refuses a template
+    (non-written) draft, so no consumer can USE it."""
+    monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
+    bare = _template_preview(review.MemoryReviewStore())  # unreviewed: content present, no hash
+    store = review.MemoryReviewStore()
+    review.record_confirmation(store, bare["lead_id"], "admin@lakshyaa.ai",
+                               review.candidate_fingerprint(bare, None, settings()))
+    reviewed = _template_preview(store)
+    assert reviewed["preview_hash"]  # gated on review, not disabled
+    # ...but create will not act on a template hash (it requires a Drive-handbook written draft).
+    with pytest.raises(job_draft.DraftBlocked, match="Drive-handbook written draft"):
+        job_draft.create("A-0001", reviewed["preview_hash"], written=None, settings=settings(),
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE,
+                         review_store=store)
+
+
 # --- the handbook is the only source, and it must be readable ------------------------------
 
 def test_a_role_inbox_keeps_a_neutral_greeting():
@@ -449,6 +481,57 @@ def test_the_worker_create_route_goes_through_the_gated_create(monkeypatch):
         json={"lead_id": "A-0001", "approved_hash": "h", "written": {"sentences": [{}]}})
     assert seen == {"lead_id": "A-0001", "approved_hash": "h", "written": {"sentences": [{}]}}
     assert response.status_code == 400 and "review" in response.get_json()["error"]
+
+
+# --- concurrency: the recheck narrows the window; it does not make the action atomic ----------
+
+def test_the_created_draft_is_exactly_the_candidate_that_was_reviewed(ready):
+    """The action uses the exact `result` the recheck validated - no re-derivation between the
+    review recheck and the Gmail write - so the draft created is the reviewed candidate."""
+    row, _, created = ready
+    approved = preview(row)
+    job_draft.create("A-0001", approved["preview_hash"], written=approved["written"],
+                     settings=settings(), api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert created[0]["to"] == approved["to"]
+    assert created[0]["subject"] == approved["subject"]
+    assert created[0]["body"] == approved["body"]
+
+
+def test_a_revocation_before_the_recheck_is_caught(ready, monkeypatch):
+    """A rejection that lands before the final recheck (here, during the prior-sends check) is
+    caught: the recheck is the last gate before any write."""
+    row, _, created = ready
+    written, digest = approved_written(row)
+    store = review.default_store()  # the confirmed store the fixture installed
+    fingerprint = review.candidate_fingerprint(preview(row), BOOK, settings())
+
+    def reject_first(gmail, recipient):
+        review.record_rejection(store, "A-0001", "admin@lakshyaa.ai", fingerprint)
+        return False
+    monkeypatch.setattr(gmail_drafts, "prior_sends", reject_first)
+    with pytest.raises(job_draft.DraftBlocked, match="REVIEW_REJECTED"):
+        job_draft.create("A-0001", digest, written=written, settings=settings(),
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert created == []
+
+
+def test_a_revocation_after_the_recheck_is_not_caught_the_window_is_not_closed(ready, monkeypatch):
+    """Honest limitation: the recheck is not atomic with the Gmail write. A rejection landing
+    after the recheck (here, at the moment of the write) is not seen. The window is small (the
+    reservation write plus the create call) and drafting is disabled, but it is not zero."""
+    row, _, created = ready
+    written, digest = approved_written(row)
+    store = review.default_store()
+    fingerprint = review.candidate_fingerprint(preview(row), BOOK, settings())
+
+    def write_then_revoke(gmail, **kwargs):
+        review.record_rejection(store, "A-0001", "admin@lakshyaa.ai", fingerprint)
+        created.append(kwargs)
+        return {"id": "draft-1"}
+    monkeypatch.setattr(gmail_drafts, "create", write_then_revoke)
+    result = job_draft.create("A-0001", digest, written=written, settings=settings(),
+                              api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert result["status"] == "CREATED" and len(created) == 1  # not caught: the window is open
 
 
 def test_create_refuses_the_old_template_even_with_its_approved_hash(ready):

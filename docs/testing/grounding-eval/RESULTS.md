@@ -363,13 +363,18 @@ measurement honest and avoid overfitting**:
   strict-xfail cases are removed.
 - `console/src/pages/Review.test.tsx` — the browser review flow, including an edit invalidating the
   review.
-- **16 deliberate breaks of the gates, all caught** (disable the create gate; enforce never blocks;
+- **17 deliberate breaks of the gates, all caught** (disable the create gate; enforce never blocks;
   accept a rejected / stale / non-human / malformed review; record without a reviewer; drop the body
   from the fingerprint; the sheet store stops refusing writes; the default store no longer
-  fail-closed; the console ignores a changed candidate; written_preview issues a hash without a
-  review; is_reviewed passes an invalid review; follow-ups skip the gate; a follow-up shares the
-  initial's review id; the console trusts a client-supplied reviewer).
-- Whole suite: **778 Python passed (0 xfailed)**, **52 React passed**.
+  fail-closed; the console ignores a changed candidate; the hash gate issues a hash without a review;
+  is_reviewed passes an invalid review; follow-ups skip the gate; a follow-up shares the initial's
+  review id; the console trusts a client-supplied reviewer; the console GET is not fail-closed on a
+  store read error).
+- A verification pass (see AS_BUILT) traced the hash boundary and fixed the template/CLI exposure,
+  proved the React review page against a real console Flask API (browser + an API integration test),
+  corrected the concurrency claim (the recheck narrows, does not close, the window), and confirmed
+  fail-closed behavior.
+- Whole suite: **788 Python passed (0 xfailed)**, **52 React passed**.
 
 ## What this does not establish (limits of the evidence itself)
 

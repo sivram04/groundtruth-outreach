@@ -206,7 +206,13 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             if refused:
                 return refused
             chosen = _chosen_settings()
-            existing = reviews.get(lead_id)
+            try:
+                existing = reviews.get(lead_id)
+            except Exception:
+                # A review store that cannot be read never shows a review as done: fail closed.
+                log.exception("the review record could not be read")
+                return refuse(502, "The review record could not be read just now. Nothing was "
+                                   "changed; try again in a minute.")
             return jsonify(review.review_view(candidate, None, chosen, existing=existing))
 
         @app.post("/api/review/<lead_id>")
@@ -223,11 +229,18 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                                    "again.")
             if decision not in ("confirm", "reject"):
                 return refuse(400, "A review is either confirm or reject.")
-            record = (review.record_confirmation if decision == "confirm"
-                      else review.record_rejection)(reviews, lead_id, g.email, fingerprint,
-                                                    now=clock())
+            # The reviewer is the IAP-verified signed-in identity (g.email), never a body field.
+            try:
+                record = (review.record_confirmation if decision == "confirm"
+                          else review.record_rejection)(reviews, lead_id, g.email, fingerprint,
+                                                        now=clock())
+                existing = reviews.get(lead_id)
+            except Exception:
+                # A store that cannot be written records nothing and reports no success.
+                log.exception("the review could not be recorded")
+                return refuse(502, "The review could not be recorded just now. Nothing was changed.")
             log.info("review %s by %s for %s", record["decision"], g.email, lead_id)
-            return jsonify(review.review_view(candidate, None, chosen, existing=reviews.get(lead_id)))
+            return jsonify(review.review_view(candidate, None, chosen, existing=existing))
 
     return app
 

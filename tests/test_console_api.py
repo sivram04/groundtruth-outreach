@@ -364,3 +364,102 @@ def test_a_signed_in_but_not_allow_listed_person_cannot_write_a_review(built):
     forbidden = client.post("/api/review/A-0014", headers=signed(email="guest@lakshyaa.ai"),
                             json={"decision": "confirm", "fingerprint": "a" * 64})
     assert forbidden.status_code == 403 and reviews.get("A-0014") is None
+
+
+# --- item 2: React↔Flask integration (real Flask API + real review module + real store) ------
+# The offline demo proves presentation and the mocked React tests prove the component; this proves
+# the real Flask review API works with the real review store and the hash gate, end to end. It is
+# an API integration test (Flask test client). The browser leg (built React against this same
+# Flask app) is recorded separately in AS_BUILT.
+
+import json as _json  # noqa: E402
+
+from outreach import job_draft, review  # noqa: E402
+from test_draft_pipeline import (  # noqa: E402
+    BOOK as DP_BOOK, SITE as DP_SITE, facts as dp_facts, lead as dp_lead, model_for as dp_model,
+    settings as dp_settings)
+
+
+def _compose_candidate(reviews):
+    """Compose the standard written candidate with a given review store (unreviewed -> no hash)."""
+    return job_draft.previews(["A-0001"], settings=dp_settings(), write=True, handbook=DP_BOOK,
+                              model=dp_model(), review_store=reviews,
+                              fixture={"leads": [dp_lead()], "research": dp_facts(), "pages": DP_SITE,
+                                       "suppressed": {"A-0001": False}})[0]
+
+
+def _drafts_row(candidate):
+    return {"Lead ID": "A-0001", "Email": "First email", "To": candidate["to"],
+            "Company": candidate["company"], "Subject": candidate["subject"], "Body": candidate["body"],
+            "Opening quote": "", "Quote page": "", "Status": "WAITING", "Why": "", "Approval hash": "",
+            "Handbook hash": candidate["handbook_hash"], "Written": _json.dumps(candidate["written"]),
+            "Prepared at (UTC)": "2026-09-28 12:40:00"}
+
+
+def test_the_console_review_flow_lets_an_approval_hash_mint_end_to_end(built):
+    reviews = review.MemoryReviewStore()
+    bare = _compose_candidate(review.MemoryReviewStore())
+    assert bare["preview_hash"] is None  # no approval hash before a review
+    shared = MemoryStore(fx.rows(), events=fx.events(), suppression=fx.suppression(), runs=fx.runs(),
+                         drafts=[_drafts_row(bare)])
+    client = app(built, store=lambda: shared, settings=lambda: dp_settings(), enable_review=True,
+                 review_store=reviews)
+
+    view = client.get("/api/review/A-0001", headers=signed()).get_json()
+    assert view["review"]["decision"] is None and view["subject"] == bare["subject"]
+    done = client.post("/api/review/A-0001", headers=signed(),
+                       json={"decision": "confirm", "fingerprint": view["fingerprint"]})
+    assert done.status_code == 200 and done.get_json()["review"]["current"] is True
+
+    # The recomposed candidate now mints an approval hash, because the console recorded a review of
+    # exactly this candidate (the fingerprint the gate computes equals the one the console showed).
+    approved = _compose_candidate(reviews)
+    assert approved["preview_hash"] and review.AWAITING_BLOCKER not in approved["blockers"]
+
+
+# --- item 4: fail-closed on storage errors, and rejected/stale states survive a reload --------
+
+class _GetFails:
+    def get(self, lead_id):
+        raise RuntimeError("the review store is unreachable")
+
+    def put(self, record):
+        raise AssertionError("no write expected")
+
+
+class _PutFails:
+    def get(self, lead_id):
+        return None
+
+    def put(self, record):
+        raise RuntimeError("the review store is unwritable")
+
+
+def test_a_review_store_read_error_fails_closed(built):
+    assert review_app(built, reviews=_GetFails()).get("/api/review/A-0014",
+                                                      headers=signed()).status_code == 502
+
+
+def test_a_review_store_write_error_shows_no_success(built):
+    client = review_app(built, reviews=_PutFails())
+    fingerprint = client.get("/api/review/A-0014", headers=signed()).get_json()["fingerprint"]
+    resp = client.post("/api/review/A-0014", headers=signed(),
+                       json={"decision": "confirm", "fingerprint": fingerprint})
+    assert resp.status_code == 502
+
+
+def test_a_rejected_state_survives_a_reload(built):
+    reviews = review.MemoryReviewStore()
+    client = review_app(built, reviews=reviews)
+    fingerprint = client.get("/api/review/A-0014", headers=signed()).get_json()["fingerprint"]
+    client.post("/api/review/A-0014", headers=signed(),
+                json={"decision": "reject", "fingerprint": fingerprint})
+    again = client.get("/api/review/A-0014", headers=signed()).get_json()
+    assert again["review"]["decision"] == "rejected" and again["review"]["current"] is True
+
+
+def test_a_stale_state_survives_a_reload(built):
+    reviews = review.MemoryReviewStore()
+    review.record_confirmation(reviews, "A-0014", "admin@lakshyaa.ai", "a" * 64)  # an old candidate
+    view = review_app(built, reviews=reviews).get("/api/review/A-0014", headers=signed()).get_json()
+    assert view["review"]["decision"] == "confirmed" and view["review"]["current"] is False

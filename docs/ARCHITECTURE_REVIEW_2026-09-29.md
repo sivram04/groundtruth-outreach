@@ -231,10 +231,15 @@ too (`written_preview`/the Drafts tab issue no hash without a review; the action
 retained); follow-ups are gated at their own action boundary under their own review id (fail-closed
 until a follow-up review path exists); the React review page is built and browser-verified; the
 console review write derives the reviewer only from the IAP session and ignores client fields;
-revocation works by supersession. Exact coverage: Python 778 passed, React 52 passed, **16 deliberate
-breaks of the gates all caught**. **Not deployed**: `outreach/writer.py` and the review gate run
-inside `outreach-worker`/`outreach-console`, neither rebuilt; the review store's Sheet migration is
-documented but not applied, so nothing touches the live Sheet.
+revocation works by supersession. **A verification pass then** traced the hash boundary and closed
+the template/CLI exposure (a shared `_gate_hash` gates every preview path; `create` still refuses a
+template hash, so it is never actionable), proved the React review page against a real console Flask
+API (a browser run plus an API integration test), corrected the concurrency claim (the recheck
+narrows, it does not close, the confirm→action window; the action uses the exact checked candidate),
+and confirmed fail-closed behavior on store errors. Exact coverage: Python **788 passed**, React **52
+passed**, **17 deliberate breaks of the gates all caught**. **Not deployed**: `outreach/writer.py`
+and the review gate run inside `outreach-worker`/`outreach-console`, neither rebuilt; the review
+store's Sheet migration is documented but not applied, so nothing touches the live Sheet.
 
 ### 3.2 Prompt injection
 

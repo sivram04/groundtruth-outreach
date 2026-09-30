@@ -138,10 +138,22 @@ def written_preview(lead, facts, settings, handbook, *, suppressed, model, quote
         result["blockers"].append(
             f'the company name "{company}" was not found on its own site; check it')
         result["preview_hash"] = None
+    return _gate_hash(result, handbook, settings, review_store)
+
+
+def _gate_hash(result, handbook, settings, review_store):
+    """Turn a preview's raw content digest into an approval hash only when this candidate has a
+    valid human evidence review; otherwise `preview_hash` stays None and the candidate is held.
+
+    `drafting._finish` computes a digest over the candidate's content for anyone who renders a
+    preview (an *internal candidate digest*). It only becomes an *actionable approval token* -
+    something `create` will accept - once a review exists. Every preview path that could expose a
+    hash routes through here, so no supported CLI or API path exposes an approval token without a
+    review; `create` rechecks at the action boundary as well."""
     if result.get("preview_hash"):
         store = review_store or review.default_store()
         fingerprint = review.candidate_fingerprint(result, handbook, settings)
-        if not review.is_reviewed(store, result["lead_id"], fingerprint,
+        if not review.is_reviewed(store, result.get("lead_id", ""), fingerprint,
                                   reviewers=review.allowed_reviewers(settings)):
             result["preview_hash"] = None
             result["blockers"].append(review.AWAITING_BLOCKER)
@@ -167,10 +179,11 @@ def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
                                      review_store=review_store)
                      if book else _blocked(leads[i], [], [why]))
                     for i in ids]
-        return [drafting.preview(leads[lead_id], fixture["research"], settings,
-                                suppressed=fixture.get("suppressed", {}).get(lead_id, None),
-                                subject_template=settings.get("subject_template"),
-                                selected_quote_id=quote_choices.get(lead_id))
+        return [_gate_hash(drafting.preview(leads[lead_id], fixture["research"], settings,
+                                            suppressed=fixture.get("suppressed", {}).get(lead_id, None),
+                                            subject_template=settings.get("subject_template"),
+                                            selected_quote_id=quote_choices.get(lead_id)),
+                           None, settings, review_store)
                 for lead_id in ids]
     api = api or _api()
     _, matches, facts = _read(api, ids)
@@ -183,10 +196,11 @@ def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
                                  quote_id=quote_choices.get(i), review_store=review_store)
                  if book else _blocked(by_id[i], [], [why]))
                 for i in ids]
-    return [drafting.preview(by_id[lead_id], facts, settings,
-                            suppressed=_suppressed(api, by_id[lead_id].get("BEST EMAIL", "")),
-                            subject_template=settings.get("subject_template"),
-                            selected_quote_id=quote_choices.get(lead_id))
+    return [_gate_hash(drafting.preview(by_id[lead_id], facts, settings,
+                                        suppressed=_suppressed(api, by_id[lead_id].get("BEST EMAIL", "")),
+                                        subject_template=settings.get("subject_template"),
+                                        selected_quote_id=quote_choices.get(lead_id)),
+                       None, settings, review_store)
             for lead_id in ids]
 
 
@@ -262,10 +276,6 @@ def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
         raise DraftBlocked("; ".join(result["blockers"]))
     if result["preview_hash"] != approved_hash:
         raise DraftBlocked("the approved hash does not match the current preview")
-    try:
-        review.enforce(result, book, settings, store=review_store or review.default_store())
-    except review.ReviewInvalid as exc:
-        raise DraftBlocked(f"human evidence review required ({exc.reason}): {exc}") from None
     if _actions_today(tabs) >= int(settings["daily_cap"]):
         raise DraftBlocked("the daily draft cap is reached")
 
@@ -277,6 +287,17 @@ def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
         raise DraftBlocked("a prior sent message exists for this recipient")
     if gmail_drafts.existing_drafts(gmail, result["to"]):
         raise DraftBlocked("a Gmail draft already exists for this recipient")
+
+    # The review recheck is the LAST gate before any write, to narrow the window in which a
+    # revocation or edit could slip past. It re-reads the store and recomputes the fingerprint from
+    # `result`, and every write below uses that same `result` object - so the draft that is created
+    # is exactly the candidate that was just checked. The window is NOT closed: a rejection or edit
+    # landing after this line and before the Gmail write is not caught (see docs); drafting is
+    # disabled anyway, and a half-done create leaves a RESERVED row for reconciliation.
+    try:
+        review.enforce(result, book, settings, store=review_store or review.default_store())
+    except review.ReviewInvalid as exc:
+        raise DraftBlocked(f"human evidence review required ({exc.reason}): {exc}") from None
 
     action_id = hashlib.sha256(("initial:" + approved_hash).encode()).hexdigest()[:32]
     # Stage 5: tracking only when the founder has switched it on, and never an untracked

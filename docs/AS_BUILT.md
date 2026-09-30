@@ -1372,6 +1372,62 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-29 (third review, verification pass on `098431e`) — Traced the hash boundary and closed
+  one exposure; proved React↔Flask together; corrected the concurrency claim; confirmed fail-closed.**
+  A focused pass, no rebuild and no unrelated features; the fixes below are small.
+
+  1. **Hash boundary traced; one exposure fixed.** The lower-level producer is `drafting._finish`
+     (a content digest). Callers: `job_draft.written_preview` (gated), `job_draft.previews` template
+     path (write=False — **was ungated**, the `job_draft` CLI's default), `job_draft.create`
+     (content hash for the compare, then the review recheck), `drafts.written_row`'s re-compose
+     (hash discarded). Consumers of an approval hash: `job_draft.create` (rechecks review; refuses a
+     non-written/template draft), the Drafts-tab "Approval hash" (written only for READY, which needs
+     a review). **Fix:** a shared `job_draft._gate_hash` now gates the template path too, so no
+     supported CLI/API/persistence path exposes an approval hash without a review. The distinction is
+     explicit in code: `preview_hash` is an **internal candidate digest** until a review exists, when
+     it becomes an **actionable approval token**; and a template hash is never actionable because
+     `create` refuses a non-written draft (tested).
+  2. **React↔Flask proven together.** New **API integration test** (`test_console_api.py`, real Flask
+     test client + real review store + test IAP verifier, no Google): pending → confirm → reject,
+     stale → 409, unreadable store → refuse, and **a console review lets an approval hash mint** (the
+     fingerprint the gate computes equals the one the console showed). **Browser leg** (this pass, not
+     automated): the built React app run against a locally-started real console Flask (stub verifier,
+     fixture candidate, `enable_review`) — the page loaded the candidate from the real API, Confirm
+     hit the real POST, and a reload showed the confirmed state, attributed to the authenticated
+     identity. Google writes stayed disabled throughout.
+  3. **Concurrency claim corrected.** The earlier "confirm→action window is closed" was an overclaim.
+     The recheck (`review.enforce`) is now the **last gate before any write** in `create`, and every
+     write uses the exact `result` it validated (no re-derivation), so the draft created is precisely
+     the reviewed candidate. This **narrows but does not close** the window: a rejection/edit landing
+     after the recheck and before the Gmail write is not caught (the recheck is not atomic with the
+     write). Tested both ways — a revocation before the recheck is caught, one after is not — and the
+     residual non-atomic window is documented in `review.py`, not claimed closed.
+  4. **Fail-closed confirmed through API (and UI shape).** A review-store read or write error now
+     refuses (502) and never shows a successful confirmation; unauthorized (401) and not-allow-listed
+     (403) writes are refused; a client-supplied reviewer field is ignored (identity from the IAP
+     session only); rejected and stale states survive a reload. The fingerprint and identity
+     protections are unchanged.
+  5. **Precise coverage (not "end-to-end", not "fully tested").** Python **788 passed**, React **52
+     passed**, **17 deliberate breaks of the gates all caught**. Test kinds: **unit** — `review.py`
+     contract (`tests/test_review.py`) and the React component (`console/src/pages/Review.test.tsx`);
+     **API** — the Flask review endpoints, the integration sequence, fail-closed and auth
+     (`tests/test_console_api.py`), plus the hash-gate and follow-up gate (`tests/test_draft_pipeline.py`,
+     `tests/test_drafts.py`, `tests/test_followup.py`); **browser** — the single built-React-against-real-Flask
+     run described in item 2, performed by hand this pass, not in CI.
+
+  **Proposed migration / deployment checklist (for later approval — NOT executed):**
+  (a) add the append-only `Reviews` tab to the Sheet (`Lead ID | Fingerprint | Reviewer | Decision |
+  Reviewed at (UTC)`) and implement `SheetReviewStore.get` (latest row per lead) / `put` (append),
+  proving it first against a staging Sheet; (b) set the human reviewer allow-list
+  (`review_reviewers` / `CONSOLE_ALLOWED_EMAILS`) and wire the worker + console to the Sheet store;
+  (c) set `ENABLE_REVIEW=true` and rebuild the console image (the React review page); (d) keep
+  `ENABLE_GMAIL_DRAFTS` unset — drafting and sending stay off — until the founder decides otherwise;
+  (e) build a follow-up review path (the `followup.pending_reviews` seam) before un-blocking
+  follow-ups; (f) decide the tamper posture (who may write the `Reviews` tab — Sheet ACLs, not
+  cryptography); (g) re-run both suites and the deliberate breaks against the built images, and
+  verify the authenticated dashboard load (the separate pending item). Do not execute this without
+  the founder's go.
+
 - **2026-09-29 (third review, finishing pass) — Option B finished: hash issuance gated, follow-ups
   gated, the React review page built, reviewer authenticity and revocation covered.** Six items:
 
@@ -1410,8 +1466,12 @@ Sheet — and how often the checks refuse it — is unknown.
      rejection supersedes an earlier confirmation of the same candidate — tested, including duplicate
      submissions and confirmation of the same fingerprint. **Race windows, stated honestly:** the
      file store is last-writer-wins with no locking, so concurrent writes can lose one; the
-     display→confirm window is closed by the console echoing the fingerprint (409 on change); the
-     confirm→action window is closed by the action-boundary recheck.
+     display→confirm window is guarded by the console echoing the fingerprint (409 on change). The
+     recheck is the LAST gate before any write and validates the exact `result` the action then uses
+     (no re-derivation between), so the action creates precisely the reviewed candidate — but this
+     **narrows, it does not close,** the confirm→action window: a rejection or edit landing after the
+     recheck and before the Gmail write is not caught (the recheck is not atomic with the write). See
+     the verification-pass entry above.
   6. **Docs distinguish states** (this entry): **implemented API** (server `GET/POST
      /api/review/<lead>`, `review.enforce`/`is_reviewed`/`candidate_fingerprint`); **completed local
      UI** (the React page, vitest + a browser run); **fixture-tested storage** (`MemoryReviewStore`,
