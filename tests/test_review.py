@@ -200,16 +200,157 @@ def test_the_json_file_store_round_trips(tmp_path):
     assert review.JsonFileReviewStore(tmp_path / "reviews" / "reviews.json").get("A-0001") == record
 
 
-def test_the_sheet_store_is_fail_closed_and_never_writes():
-    store = review.SheetReviewStore()
-    assert store.get("A-0001") is None
+def test_the_unmigrated_store_is_fail_closed_and_never_writes():
+    store = review.UnmigratedReviewStore()
+    assert store.get("A-0001") is None  # -> MISSING, blocks
     with pytest.raises(review.NotMigrated):
         store.put({"lead_id": "A-0001", "fingerprint": "a" * 64, "reviewer": "x",
                    "decision": "confirmed", "reviewed_at": "2026-09-29T00:00:00+00:00"})
 
 
-def test_the_default_store_is_the_fail_closed_sheet_store():
+def test_the_default_store_is_fail_closed_unless_configured(monkeypatch):
+    monkeypatch.delenv("REVIEW_STORE", raising=False)
+    monkeypatch.delenv("REVIEW_STORE_PATH", raising=False)
+    assert isinstance(review.default_store(), review.UnmigratedReviewStore)
+    monkeypatch.setenv("REVIEW_STORE", "sheet")
     assert isinstance(review.default_store(), review.SheetReviewStore)
+
+
+# --- the Sheet adapter (against a fake Sheets API; never the live Sheet) --------------------
+
+class _Exec:
+    def __init__(self, value):
+        self.value = value
+
+    def execute(self):
+        if isinstance(self.value, Exception):
+            raise self.value
+        return self.value
+
+
+class _Values:
+    def __init__(self, api):
+        self.api = api
+
+    def get(self, spreadsheetId, range):
+        name = range.split("!")[0].strip("'")
+        rows = self.api.tabs.get(name)
+        if self.api.read_error:
+            return _Exec(RuntimeError("boom"))
+        return _Exec({"values": [list(r) for r in (rows or [])]})
+
+    def append(self, spreadsheetId, range, valueInputOption, insertDataOption, body):
+        name = range.split("!")[0].strip("'")
+        if self.api.write_error:
+            return _Exec(RuntimeError("boom"))
+        if self.api.drop_write:  # simulate an ambiguous append that did not land
+            self.api.appends += 1
+            return _Exec({})
+        self.api.tabs.setdefault(name, []).extend([list(r) for r in body["values"]])
+        self.api.appends += 1
+        return _Exec({})
+
+
+class Sheets:
+    """A fake Sheets service for the review store: get() lists tabs, values() reads/appends."""
+
+    def __init__(self, tabs, *, read_error=False, write_error=False, drop_write=False):
+        self.tabs = {n: (None if rows is None else [list(r) for r in rows]) for n, rows in tabs.items()}
+        self.read_error, self.write_error, self.drop_write = read_error, write_error, drop_write
+        self.appends = 0
+
+    def get(self, spreadsheetId):
+        return _Exec({"sheets": [{"properties": {"title": n}} for n, r in self.tabs.items() if r is not None]})
+
+    def values(self):
+        return _Values(self)
+
+
+HDR = review.REVIEWS_HEADER
+
+
+def sheet_store(tabs, **kw):
+    return review.SheetReviewStore(api=Sheets(tabs, **kw), spreadsheet_id="sid")
+
+
+def test_the_sheet_store_reads_the_latest_row_for_a_review_id():
+    store = sheet_store({"Reviews": [HDR,
+                                     ["A-0001", "b" * 64, "founder@lakshyaa.ai", "confirmed", "t1"],
+                                     ["A-0002", "c" * 64, "founder@lakshyaa.ai", "rejected", "t2"],
+                                     ["A-0001", "d" * 64, "founder@lakshyaa.ai", "rejected", "t3"]]})
+    got = store.get("A-0001")
+    assert got["decision"] == "rejected" and got["fingerprint"] == "d" * 64  # the later row wins
+    assert store.get("A-9999") is None  # no row -> MISSING
+
+
+def test_a_later_rejection_row_supersedes_an_earlier_confirmation_by_position():
+    store = sheet_store({"Reviews": [HDR,
+                                     ["A-0001", "b" * 64, "founder@lakshyaa.ai", "confirmed", "z-later"],
+                                     ["A-0001", "b" * 64, "founder@lakshyaa.ai", "rejected", "a-earlier"]]})
+    # ordering is by ROW POSITION, not the (here misleading) client timestamps
+    assert store.get("A-0001")["decision"] == "rejected"
+
+
+def test_the_sheet_store_blocks_on_a_missing_tab_a_changed_header_and_read_errors():
+    with pytest.raises(review.ReviewsUnavailable):
+        sheet_store({"Reviews": None}).get("A-0001")  # missing tab
+    with pytest.raises(review.ReviewsUnavailable):
+        sheet_store({"Reviews": [["Lead ID", "Wrong"], ["A-0001"]]}).get("A-0001")  # header drift
+    with pytest.raises(review.ReviewsUnavailable):
+        sheet_store({"Reviews": [HDR]}, read_error=True).get("A-0001")  # read error
+
+
+def test_a_malformed_latest_row_is_rejected_by_the_gate():
+    store = sheet_store({"Reviews": [HDR, ["A-0001", "not-hex", "founder@lakshyaa.ai", "confirmed", "t"]]})
+    record = store.get("A-0001")
+    with pytest.raises(review.ReviewInvalid) as exc:
+        review._evaluate(record, "a" * 64, frozenset({"founder@lakshyaa.ai"}))
+    assert exc.value.reason == review.MALFORMED
+
+
+def test_the_sheet_store_appends_a_row_and_confirms_it():
+    api = Sheets({"Reviews": [HDR]})
+    store = review.SheetReviewStore(api=api, spreadsheet_id="sid")
+    record = review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", "b" * 64)
+    assert api.appends == 1
+    assert store.get("A-0001")["decision"] == "confirmed" and store.get("A-0001")["fingerprint"] == "b" * 64
+    assert record["reviewed_at"]  # stored for the audit, not used for ordering
+
+
+def test_the_sheet_store_blocks_a_write_when_the_tab_is_missing_and_never_creates_it():
+    api = Sheets({"Reviews": None})
+    store = review.SheetReviewStore(api=api, spreadsheet_id="sid")
+    with pytest.raises(review.ReviewsUnavailable):
+        review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", "b" * 64)
+    assert api.tabs["Reviews"] is None and api.appends == 0  # nothing written, tab not created
+
+
+def test_an_ambiguous_append_that_did_not_land_is_reported_not_assumed_successful():
+    api = Sheets({"Reviews": [HDR]}, drop_write=True)  # append "returns" but does not persist
+    store = review.SheetReviewStore(api=api, spreadsheet_id="sid")
+    with pytest.raises(review.ReviewsUnavailable):
+        review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", "b" * 64)
+    assert store.get("A-0001") is None  # the review was not recorded, so approval stays blocked
+
+
+def test_a_write_error_blocks():
+    api = Sheets({"Reviews": [HDR]}, write_error=True)
+    store = review.SheetReviewStore(api=api, spreadsheet_id="sid")
+    with pytest.raises(review.ReviewsUnavailable):
+        review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", "b" * 64)
+
+
+def test_the_sheet_store_enforces_end_to_end_through_the_gate():
+    api = Sheets({"Reviews": [HDR]})
+    store = review.SheetReviewStore(api=api, spreadsheet_id="sid")
+    reviewers = frozenset({"founder@lakshyaa.ai"})
+    # no review -> blocks
+    assert review.is_reviewed(store, "A-0001", fingerprint(), reviewers=reviewers) is False
+    review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", fingerprint())
+    assert review.is_reviewed(store, "A-0001", fingerprint(), reviewers=reviewers) is True
+    # a later rejection supersedes it
+    review.record_rejection(store, "A-0001", "founder@lakshyaa.ai", fingerprint())
+    assert review.is_reviewed(store, "A-0001", fingerprint(), reviewers=reviewers) is False
 
 
 # --- the review view ------------------------------------------------------------------------

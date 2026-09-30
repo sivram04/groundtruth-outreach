@@ -463,3 +463,25 @@ def test_a_stale_state_survives_a_reload(built):
     review.record_confirmation(reviews, "A-0014", "admin@lakshyaa.ai", "a" * 64)  # an old candidate
     view = review_app(built, reviews=reviews).get("/api/review/A-0014", headers=signed()).get_json()
     assert view["review"]["decision"] == "confirmed" and view["review"]["current"] is False
+
+
+# --- item 3: test authentication cannot be turned on through production configuration ---------
+
+def test_no_environment_configuration_installs_a_stub_verifier(monkeypatch):
+    """The deployed console derives its verifier from real IAP config only. No env var swaps in a
+    permissive/test verifier (that override is a create_app argument tests pass); an unsigned
+    request is always refused."""
+    monkeypatch.setenv("CONSOLE_IAP_AUDIENCE", "/projects/1/locations/global/services/console")
+    monkeypatch.setenv("CONSOLE_ALLOWED_EMAILS", "admin@lakshyaa.ai")
+    monkeypatch.setenv("ENABLE_REVIEW", "true")
+    monkeypatch.setenv("REVIEW_STORE", "sheet")
+    client = console._deployed().test_client()
+    assert client.get("/api/snapshot").status_code == 401  # real IAP verifier: no token, refused
+    assert client.post("/api/review/A-0014", json={"decision": "confirm"}).status_code == 401
+
+
+def test_an_unconfigured_console_opens_for_nobody_even_with_review_enabled(monkeypatch):
+    monkeypatch.delenv("CONSOLE_IAP_AUDIENCE", raising=False)
+    monkeypatch.delenv("CONSOLE_ALLOWED_EMAILS", raising=False)
+    monkeypatch.setenv("ENABLE_REVIEW", "true")
+    assert console._deployed().test_client().get("/api/snapshot").status_code == 503

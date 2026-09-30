@@ -1372,6 +1372,88 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-30 (production review storage, prepared locally — no migration, no deployment).** The
+  option-B contract is the milestone at `27dc079`; this prepares the production store and its
+  wiring **without** creating the live tab, writing remotely, or changing permissions.
+
+  1. **`SheetReviewStore.get/put` implemented** (`outreach/review.py`) against the append-only
+     `Reviews` schema `Review ID | Fingerprint | Reviewer | Decision | Reviewed at (UTC)` (the key is
+     the review id — the lead id for an initial, `followup:<lead>:<step>` for a follow-up — so the two
+     are separate rows). It is tested against a fake Sheets API only; it is never run against the live
+     Sheet. **A missing tab, a header that is not exactly the schema, a read/write error, or an
+     unconfirmed append all block** (`ReviewsUnavailable` → the gate's UNREADABLE / fail-closed); a
+     malformed latest row is returned and the gate rejects it (MALFORMED). It **never creates the
+     tab**. The fail-closed default is now `UnmigratedReviewStore` (nothing configured → get returns
+     None → MISSING; put refused).
+  2. **Deterministic ordering and retry.** `get` returns the LATEST row for a review id **by row
+     position (append order)** — never the client `reviewed_at`, which is stored for the audit but
+     never trusted for ordering — so a later rejection supersedes an earlier confirmation of the same
+     fingerprint. Duplicate requests append harmless duplicate rows (latest wins; identical → same
+     result). `put` **re-reads and confirms the exact row is present** after appending; it never
+     assumes success and never auto-retries (a blind retry could double-write). An ambiguous append
+     that did not land raises, so the caller treats it as a failure and approval stays blocked.
+  3. **Worker and console wired to one contract, review OFF by default.** `review.store_from_env`
+     selects the store: `REVIEW_STORE=sheet` → the Sheet adapter, `REVIEW_STORE_PATH` → a local JSON
+     file, otherwise the fail-closed default. `job_draft`/`followup` use it via `default_store()`; the
+     console `_deployed()` uses it too. **Configured ≠ enabled:** the console's review routes stay off
+     unless `ENABLE_REVIEW=true`, and drafting/sending stay off regardless. **Test authentication
+     cannot be turned on by configuration:** `_deployed()` never passes a `verifier`, so the app uses
+     the real IAP verifier (`console_auth.from_environment`) — a stub verifier is a `create_app`
+     argument only tests pass; an unsigned request is refused (tested), and an unconfigured console
+     opens for nobody (503). IAP and the existing allow-list are preserved.
+  4. **Permissions design — the limitation, stated plainly, and the smallest fix (NOT applied).**
+     The Sheet is reached through **one shared OAuth credential** (the founder's account; refresh
+     token in Secret Manager `google-signin-token`) used by the worker, the console AND any local
+     script. So today **any holder of that credential can write the `Reviews` tab**, and a reviewer
+     email in a row is a string the writer chose — **not proof of an authenticated human decision**.
+     Only the console POST derives the reviewer from IAP; once written, its row is indistinguishable
+     from one the worker or a script wrote. Nothing in the shared credential prevents another code
+     path from manufacturing a review. **Smallest change (propose, do not implement, do not change
+     live permissions):** the store seam already isolates this, so swap in a **signed** adapter — the
+     console signs each record with an HMAC key only it holds (a new `review-signing-key` secret with
+     read-IAM limited to the console's identity) and the worker/enforcer verifies the signature and
+     ignores unsigned or forged rows. That gives real write/enforce separation on the shared Sheet
+     without Sheet-ACL surgery, but **depends on a second secret the worker cannot read** — a
+     secrets/IAM change to approve first. Alternative: give the console its own identity that alone
+     may write the tab (or a separate spreadsheet) with the worker read-only — a Sheet-ACL/identity
+     change. Until one is chosen, the control is procedural + the IAP console path + the allow-list,
+     and the store is **not tamper-resistant**; this is not claimed to be.
+  5. **Migration dry-run** (`outreach/review_migration.py`, `python -m outreach.review_migration`):
+     read-only, reports the plan and **writes nothing, creates nothing**. It reports ABSENT (would
+     create the tab + header), READY (already matches; existing rows preserved, append-only), or
+     HEADER_MISMATCH (a person must reconcile; nothing changed), with **existing-data handling**
+     (append-only, never rewritten), **rollback** (delete the empty tab; no lead data touched), and
+     **older-revision behavior** (revisions before the migration don't read the tab, so they are
+     unaffected; a mismatched header already blocks the store). Tested against a fake API.
+  6. **Coverage.** Python **803 passed**, React **52 passed** (unchanged; no React change this pass),
+     **22 deliberate breaks of the gates and the adapter all caught** (adds: the store returns the
+     first row not the latest; skips the header check; assumes an append landed; writes without
+     checking the tab exists; the console GET is not fail-closed). New tests: the Sheet adapter
+     contract, latest-decision handling, retry/ambiguity, missing-tab/header-drift/read-write errors
+     (`tests/test_review.py`); the migration dry-run (`tests/test_review_migration.py`); the config
+     wiring and no-stub-verifier guarantees (`tests/test_console_api.py`). Unchanged behavior reuses
+     existing evidence.
+
+  **The non-atomic revocation window remains** (documented at `27dc079`): the recheck narrows but
+  does not close the confirm→action window. **Follow-up creation stays blocked** until its review
+  workflow exists. **Nothing is deployed or pushed; the live Sheet and its permissions are untouched.**
+
+  **Concrete migration / deployment plan (for approval — do NOT execute):**
+  1. On a **staging** Sheet, run `python -m outreach.review_migration` (dry run), then create the
+     `Reviews` tab with the exact header and re-run the dry run until it reports READY; exercise the
+     adapter end to end there.
+  2. Decide the **permissions posture** (item 4): approve the signing-key secret + read-IAM (smallest
+     robust) or the separate-identity/ACL option, and implement the chosen adapter behind the store
+     seam. Do not enable drafting until this is decided.
+  3. Create the `Reviews` tab on the **production** Sheet (dry run → create → dry run READY).
+  4. Set the config: `REVIEW_STORE=sheet` on the worker and console, the reviewer allow-list
+     (`review_reviewers` / `CONSOLE_ALLOWED_EMAILS`), and `ENABLE_REVIEW=true` on the console; rebuild
+     the console image (the React review page). Keep `ENABLE_GMAIL_DRAFTS` unset.
+  5. Verify on the built images: both suites + the deliberate breaks, an authenticated dashboard
+     load, and a real review→approval-hash pass with sending still disabled.
+  6. Build the follow-up review path (the `followup.pending_reviews` seam) before un-blocking
+     follow-ups. Only after all of the above, and a separate go, consider enabling drafting.
+
 - **2026-09-29 (third review, verification pass on `098431e`) — Traced the hash boundary and closed
   one exposure; proved React↔Flask together; corrected the concurrency claim; confirmed fail-closed.**
   A focused pass, no rebuild and no unrelated features; the fixes below are small.

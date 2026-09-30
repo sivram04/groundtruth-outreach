@@ -247,15 +247,16 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
 
 def _deployed():
     logging.basicConfig(level=logging.INFO)
-    # The review flow is off unless explicitly switched on. Even when on, its store is fail-closed
-    # (the Sheet's Reviews tab is not migrated) unless a local file is configured, so it never
-    # writes to the live Sheet.
+    # The review flow is OFF unless explicitly switched on. The store comes from the one review
+    # contract (`review.store_from_env`): fail-closed by default, `REVIEW_STORE=sheet` for the
+    # production adapter, a `REVIEW_STORE_PATH` for a local file. `verifier` is not passed, so the
+    # app uses the real IAP verifier from the environment; there is no configuration that installs
+    # a test/stub verifier - that override is a `create_app` argument only tests pass. Drafting and
+    # sending stay disabled regardless (ENABLE_GMAIL_DRAFTS on the worker).
     enable_review = os.environ.get("ENABLE_REVIEW") == "true"
-    review_path = os.environ.get("REVIEW_STORE_PATH", "").strip()
-    review_store = review.JsonFileReviewStore(review_path) if review_path else None
     return create_app(static_dir=os.environ.get("CONSOLE_STATIC_DIR") or None,
                       handbook_doc_id=os.environ.get("HANDBOOK_DOC_ID", ""),
-                      enable_review=enable_review, review_store=review_store)
+                      enable_review=enable_review, review_store=review.store_from_env())
 
 
 app = _deployed()

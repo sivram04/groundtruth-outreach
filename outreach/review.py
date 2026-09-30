@@ -18,10 +18,13 @@ is a control on approval, not an improvement in the validator's accuracy. It req
 evidence review for EVERY draft before it can become approval-ready — the review burden is
 accepted for this single-founder pilot.
 
-Storage. The live Google Sheet is not touched by this change. The production store
-(`SheetReviewStore`) is fail-closed and unmigrated: reading finds no review (so approval stays
-blocked) and writing is refused until the documented `Reviews` tab migration is applied. The
-local console review flow and the tests use `MemoryReviewStore` / `JsonFileReviewStore`.
+Storage. The live Google Sheet is not touched by this change. The default is `UnmigratedReviewStore`
+(fail-closed: reading finds no review, writing is refused), so where nothing is configured, approval
+stays blocked. `store_from_env` selects a store from configuration: `REVIEW_STORE=sheet` chooses the
+production `SheetReviewStore` (an append-only `Reviews` tab, implemented and tested against a fake
+Sheets API, never run against the live Sheet here), a `REVIEW_STORE_PATH` chooses a local JSON file,
+and otherwise the fail-closed default. The local console review flow and the tests use
+`MemoryReviewStore` / `JsonFileReviewStore`.
 
 Trust boundary (stated honestly, not overclaimed). The one write path that carries an authenticated
 identity is the console `POST /api/review/<lead>`: it derives the reviewer from the IAP-verified
@@ -90,6 +93,20 @@ class ReviewInvalid(ValueError):
 
 class NotMigrated(RuntimeError):
     """A store cannot persist a review yet because its backing storage is not migrated."""
+
+
+class ReviewsUnavailable(RuntimeError):
+    """A review store's backing storage cannot be read or written safely (a missing tab, a changed
+    header, or an I/O error), so review and approval are blocked. `enforce` turns this into
+    UNREADABLE and `is_reviewed` into False - fail-closed."""
+
+
+# The append-only Reviews tab schema. The key column holds the review id (the lead id for an initial
+# email, `followup:<lead>:<step>` for a follow-up), NOT only a lead id, so an initial's review and a
+# follow-up's are separate rows.
+REVIEWS_TAB = "Reviews"
+REVIEWS_HEADER = ["Review ID", "Fingerprint", "Reviewer", "Decision", "Reviewed at (UTC)"]
+_RECORD_FIELDS = ("lead_id", "fingerprint", "reviewer", "decision", "reviewed_at")
 
 
 def _canonical(material):
@@ -337,32 +354,126 @@ class JsonFileReviewStore:
         self.path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
 
 
-class SheetReviewStore:
-    """The eventual production store, on the leads Google Sheet. NOT YET MIGRATED.
+class UnmigratedReviewStore:
+    """The fail-closed default when no review store is configured (no migration applied).
 
-    Reading finds no review, so approval stays blocked (fail-closed); writing is refused. The one
-    step that turns this on is the `Reviews` tab migration, documented in `docs/AS_BUILT.md`:
+    Reading finds no review, so approval stays blocked (MISSING); writing is refused. This is what
+    `default_store()` returns unless `REVIEW_STORE` selects a real one. It touches nothing (no
+    Google, no file), so it is safe wherever the review flow is simply not configured."""
 
-        tab    Reviews (append-only, like Events)
-        header Lead ID | Fingerprint | Reviewer | Decision | Reviewed at (UTC)
-        get    the latest row for the lead id
-        put    append a row; the console's authenticated `g.email` is the Reviewer
-
-    Until that migration is applied this store deliberately does nothing to the live Sheet.
-    """
-
-    TAB = "Reviews"
-    HEADER = ["Lead ID", "Fingerprint", "Reviewer", "Decision", "Reviewed at (UTC)"]
-
-    def get(self, lead_id):
+    def get(self, review_id):
         return None
 
     def put(self, record):
         raise NotMigrated(
-            "the Reviews tab is not migrated, so a review cannot be persisted to the Sheet yet; "
+            "no review store is configured (set REVIEW_STORE), so a review cannot be persisted; "
             "see docs/AS_BUILT.md")
 
 
+class SheetReviewStore:
+    """The production store: an append-only `Reviews` tab on the leads Google Sheet.
+
+    Contract (append-only, latest-row-wins):
+      - `get(review_id)` returns the LATEST row for that id as a record, or None when there is none.
+        "Latest" is by row position (append order) - never a client timestamp, which is stored for
+        the audit but never trusted for ordering. A later rejection therefore supersedes an earlier
+        confirmation of the same fingerprint because it is the later row.
+      - `put(record)` appends one row, then re-reads and confirms the exact row is present; it never
+        assumes the append succeeded and never auto-retries (a blind retry could double-write). An
+        unconfirmed or ambiguous append raises, so the caller treats it as a failure and approval
+        stays blocked.
+      - A missing tab, a header that is not exactly `REVIEWS_HEADER`, or any read/write error blocks
+        (raises `ReviewsUnavailable`). A malformed latest row is returned as-is and the gate rejects
+        it (MALFORMED). This store never creates the tab.
+
+    The `api` is a Sheets service (injected in tests as a fake); in production it is built lazily.
+    Reused across worker and console through the one review contract.
+    """
+
+    TAB = REVIEWS_TAB
+    HEADER = REVIEWS_HEADER
+
+    def __init__(self, api=None, spreadsheet_id=None):
+        self._api = api
+        self._sheet_id = spreadsheet_id
+
+    def _service(self):
+        if self._api is None:
+            from outreach import sheet
+            self._api = sheet._api()
+        return self._api
+
+    def _sid(self):
+        if self._sheet_id is None:
+            from outreach import sheet
+            self._sheet_id = sheet.SHEET_ID
+        return self._sheet_id
+
+    def _values(self):
+        """Every row of the tab (header first), or ReviewsUnavailable if it cannot be read safely."""
+        api, sid = self._service(), self._sid()
+        try:
+            titles = {s["properties"]["title"]
+                      for s in api.get(spreadsheetId=sid).execute()["sheets"]}
+            if self.TAB not in titles:
+                raise ReviewsUnavailable(f"there is no {self.TAB} tab")
+            values = api.values().get(spreadsheetId=sid,
+                                      range=f"'{self.TAB}'").execute().get("values", [])
+        except ReviewsUnavailable:
+            raise
+        except Exception as exc:
+            raise ReviewsUnavailable(
+                f"the {self.TAB} tab could not be read ({type(exc).__name__})") from exc
+        if not values or values[0][:len(self.HEADER)] != self.HEADER:
+            raise ReviewsUnavailable(f"the {self.TAB} tab's header is missing or changed")
+        return values
+
+    @staticmethod
+    def _record(row):
+        cell = lambda i: row[i] if i < len(row) else ""  # noqa: E731
+        return dict(zip(_RECORD_FIELDS, (cell(0), cell(1), cell(2), cell(3), cell(4))))
+
+    def get(self, review_id):
+        matches = [row for row in self._values()[1:] if (row[0] if row else "") == review_id]
+        if not matches:
+            return None
+        return self._record(matches[-1])  # append order is the authority
+
+    def put(self, record):
+        self._values()  # a missing tab / changed header blocks the write; never create the tab
+        api, sid = self._service(), self._sid()
+        row = [record.get(field, "") for field in _RECORD_FIELDS]
+        try:
+            api.values().append(
+                spreadsheetId=sid, range=f"'{self.TAB}'!A1", valueInputOption="RAW",
+                insertDataOption="INSERT_ROWS", body={"values": [row]}).execute()
+        except Exception as exc:
+            raise ReviewsUnavailable(
+                f"the review could not be appended ({type(exc).__name__})") from exc
+        # Do not assume the append landed: re-read and confirm this exact row is present. A
+        # concurrent later row may supersede it on read (correct); an absent row means the append
+        # did not take, so raise rather than report success or silently retry.
+        if not any(list(r) == row for r in self._values()[1:]):
+            raise ReviewsUnavailable("the review append could not be confirmed; nothing was recorded")
+        return record
+
+
+def store_from_env(environ=None):
+    """The review store selected by configuration. `REVIEW_STORE=sheet` -> the Sheet adapter; a
+    `REVIEW_STORE_PATH` -> a local JSON file (for the local flow); otherwise the fail-closed default.
+    Review being *configured* is separate from being *enabled*: the console's routes stay off unless
+    `ENABLE_REVIEW=true`, and drafting/sending stay off regardless."""
+    import os
+    environ = os.environ if environ is None else environ
+    if environ.get("REVIEW_STORE", "").strip().lower() == "sheet":
+        return SheetReviewStore()
+    path = environ.get("REVIEW_STORE_PATH", "").strip()
+    if path:
+        return JsonFileReviewStore(path)
+    return UnmigratedReviewStore()
+
+
 def default_store():
-    """The store used when a caller injects none: the fail-closed production store."""
-    return SheetReviewStore()
+    """The store used when a caller injects none: whatever configuration selects, fail-closed by
+    default (nothing configured -> `UnmigratedReviewStore`)."""
+    return store_from_env()

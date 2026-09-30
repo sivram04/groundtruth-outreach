@@ -373,8 +373,12 @@ measurement honest and avoid overfitting**:
 - A verification pass (see AS_BUILT) traced the hash boundary and fixed the template/CLI exposure,
   proved the React review page against a real console Flask API (browser + an API integration test),
   corrected the concurrency claim (the recheck narrows, does not close, the window), and confirmed
-  fail-closed behavior.
-- Whole suite: **788 Python passed (0 xfailed)**, **52 React passed**.
+  fail-closed behavior. **Production review storage was then prepared locally** (2026-09-30): a real
+  `SheetReviewStore` (append-only, latest-row-by-position, confirm-on-write, fail-closed; tested
+  against a fake, never the live Sheet), one `store_from_env` contract for worker + console (review
+  off by default), a read-only migration dry-run, and an honest permissions limitation with a
+  proposed (not applied) fix. Nothing deployed; the `Reviews` tab is not created.
+- Whole suite: **803 Python passed (0 xfailed)**, **52 React passed**, **22 deliberate breaks caught**.
 
 ## What this does not establish (limits of the evidence itself)
 

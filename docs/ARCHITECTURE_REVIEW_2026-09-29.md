@@ -236,10 +236,19 @@ the template/CLI exposure (a shared `_gate_hash` gates every preview path; `crea
 template hash, so it is never actionable), proved the React review page against a real console Flask
 API (a browser run plus an API integration test), corrected the concurrency claim (the recheck
 narrows, it does not close, the confirm→action window; the action uses the exact checked candidate),
-and confirmed fail-closed behavior on store errors. Exact coverage: Python **788 passed**, React **52
-passed**, **17 deliberate breaks of the gates all caught**. **Not deployed**: `outreach/writer.py`
-and the review gate run inside `outreach-worker`/`outreach-console`, neither rebuilt; the review
-store's Sheet migration is documented but not applied, so nothing touches the live Sheet.
+and confirmed fail-closed behavior on store errors. **Production review storage was then prepared
+locally** (2026-09-30, see AS_BUILT): a real `SheetReviewStore.get/put` against the append-only
+`Reviews` schema (latest-row-by-position ordering, confirm-by-reread on write, blocks on missing
+tab / header drift / errors; tested against a fake, never the live Sheet), worker+console wired
+through one `store_from_env` contract (review off by default; no env installs a stub verifier), and
+a read-only migration dry-run. **A permissions limitation is recorded honestly:** the Sheet uses one
+shared OAuth credential for the worker, the console and any script, so a reviewer email in a row is
+not proof of an authenticated decision and any credential-holder could forge one; the smallest fix
+(a console-only signing key the worker verifies, or a separate write identity) is proposed, not
+applied, and needs a secrets/IAM or ACL decision. Exact coverage: Python **803 passed**, React **52
+passed**, **22 deliberate breaks all caught**. **Not deployed**: `outreach/writer.py` and the review
+gate run inside `outreach-worker`/`outreach-console`, neither rebuilt; the `Reviews` tab is not
+created and its permissions posture is undecided, so nothing touches the live Sheet.
 
 ### 3.2 Prompt injection
 
