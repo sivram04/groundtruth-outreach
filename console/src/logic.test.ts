@@ -14,6 +14,7 @@ describe("the pages' addresses", () => {
     expect(parse("#/").page).toBe("dashboard");
     expect(parse("#/drafts").page).toBe("drafts");
     expect(parse("#/sources").page).toBe("sources");
+    expect(parse("#/import").page).toBe("import");
     expect(parse("#/leads").page).toBe("leads");
     expect(parse("#/leads/A-0001")).toMatchObject({ page: "lead", id: "A-0001" });
     expect(parse("#/leads/A%2D0001").id).toBe("A-0001");
@@ -21,7 +22,7 @@ describe("the pages' addresses", () => {
   });
 
   it("calls anything else missing, never a page it is not", () => {
-    for (const hash of ["#/nowhere", "#/drafts/extra", "#/leads/A-1/more", "#/sources/x"]) {
+    for (const hash of ["#/nowhere", "#/drafts/extra", "#/leads/A-1/more", "#/sources/x", "#/import/x"]) {
       expect(parse(hash).page).toBe("missing");
     }
     expect(parse("#/leads/%E0%A4%A").id).toBe("%E0%A4%A"); // a bad escape is kept as written

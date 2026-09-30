@@ -15,9 +15,9 @@ never the live Sheet.
 
 | # | Capability | Status | Where |
 |---|------------|--------|-------|
-| 1 | Import leads from Sheets/Excel, incl. company-only and phone-only | **Partial** | `outreach/importer.py` parses/normalizes/classifies a small CSV/records list (email, phone-only, company-only), assigns Lead IDs, dedupes, and reports. No upload route/UI yet, and no live write. Excel (.xlsx) blocked (see conflicts). |
-| 2 | Enrich missing contacts via the founder's Apollo/Hunter | **Missing / blocked** | Conflicts with "no third-party tools". Not built. |
-| 3 | Upload a PDF/DOCX playbook (initial emails, follow-ups, rules) | **Missing / blocked** | Handbook today is one Drive/local doc; no upload, no PDF/DOCX parse, no multi-playbook. Conflicts with the Drive-handbook rule and "no third-party". |
+| 1 | Import leads from Sheets/Excel, incl. company-only and phone-only | **Implemented (local)** | `outreach/importer.py` parses CSV/TSV **and XLSX** (local libraries, no external service), maps the founder's headers to the destination tab's columns, preserves every contact field, classifies channel, assigns Lead IDs and dedupes. A flag-gated `POST /api/import/preview` + `/commit` and an Import page do upload → preview → confirm → persist through the real routes, verified with synthetic storage. Not run against the live Sheet. |
+| 2 | Enrich missing contacts via the founder's Apollo/Hunter | **Missing / blocked** | Genuinely conflicts: Apollo/Hunter are **external network services** that receive lead data. Not built (conflict #1). |
+| 3 | Upload a PDF/DOCX playbook (initial emails, follow-ups, rules) | **Missing** | Handbook today is one Drive/local doc; no upload, no PDF/DOCX parse, no multi-playbook. Parsing PDF/DOCX **locally** is allowed (a library is not an external service); the open question is the Drive-handbook rule and multi-playbook (conflict #4), not parsing. |
 | 4 | Generate researched, personalized emails with inspectable evidence | **Implemented (email leads)** | `research.py`, `drafting.py`, `drafts.py`, `job_draft.py`; candidate + cited evidence surfaced for review. |
 | 5 | Review drafts; manual approval or configured automation; daily limits, scheduling, follow-up timing | **Partial** | Review + signed decision done (`review.py`, `Review.tsx`). Manual approval only; automation/sending is out of scope by rule. Daily cap/scheduling/follow-up timing exist as settings + `followup.py`/`business_days.py`. |
 | 6 | Handle replies: stop bad follow-ups; draft responses; booking link | **Partial** | Reply/opt-out/bounce stop the sequence (`sequence.py`, `sync.py`). Drafting a reply and a booking link are not built. |
@@ -25,18 +25,26 @@ never the live Sheet.
 | 8 | Keep overdue call tasks visible; no notification spam; coordinate calls with email | **Missing** | Needs a call-task record and schedule; depends on #7. |
 | 9 | A/B tests and reporting (delivery, replies, positive, meetings, opt-outs, calls, follow-ups); honest open/click labels | **Partial** | Reporting on emails/replies/opens/clicks exists in `console_model`/`dashboard.py`, opens labelled "(est.)". A/B assignment, meetings, calls and follow-up-completion reporting not built. |
 
+**Email and phone are independent contact capabilities.** A lead may have an email, a phone, both, or
+neither. `channel` (`EMAIL` / `CALL` / `COMPANY_ONLY`) is only the **primary suggested next action** for
+a lead that has not been emailed; it is not an exclusive permission. A lead with both is reachable both
+ways and stays callable, and import preserves every contact field it is given.
+
 ## Exact conflicts with existing repository rules (not overridden here)
 
 These are real tensions the MVP requirements create with `CLAUDE.md`. None is silently overridden;
 each needs a founder decision before the conflicting capability ships.
 
-1. **"No third-party tools. Only Google."** vs **#2 Apollo/Hunter enrichment** and **#3 PDF/DOCX
-   playbook parsing** (PDF/DOCX need a parsing library). Enrichment also means sending lead data to a
-   third party under the founder's credentials. Blocked pending a decision to allow specific
-   third-party integrations, per-customer and opt-in.
-2. **"Google Sheets is the only record … No database."** vs a multi-tenant product with per-customer
-   playbooks, credentials and call tasks. For the founder's own funnel the Sheet is fine; a sellable
-   product will need a store decision. Import here targets the `Store` boundary, not a new DB.
+1. **"No third-party tools. Only Google."** — this is about **external services**, not local
+   libraries. Reading an Excel/PDF/DOCX file with a parsing library sends nothing to anyone and does
+   **not** conflict; only **#2 Apollo/Hunter enrichment** conflicts, because those are external network
+   services that receive the founder's lead data under the founder's credentials. Blocked pending a
+   decision to allow a specific, opt-in, per-customer integration. (Local parsing dependencies are
+   installed only in the project's container workflow — `requirements.txt` — never a runtime call out.)
+2. **"Google Sheets is the only record … No database."** — kept as-is for this MVP. There is **no**
+   database and **no** multi-tenant redesign here; import writes through the existing `Store` boundary
+   to the Sheet's own lead tabs. A future sellable product may revisit storage, but that is out of
+   scope and nothing here assumes it.
 3. **"The system never sends email."** vs **#5 configured automation** and **#6 drafting/sending
    replies**. Drafting is allowed; sending is not, except the already-planned console step-3 "Approve
    sends this one email". Automated sending is out of scope until that rule is rewritten by the
@@ -55,13 +63,15 @@ each needs a founder decision before the conflicting capability ships.
 
 1. **Lead channels + correct next action (this milestone).** Email / phone-only / company-only are
    first-class; the journey's tail shows the right next action for each. *Done in this change.*
-2. **Import core (this milestone, partial).** Parse/normalize/classify/dedupe a small list; assign
-   Lead IDs. *Done as a pure module.* **Next:** a flag-gated import route + `Store` append boundary
-   (append-only, new rows), following the review-flow safety pattern, verified with a fake store.
+2. **Import as a usable workflow (this milestone).** Upload CSV/TSV/XLSX → preview mapped fields and
+   validation → inspect duplicates/skipped/unstorable fields → confirm → persist → reload. Flag-gated
+   (`enable_import`, off in deploy), append-only through `Store.append_leads`, revalidated at commit.
+   *Done in this change; verified with synthetic storage, not the live Sheet.*
 3. **Call tasks (#7/#8).** A call-task record (per lead, due date, state open/snoozed/cancelled/done),
    outcome capture (dashboard + a short chat message), next-call scheduling from the playbook, and
    coordination with the email sequence. Phone-only leads drive this.
-4. **Playbook selection (#3).** Multiple playbooks; a decision on PDF/DOCX parsing (conflict #1).
+4. **Playbook selection (#3).** Multiple playbooks; local PDF/DOCX parsing (allowed) and the
+   Drive-handbook decision (conflict #4).
 5. **Reply drafting + booking link (#6).**
 6. **Enrichment (#2)** — blocked on conflict #1.
 7. **A/B + fuller reporting (#9).**
@@ -73,12 +83,16 @@ each needs a founder decision before the conflicting capability ships.
   company-only lead's is "find a contact"; an email lead is unchanged; verified through the real
   `console_model.build` with synthetic rows and shown on the console's Leads/Lead pages in the demo
   build (browser).
-- **M2 Import core (this change, partial):** from a small CSV/records list, `importer.import_leads`
-  returns normalized rows (channel set, Lead IDs assigned without collision, founder columns blank),
-  a de-duplicated set (by email, else phone, else company+website), and a report naming every skipped
-  record with a reason; unit-verified with synthetic data. **Not accepted until wired:** a route/UI and
-  a `Store` append boundary that appends new rows to the correct tab and is verified end to end through
-  a fake store into `console_model`.
+- **M2 Import as a usable workflow (this change):** through the real routes and the Import page, a
+  founder uploads a small mixed list (CSV/TSV/XLSX), sees the fields as they will be stored, the
+  validation results, the duplicates and the skipped/unstorable fields, confirms **once**, and after
+  reload sees the imported leads with their correct next actions — **without a developer script**.
+  Company-only, phone-only, email-only and email+phone records are all preserved. Only new rows are
+  written; founder data is never overwritten. The preview is revalidated at commit (no duplicate
+  submission, no Lead ID collision, an uncertain append reported honestly). The production
+  `Store.append_leads` adapter is tested against a **simulated Sheets API** (column ordering, a missing
+  destination column, a failing append), and the `MemoryStore` tests are kept. Browser-verified through
+  the actual local API with synthetic storage (a static demo alone is not enough).
 - **M3 Call tasks:** a call outcome recorded through a real route saves to the correct lead (incl.
   phone-only), drafts an email only when an address exists, schedules the next call per the playbook,
   and the task stays visible until done/snoozed/cancelled without repeat notifications.
@@ -87,8 +101,9 @@ each needs a founder decision before the conflicting capability ships.
 ## Local completion vs production / live verification
 
 - **Local (allowed here):** container tests (`deploy/test.Dockerfile`, `deploy/console-test.Dockerfile`,
-  `--network none`), synthetic leads, fake `Store`, simulated providers, and browser checks against the
-  demo build. This proves the code and the journey shape.
+  `--network none`), synthetic leads, a synthetic in-memory `Store`, a simulated Sheets API, and browser
+  checks — for a write journey, against the **actual local API** (the real Flask with synthetic storage),
+  not only the static demo. This proves the code and the journey shape.
 - **Production / live (separate, not done here):** real Sheet writes, real Apollo/Hunter/Gmail, IAP
   sign-in, deploys, schedules and any sending. These remain unverified and require the founder plus the
   rule decisions above. Nothing in this plan provisions resources, changes permissions, deploys,

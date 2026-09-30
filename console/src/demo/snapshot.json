@@ -102,6 +102,7 @@
       "tracked": false
     }
   ],
+  "import_enabled": false,
   "leads": [
     {
       "action": "Follow-up 1 was due Fri 2026-09-25. You started this thread by hand, so write it yourself in the same thread.",

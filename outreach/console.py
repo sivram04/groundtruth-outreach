@@ -28,8 +28,8 @@ from pathlib import Path
 
 from flask import Flask, g, jsonify, request, send_from_directory
 
-from outreach import assistant, console_auth, console_model, job_draft, review
-from outreach.sheet import Store
+from outreach import assistant, console_auth, console_model, importer, job_draft, review
+from outreach.sheet import LEAD_TABS, Store
 
 DEFAULT_STATIC = Path(__file__).resolve().parent.parent / "console" / "dist"
 SECURITY_HEADERS = {
@@ -55,9 +55,13 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+# A single import at once is a small list, and an upload is capped so a huge file cannot be posted.
+MAX_IMPORT_BYTES = 2_000_000
+
+
 def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings, clock=_now,
                static_dir=None, handbook_doc_id="", review_store=None, enable_review=False,
-               review_signer=None):
+               review_signer=None, enable_import=False):
     """The console. `store`, `settings` and `clock` are called once per data request, and a test
     passes stand-ins for them. `verifier` None means not configured: every request is refused.
 
@@ -129,6 +133,7 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                                      "changed; try again in a minute.")
         data["signed_in_as"] = g.email
         data["build"] = built()
+        data["import_enabled"] = enable_import
         return data, None
 
     @app.get("/api/snapshot")
@@ -263,6 +268,91 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                                        "be loaded. Reload before continuing.")
             log.info("review %s by %s for %s", decision, g.email, lead_id)
             return jsonify(review.review_view(candidate, None, chosen, status=status))
+
+    if enable_import:
+        # Lead import writes new rows to the Sheet, so it is OFF by default and in deployment; a test
+        # holds every other route to GET. Two steps: a preview that writes nothing, then a commit that
+        # appends only new rows. Neither ever rewrites a founder's existing row.
+        def _prefix(value):
+            prefix = str(value or "A").strip().upper() or "A"
+            return prefix if prefix in set(LEAD_TABS.values()) else None
+
+        @app.post("/api/import/preview")
+        def import_preview():
+            """Read the uploaded/pasted list and show what would be stored. Writes nothing."""
+            upload = request.files.get("file")
+            if upload is not None:
+                data = upload.read(MAX_IMPORT_BYTES + 1)
+                if len(data) > MAX_IMPORT_BYTES:
+                    return refuse(413, "That file is too large. Import a smaller list (under 2 MB).")
+                prefix = _prefix(request.form.get("prefix", "A"))
+                try:
+                    records = importer.records_from_file(upload.filename, data)
+                except ValueError as exc:
+                    return refuse(400, str(exc))
+                except Exception:
+                    log.exception("an uploaded file could not be read")
+                    return refuse(400, "That file could not be read. Check it is a valid CSV, TSV or "
+                                       "XLSX file.")
+            else:
+                body = request.get_json(silent=True) or {}
+                text = str(body.get("text", ""))
+                if len(text.encode("utf-8", "ignore")) > MAX_IMPORT_BYTES:
+                    return refuse(413, "That is too much text to import at once. Import a smaller list.")
+                prefix = _prefix(body.get("prefix", "A"))
+                records = importer.records_from_csv(text)
+            if prefix is None:
+                return refuse(400, "Choose which tab to import into (A or B).")
+            if not records:
+                return refuse(400, "No rows to import were found. Paste rows with a header line, or "
+                                   "choose a file.")
+            if len(records) > importer.MAX_ROWS:
+                return refuse(413, f"That is {len(records)} rows; import at most {importer.MAX_ROWS} "
+                                   f"at a time.")
+            try:
+                with reading:
+                    st = store()
+                    existing, columns = st.leads(), st.lead_columns(prefix)
+            except Exception:
+                log.exception("the Sheet could not be read for an import preview")
+                return refuse(502, "The Sheet could not be read just now. Nothing was changed; try "
+                                   "again in a minute.")
+            return jsonify(importer.import_leads(records, existing, prefix=prefix,
+                                                 destination_columns=columns))
+
+        @app.post("/api/import/commit")
+        def import_commit():
+            """Append the previewed rows, after re-checking them against the leads that exist now."""
+            body = request.get_json(silent=True) or {}
+            prefix = _prefix(body.get("prefix", "A"))
+            rows = body.get("rows")
+            if prefix is None or not isinstance(rows, list):
+                return refuse(400, "The import to confirm was not understood. Preview it again.")
+            if importer.fingerprint(rows, prefix) != body.get("fingerprint", ""):
+                return refuse(409, "This preview is out of date. Preview the list again before "
+                                   "confirming.")
+            with reading:
+                try:
+                    st = store()
+                    existing = st.leads()
+                except Exception:
+                    log.exception("the Sheet could not be read for an import commit")
+                    return refuse(502, "The Sheet could not be read just now. Nothing was changed; "
+                                       "try again in a minute.")
+                to_append, already = importer.prepare_commit(rows, existing, prefix=prefix)
+                if not to_append:
+                    # A second confirm, or rows added meanwhile: nothing to add, and not an error.
+                    return jsonify(written=0, already_present=len(already), lead_ids=[])
+                try:
+                    st.append_leads(prefix, to_append)
+                except Exception:
+                    log.exception("an import append is uncertain")
+                    return refuse(502, "The import may or may not have been saved - the outcome is "
+                                       "uncertain. Reload the leads to check before confirming again; "
+                                       "rows already saved will not be added twice.")
+            log.info("import: %s rows into %s by %s", len(to_append), prefix, g.email)
+            return jsonify(written=len(to_append), already_present=len(already),
+                           lead_ids=[row["Lead ID"] for row in to_append])
 
     return app
 

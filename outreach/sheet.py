@@ -338,6 +338,15 @@ class Store:
         self._append(SUPPRESSION_TAB, SUPPRESSION_HEADER,
                      [[suppression.cell(e, h) for h in header] for e in entries])
 
+    def lead_columns(self, prefix):
+        """The header of the lead tab for `prefix` (e.g. "A"), so an import can show which fields the
+        destination can store before anything is written."""
+        name = next((tab for tab, pref in LEAD_TABS.items() if pref == str(prefix).strip().upper()),
+                    None)
+        if name is None:
+            raise RuntimeError(f"{prefix} is not a lead tab prefix")
+        return list(next(tab.header for tab in self.tabs if tab.name == name))
+
     def append_leads(self, prefix, rows):
         """Append new lead rows to the tab for `prefix` (e.g. "A"), in that tab's own column order.
 

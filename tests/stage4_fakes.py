@@ -200,8 +200,11 @@ class MemoryStore:
     """The Sheet as `outreach.sheet.Store` presents it, held in memory."""
 
     def __init__(self, rows, events=(), suppression=(), runs=(), drafts=(), research=(),
-                 suppression_values=None):
+                 suppression_values=None, lead_columns=None):
         self.rows = {row["Lead ID"]: dict(row) for row in rows}
+        # The destination tab's header an import maps onto; a real tab has founder + system columns.
+        self.lead_header = list(lead_columns) if lead_columns else [
+            "Lead ID", "Company", "Decision maker", "BEST EMAIL", "Website", "Phone"]
         self.event_rows = [dict(e) for e in events]
         self.values = suppression_values
         if suppression is None or hasattr(suppression, "reason"):
@@ -237,11 +240,17 @@ class MemoryStore:
     def leads(self):
         return {lead_id: dict(row) for lead_id, row in self.rows.items()}
 
+    def lead_columns(self, prefix):
+        return list(self.lead_header)
+
     def append_leads(self, prefix, rows):
-        """Mirror of Store.append_leads: add new lead rows, keyed by Lead ID, never rewriting one."""
+        """Mirror of Store.append_leads: add new lead rows in the tab's column order, keyed by Lead ID,
+        never rewriting one. A field with no destination column is dropped from the stored row (the
+        preview is what warns the user about it), exactly as the real Store does."""
         self.lead_appends.append((prefix, [dict(r) for r in rows]))
         for row in rows:
-            self.rows[row["Lead ID"]] = dict(row)
+            stored = {h: row.get(h, "") for h in self.lead_header}
+            self.rows[row["Lead ID"]] = stored
 
     def events(self):
         return [dict(e) for e in self.event_rows]

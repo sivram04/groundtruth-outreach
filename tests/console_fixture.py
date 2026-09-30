@@ -199,6 +199,7 @@ def snapshot():
                                runs(), settings=SETTINGS, now=NOW, handbook_doc_id=HANDBOOK,
                                draft_rows=draft_rows())
     data["signed_in_as"] = "admin@lakshyaa.ai"
+    data["import_enabled"] = False  # the static demo has no server to import through
     return data
 
 

@@ -34,6 +34,21 @@ afterEach(() => {
   window.location.hash = "";
 });
 
+describe("lead import", () => {
+  it("shows the Import nav and page only when the server enables it", async () => {
+    // default demo: import is off, so there is no Import nav and the route is not found
+    await open("#/import");
+    expect(screen.queryByRole("link", { name: "Import" })).toBeNull();
+    expect(screen.getByText("There is no such page.")).toBeTruthy();
+    cleanup();
+
+    const withImport = () => Promise.resolve({ ...structuredClone(data), import_enabled: true });
+    await open("#/import", withImport);
+    expect(screen.getByRole("link", { name: "Import" }).getAttribute("href")).toBe("#/import");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Import leads");
+  });
+});
+
 describe("the dashboard", () => {
   it("puts what needs the founder first, in order, each with a way into Gmail", async () => {
     await open("#/");

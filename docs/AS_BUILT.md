@@ -1372,6 +1372,49 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-30 (MVP: lead import as a usable workflow — upload → preview → confirm → persist → reload)**
+  — completes the import milestone through the real routes and the real pages, over synthetic storage.
+  Corrected `docs/MVP_DELIVERY.md` first: a **local** parsing library (Excel/PDF/DOCX) is not a
+  third-party *service* and does not conflict with "only Google" — only Apollo/Hunter (external network
+  services) do; Google Sheets stays the MVP persistence (no database, no multi-tenant redesign); email
+  and phone are **independent** capabilities (a lead with both stays callable; `channel` is only the
+  primary suggested action); and a `MemoryStore` test does not verify the production adapter.
+
+  - **Parsing (`outreach/importer.py`):** CSV/TSV and **XLSX** (`openpyxl`, added to `requirements.txt`;
+    a local library, no network). `import_leads(records, existing, prefix=, destination_columns=)`
+    maps the founder's headers onto the **destination tab's own columns**, preserves every contact
+    field, and reports any field the destination has **no column for** as *unstorable* (shown, never
+    silently dropped). Keeps email-only, phone-only, company-only and email+phone; dedupes (email, else
+    phone, else company+website); assigns Lead IDs; returns a `fingerprint`. `prepare_commit` re-checks
+    against current leads and assigns Lead IDs at commit time.
+  - **Routes (`outreach/console.py`, `enable_import`, OFF by default and in `_deployed()`):**
+    `POST /api/import/preview` (multipart file or JSON text; size- and row-capped; unreadable/oversized
+    refused clearly) and `POST /api/import/commit` (revalidates the fingerprint, appends only new rows,
+    reports an uncertain append honestly and is safe to retry because a second commit re-dedupes). The
+    snapshot carries `import_enabled` so the nav shows Import only when it is on.
+  - **Adapter (`outreach/sheet.py`):** `Store.append_leads` (append-only, tab's column order, drops a
+    field with no column) and `Store.lead_columns`. Tested against a **simulated Sheets API**
+    (`tests/test_sheet_append.py`: column ordering, a missing destination column, a failing append,
+    unknown prefix, existing rows untouched) — the `MemoryStore` tests are kept too.
+  - **Pages (`console/`):** an **Import** page (`pages/Import.tsx`) — paste or choose a file, pick the
+    tab, preview (accepted with channel + mapped fields, unstorable fields, duplicates, skipped),
+    confirm **once**, then a result with a link to the leads; nav gated by `import_enabled`;
+    `api.ts` `importPreview`/`importCommit`/`ImportError`; router `import` route.
+
+  **Verified in containers, no network.** Python **868 passed** (`tests/test_importer.py`,
+  `tests/test_sheet_append.py`, `tests/test_console_import.py` — preview/commit, revalidation, a stale
+  fingerprint (409), a second confirm (idempotent, `written: 0`), an uncertain append (502), invalid
+  and oversized files, import-off-by-default (404), still needs sign-in). Frontend **68 passed**,
+  typecheck and build clean. **Browser-verified through the actual local API** (not a static demo):
+  `tools/local_import_console.py` runs the real Flask with `enable_import=True`, a stub sign-in and a
+  synthetic in-memory `Store`; in the browser, a pasted mixed list previewed as "3 to add · 1 already
+  present · 0 skipped · 1 field cannot be stored" (Location flagged, the duplicate matched to A-0001),
+  confirmed once ("Imported 3 leads (A-0002, A-0003, A-0004)"), and after reload the Leads page showed
+  A-0003 as a Call and A-0004 as No-contact with their next actions. Synthetic data only; **no live
+  Sheet write, no provisioning, deploy, schedule or send**; review/signing/suppression and the
+  read-only default all intact. Remaining MVP work is in `docs/MVP_DELIVERY.md`; the overall MVP is not
+  complete.
+
 - **2026-09-30 (MVP: lead channels + correct next action, and an import core)** — first slice of the
   outreach MVP plan (`docs/MVP_DELIVERY.md`, new: capability status, the exact rule conflicts, and
   milestones with acceptance criteria). Advances the priority journey's tail — **show the correct next

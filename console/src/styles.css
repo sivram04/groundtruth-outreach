@@ -1758,3 +1758,12 @@ dl.facts dd {
     border-left: 0;
   }
 }
+
+/* Import page */
+.import-text { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 0.9rem; padding: 0.6rem; border: 1px solid var(--line, #d8dee4); border-radius: 8px; resize: vertical; }
+.import-controls { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin-top: 0.75rem; }
+.file-choose { display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer; font-size: 0.85rem; color: var(--muted, #57606a); }
+.file-choose input[type=file] { display: none; }
+.field { display: inline-block; margin-right: 0.6rem; white-space: nowrap; }
+.unstorable { color: #9a6700; }
+.block { display: block; margin-bottom: 0.35rem; }

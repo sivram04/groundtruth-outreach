@@ -1,4 +1,4 @@
-import type { Snapshot } from "./types";
+import type { ImportPreview, ImportResult, Snapshot } from "./types";
 
 export const EXPECTED_VERSION = 2;
 
@@ -211,6 +211,85 @@ export async function recordReview(
     throw new LoadError("The console could not be reached. Check the connection and try again.");
   }
   return reviewResponse(response);
+}
+
+// --- lead import (flag-gated on the server) ------------------------------------------------
+
+/** Why an import step could not be done. `stale` means the preview no longer matches and must be
+ *  redone; `uncertain` means a commit may or may not have been saved and the leads should be reloaded
+ *  before trying again. */
+export class ImportError extends Error {
+  readonly stale: boolean;
+  readonly uncertain: boolean;
+
+  constructor(message: string, { stale = false, uncertain = false } = {}) {
+    super(message);
+    this.stale = stale;
+    this.uncertain = uncertain;
+  }
+}
+
+async function importBody(response: Response, whatFailed: string): Promise<unknown> {
+  if (response.status === 401) throw new LoadError(SIGN_IN_ENDED, true);
+  const isJson = (response.headers.get("Content-Type") ?? "").includes("application/json");
+  const body: unknown = isJson ? await response.json().catch(() => null) : null;
+  const said = typeof body === "object" && body !== null && "error" in body ? String(body.error) : "";
+  if (response.status === 409) throw new ImportError(said || "The preview is out of date. Preview again.", { stale: true });
+  if (response.status === 502) throw new ImportError(said || "The outcome is uncertain. Reload the leads to check.", { uncertain: true });
+  if (!response.ok || !body || typeof body !== "object") {
+    throw new ImportError(said || (isJson ? `${whatFailed} could not be done.` : SIGN_IN_ENDED));
+  }
+  return body;
+}
+
+/** Preview an import from pasted text or an uploaded file. Nothing is written. */
+export async function importPreview(
+  input: { text?: string; file?: File; prefix: string },
+  fetcher: typeof fetch = fetch,
+): Promise<ImportPreview> {
+  let request: RequestInit;
+  if (input.file) {
+    const form = new FormData();
+    form.append("file", input.file);
+    form.append("prefix", input.prefix);
+    request = { method: "POST", body: form };
+  } else {
+    request = {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: input.text ?? "", prefix: input.prefix }),
+    };
+  }
+  request.headers = { ...(request.headers ?? {}), Accept: "application/json", "X-Requested-With": "XMLHttpRequest" };
+  request.credentials = "same-origin";
+  let response: Response;
+  try {
+    response = await fetcher("/api/import/preview", request);
+  } catch {
+    throw new ImportError("The console could not be reached. Check the connection and try again.");
+  }
+  return (await importBody(response, "The preview")) as ImportPreview;
+}
+
+/** Confirm an import: append the accepted rows. The fingerprint binds them to the preview shown. */
+export async function importCommit(
+  prefix: string,
+  rows: Record<string, string>[],
+  fingerprint: string,
+  fetcher: typeof fetch = fetch,
+): Promise<ImportResult> {
+  let response: Response;
+  try {
+    response = await fetcher("/api/import/commit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      body: JSON.stringify({ prefix, rows, fingerprint }),
+    });
+  } catch {
+    throw new ImportError("The console could not be reached. Check the connection and try again.");
+  }
+  return (await importBody(response, "The import")) as ImportResult;
 }
 
 /** The name of the script this page is running, e.g. "index-a1b2c3.js". The server says which

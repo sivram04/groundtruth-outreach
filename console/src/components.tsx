@@ -24,6 +24,7 @@ export function Layout(props: {
   readAt: string;
   refreshing: boolean;
   draftsWaiting: number;
+  importEnabled?: boolean;
   assistant: ReactNode;
   assistantShown: boolean;
   onAssistant: (shown: boolean) => void;
@@ -31,6 +32,9 @@ export function Layout(props: {
   children: ReactNode;
 }) {
   const active = props.page === "lead" ? "leads" : props.page;
+  const nav: [Page, string, string][] = props.importEnabled
+    ? [...NAV, ["import", "#/import", "Import"]]
+    : NAV;
   return (
     <div className={`shell${props.assistantShown ? " with-assistant" : ""}`}>
       {props.assistantShown && props.assistant}
@@ -52,7 +56,7 @@ export function Layout(props: {
             <PanelLeft size={17} aria-hidden="true" />
           </button>
           <nav aria-label="Pages">
-            {NAV.map(([page, link, label]) => (
+            {nav.map(([page, link, label]) => (
               <a
                 key={page}
                 href={link}

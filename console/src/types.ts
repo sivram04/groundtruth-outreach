@@ -156,4 +156,40 @@ export interface Snapshot {
   signed_in_as: string;
   /** The name of the script the server's own pages use; see api.ts runningBuild. */
   build?: string;
+  /** Whether the lead-import flow is switched on for this server (off by default and in deploy). */
+  import_enabled?: boolean;
+}
+
+/** One accepted lead in an import preview: mapped to the destination's columns, with its channel and
+ *  any fields that have no column to be stored in. */
+export interface ImportAccepted {
+  lead_id: string;
+  channel: string;
+  row: Record<string, string>;
+  unstorable: { field: string; value: string }[];
+}
+
+/** POST /api/import/preview: what would be stored, before anything is written. */
+export interface ImportPreview {
+  prefix: string;
+  destination_columns: string[];
+  accepted: ImportAccepted[];
+  duplicates: { record: Record<string, string>; matched: string; reason: string }[];
+  skipped: { record: Record<string, string>; reason: string }[];
+  unstorable_fields: string[];
+  summary: {
+    accepted: number;
+    duplicates: number;
+    skipped: number;
+    unstorable: number;
+    by_channel: Record<string, number>;
+  };
+  fingerprint: string;
+}
+
+/** POST /api/import/commit: what was written. */
+export interface ImportResult {
+  written: number;
+  already_present: number;
+  lead_ids: string[];
 }

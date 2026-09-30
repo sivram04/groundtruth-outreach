@@ -5,6 +5,7 @@ import { NAME } from "./brand";
 import { Card, Layout, Warnings } from "./components";
 import { Dashboard } from "./pages/Dashboard";
 import { Drafts } from "./pages/Drafts";
+import { Import } from "./pages/Import";
 import { LeadPage } from "./pages/LeadPage";
 import { Leads } from "./pages/Leads";
 import { NotFound } from "./pages/NotFound";
@@ -25,10 +26,11 @@ const TITLES: Record<string, string> = {
   leads: "Leads",
   review: "Review",
   sources: "Sources",
+  import: "Import",
   missing: "Not found",
 };
 
-function page(route: Route, data: Snapshot) {
+function page(route: Route, data: Snapshot, onImported: () => void) {
   switch (route.page) {
     case "dashboard":
       return <Dashboard data={data} />;
@@ -42,6 +44,8 @@ function page(route: Route, data: Snapshot) {
       return <Review leadId={route.id} from={data.approvals?.sender || data.links.gmail_account} />;
     case "sources":
       return <Sources data={data} />;
+    case "import":
+      return data.import_enabled ? <Import onImported={onImported} /> : <NotFound />;
     default:
       return <NotFound />;
   }
@@ -135,6 +139,7 @@ export function App({ load = loadSnapshot, ask }: { load?: () => Promise<Snapsho
       readAt={data?.read_at ?? ""}
       refreshing={loading}
       draftsWaiting={data?.drafts.length ?? 0}
+      importEnabled={data?.import_enabled ?? false}
       assistantShown={assistantShown}
       onAssistant={show}
       assistant={<Assistant companies={companies} ask={ask} onClose={() => show(false)} />}
@@ -160,7 +165,7 @@ export function App({ load = loadSnapshot, ask }: { load?: () => Promise<Snapsho
             </div>
           )}
           <Warnings warnings={data.warnings} />
-          {page(route, data)}
+          {page(route, data, refresh)}
         </>
       ) : error ? (
         <Failed error={error} onRetry={refresh} />
