@@ -271,11 +271,14 @@ export async function importPreview(
   return (await importBody(response, "The preview")) as ImportPreview;
 }
 
-/** Confirm an import: append the accepted rows. The fingerprint binds them to the preview shown. */
+/** Confirm an import: append the accepted rows. The fingerprint binds them to the preview shown; the
+ *  idempotency key makes a retry of the same confirm safe and lets independent instances be resolved to
+ *  a single writer per lead. Reuse the SAME key when retrying the same confirmed import. */
 export async function importCommit(
   prefix: string,
   rows: Record<string, string>[],
   fingerprint: string,
+  idempotencyKey: string,
   fetcher: typeof fetch = fetch,
 ): Promise<ImportResult> {
   let response: Response;
@@ -284,7 +287,7 @@ export async function importCommit(
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
       credentials: "same-origin",
-      body: JSON.stringify({ prefix, rows, fingerprint }),
+      body: JSON.stringify({ prefix, rows, fingerprint, idempotency_key: idempotencyKey }),
     });
   } catch {
     throw new ImportError("The console could not be reached. Check the connection and try again.");

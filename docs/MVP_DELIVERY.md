@@ -91,16 +91,17 @@ each needs a founder decision before the conflicting capability ships.
   email+phone records are all preserved. Only new rows are written; founder data is never overwritten.
   Three acceptance failures found by review (`docs/testing/import-review-2026-09-30.md`) are fixed:
   (1) the preview is bound to the destination **schema** and a changed destination is refused (409),
-  with the adapter refusing field loss rather than dropping; (2) Lead IDs are allocated from the
-  **atomic append's row**, not `max+1`, so concurrent instances cannot collide (regression through two
-  independent Flask apps); (3) invalid contact values are preserved as validation feedback, never
-  discarded. The production `Store.append_leads` adapter is tested against a **simulated Sheets API**
-  (column ordering, a missing destination column, a failing append, row-based ids), and the
-  `MemoryStore` tests are kept. Browser-verified through the actual local API with synthetic storage.
-  **Remaining limits:** cross-instance **dedupe** is best-effort (two processes committing the same
-  lead at once can create two rows with distinct ids — not an id collision); a row-derived id could
-  in principle clash with a sparse legacy id; **no live Sheet write** is verified and `enable_import`
-  is off in deploy.
+  with the adapter refusing field loss rather than dropping; (2) each lead gets a **stable, immutable
+  content-hash Lead ID** assigned before the write and written in a single append (a hex namespace, so
+  no collision with an existing numeric id; no second position-based write, so a sort cannot move an
+  id), retries reconcile by id, and a **claim ledger** (an append-only Sheet tab, earliest claim wins,
+  gated by a required client idempotency key) makes two independent instances write **each lead exactly
+  once**; (3) invalid contact values are preserved as validation feedback, never discarded. The
+  production `Store.append_leads` / `claim_leads` adapters are tested against a **simulated Sheets API**,
+  and the `MemoryStore` tests are kept. Browser sanity-checked through the actual local API with
+  synthetic storage. **Remaining bounded limits:** a claim winner that fails and never retries leaves a
+  lead unwritten until re-imported (bounded fix: a claim TTL + sweep; not built); **no live Sheet
+  write** is verified and `enable_import` is off in deploy.
 - **M3 Call tasks:** a call outcome recorded through a real route saves to the correct lead (incl.
   phone-only), drafts an email only when an address exists, schedules the next call per the playbook,
   and the task stays visible until done/snoozed/cancelled without repeat notifications.

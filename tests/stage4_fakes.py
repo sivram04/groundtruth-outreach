@@ -216,7 +216,7 @@ class MemoryStore:
         self.research_rows = [dict(r) for r in research]
         self.lead_writes, self.columns_added, self.draft_writes = [], [], []
         self.lead_appends = []
-        self._data_rows = len(self.rows)  # how many lead rows exist, for row-based ID allocation
+        self._claims = []  # the import claim ledger: (Lead ID, claim key) in append order
         self.refuse_writes = False
 
     def table(self, name):
@@ -245,25 +245,30 @@ class MemoryStore:
         return list(self.lead_header)
 
     def append_leads(self, prefix, rows):
-        """Mirror of Store.append_leads: allocate Lead IDs from the row position (never a pre-read max),
-        refuse a field the tab has no column for, never rewrite an existing row, and return the new IDs."""
-        prefix = str(prefix).strip().upper()
+        """Mirror of Store.append_leads: each row already carries its Lead ID; write it in one step,
+        refuse a field the tab has no column for, never rewrite an existing row, return the Lead IDs."""
         for row in rows:
+            if not str(row.get("Lead ID", "")).strip():
+                raise RuntimeError("a lead row has no Lead ID")
             lost = sorted(k for k, v in row.items()
-                          if str(v).strip() and k != "Lead ID" and k not in self.lead_header)
+                          if str(v).strip() and k not in self.lead_header)
             if lost:
                 from outreach.sheet import DestinationMismatch
                 raise DestinationMismatch(f"no column for {', '.join(lost)}; nothing was written")
         self.lead_appends.append((prefix, [dict(r) for r in rows]))
-        ids = []
         for row in rows:
-            self._data_rows += 1
-            lead_id = f"{prefix}-{self._data_rows:04d}"
-            ids.append(lead_id)
-            stored = {h: row.get(h, "") for h in self.lead_header}
-            stored["Lead ID"] = lead_id
-            self.rows[lead_id] = stored
-        return ids
+            self.rows[row["Lead ID"]] = {h: row.get(h, "") for h in self.lead_header}
+        return [row["Lead ID"] for row in rows]
+
+    def claim_leads(self, lead_ids, claim_key):
+        """Mirror of Store.claim_leads: append each claim, then the earliest claim per lead wins."""
+        wanted = [lid for lid in dict.fromkeys(lead_ids) if lid]
+        for lid in wanted:
+            self._claims.append((lid, claim_key))
+        earliest = {}
+        for lid, key in self._claims:
+            earliest.setdefault(lid, key)
+        return {lid for lid in wanted if earliest.get(lid) == claim_key}
 
     def events(self):
         return [dict(e) for e in self.event_rows]

@@ -1372,6 +1372,38 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-30 (import: Lead ID allocation + retry mechanism replaced)** — a follow-up review
+  (`docs/testing/import-review-2026-09-30.md`) reproduced three failures of the append-with-blank-id →
+  write-id-by-row allocator: a row-derived id colliding with an existing id; a partial write leaving an
+  invisible row that a retry duplicates; a sort between the two operations overwriting an existing id.
+  The allocator is **removed** and replaced. Destination-schema binding and invalid-contact feedback
+  (previous entry) are kept.
+
+  - **Stable, immutable id assigned before the write, in the row.** `importer.stable_lead_id` derives
+    `{prefix}-{12 hex}` from the lead's identifying content; the preview assigns it and puts it in the
+    row; `Store.append_leads` writes the row - id and all - in a **single append** (no blank-id row, no
+    second position-based write). The hex namespace is disjoint from legacy `{prefix}-NNNN`, so it can
+    never collide with an existing numeric id; a consumer survey confirmed the format works with
+    `tier_of`/`fresh_lead` (prefix before the first `-`), `_lead_order` (safe non-numeric fallback) and
+    `job_check` (numbers only numeric ids). Existing ids and founder data are never touched.
+  - **Retry safety by identity.** `prepare_commit` skips a row already present by id or content; the
+    commit reconciles an uncertain append by re-reading and checking which ids landed - a lost response
+    is not assumed to mean nothing was written. Re-confirming the same import adds nothing.
+  - **Cross-instance duplicate prevention via a claim ledger.** A client idempotency key is required.
+    `Store.claim_leads` appends each intended id to an append-only `Import claims` tab and the earliest
+    claim per lead wins; only the winner writes. Two independent apps submitting the same list write
+    **each lead exactly once**.
+
+  **Verified in containers, no network.** Python **877 passed** (importer stable-id + prepare_commit;
+  sheet-append adapter against a simulated Sheets API — single append, field-loss refusal, no-second-write,
+  claim ledger earliest-wins; console-import routes — collision-with-existing, partial-write reconcile,
+  failed-write safe-retry, retry idempotent, two-app same-list writes-once, stale destination 409, invalid
+  preview, key required). Frontend **68 passed**, typecheck and build clean. Browser sanity-checked through
+  the actual local API (`tools/local_import_console.py`): stable id in the preview → "Imported 2 leads" →
+  reload shows them, existing A-0001 preserved. **Remaining bounded limits** (documented in the review doc):
+  a winner that fails and never retries leaves a lead unwritten until re-imported (bounded fix: claim TTL +
+  sweep; not built); no live Sheet write; `enable_import` off in deploy. No call-task work.
+
 - **2026-09-30 (import: three acceptance failures fixed)** — a review
   (`docs/testing/import-review-2026-09-30.md`) reproduced three import failures against `03a29c7`; all
   are fixed, each with a regression that encodes the counterexample. The import milestone stays open

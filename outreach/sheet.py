@@ -49,6 +49,10 @@ DRAFTS_TAB = "Drafts"
 DRAFTS_HEADER = ["Lead ID", "Email", "To", "Company", "Subject", "Body", "Opening quote",
                  "Quote page", "Status", "Why", "Approval hash", "Handbook hash", "Written",
                  "Prepared at (UTC)"]
+# Lead import's claim ledger: one append per lead a commit intends to write, so two independent
+# instances importing the same lead can be resolved to a single writer (the earliest claim wins).
+CLAIMS_TAB = "Import claims"
+CLAIMS_HEADER = ["Lead ID", "Claim key", "Claimed at (UTC)"]
 
 
 _SHEETS = None
@@ -83,15 +87,6 @@ def col_letter(index):
 class DestinationMismatch(RuntimeError):
     """A write cannot go ahead because the tab's columns are not what the caller expected (a field
     would be lost). Nothing was written; the caller should re-read the columns and try again."""
-
-
-def _range_start_row(updated_range):
-    """The first sheet row number in an A1 range like "'Tab'!A5:F7" (here 5), or None."""
-    if "!" not in str(updated_range):
-        return None
-    cell = updated_range.split("!", 1)[1].split(":", 1)[0]
-    digits = "".join(ch for ch in cell if ch.isdigit())
-    return int(digits) if digits else None
 
 
 class Tab:
@@ -362,51 +357,61 @@ class Store:
         return list(next(tab.header for tab in self.tabs if tab.name == name))
 
     def append_leads(self, prefix, rows):
-        """Append new lead rows to the tab for `prefix` (e.g. "A") and return their assigned Lead IDs.
+        """Append new lead rows to the tab for `prefix` (e.g. "A") and return their Lead IDs.
 
-        New rows only: this never rewrites or reorders an existing row, and it only fills columns the
-        tab already has. **It refuses (DestinationMismatch) rather than silently drop** a field the tab
-        has no column for, so a schema that changed after a preview cannot lose data.
-
-        **Lead IDs are allocated from the atomic append itself**, not from a pre-read maximum: the
-        append reports the exact rows it wrote (`updatedRange`), and the ID is derived from each row's
-        own sheet position. Two application instances (or processes) appending at once are serialized by
-        the Sheets append and land on different rows, so they can never be given the same Lead ID.
-        Existing IDs are never touched. Returns the list of new Lead IDs, in row order."""
+        Each row must already carry an immutable **Lead ID** (assigned before the write, by the import
+        preview). The row - Lead ID and all - is written in a **single append**, so there is no
+        half-written row and no second, position-based write that a sort could send to the wrong lead.
+        New rows only: existing rows are never rewritten or reordered. It refuses (`DestinationMismatch`)
+        rather than silently drop a field the tab has no column for. Returns the Lead IDs, in row order."""
         if not rows:
             return []
         name = next((tab for tab, pref in LEAD_TABS.items() if pref == str(prefix).strip().upper()),
                     None)
         if name is None:
             raise RuntimeError(f"{prefix} is not a lead tab prefix")
-        prefix = str(prefix).strip().upper()
         header = next(tab.header for tab in self.tabs if tab.name == name)
         if "Lead ID" not in header:
-            raise RuntimeError(f"{name} has no Lead ID column; lead IDs cannot be assigned")
+            raise RuntimeError(f"{name} has no Lead ID column; leads cannot be written")
         for row in rows:
-            lost = sorted(k for k, v in row.items()
-                          if str(v).strip() and k != "Lead ID" and k not in header)
+            if not str(row.get("Lead ID", "")).strip():
+                raise RuntimeError("a lead row has no Lead ID; import must assign one before writing")
+            lost = sorted(k for k, v in row.items() if str(v).strip() and k not in header)
             if lost:
                 raise DestinationMismatch(
                     f"{name} has no column for {', '.join(lost)}; nothing was written. "
                     f"Preview the list again against the current columns.")
-        # Append with the Lead ID cell blank; a row with no Lead ID is invisible to readers until its
-        # ID is set below, so a half-written row is never treated as a lead.
-        values = [[("" if h == "Lead ID" else row.get(h, "")) for h in header] for row in rows]
-        result = self.api.values().append(
+        self.api.values().append(
             spreadsheetId=SHEET_ID, range=f"'{name}'!A{HEADER_ROW}", valueInputOption="RAW",
-            insertDataOption="INSERT_ROWS", body={"values": values}).execute()
-        start = _range_start_row((result.get("updates") or {}).get("updatedRange", ""))
-        if start is None:
-            raise RuntimeError("the append did not report where the rows landed; lead IDs were not "
-                               "assigned")
-        lead_col = col_letter(header.index("Lead ID"))
-        ids = [f"{prefix}-{start + offset - HEADER_ROW:04d}" for offset in range(len(rows))]
-        self.api.values().batchUpdate(spreadsheetId=SHEET_ID, body={
-            "valueInputOption": "RAW",
-            "data": [{"range": f"'{name}'!{lead_col}{start + offset}", "values": [[ids[offset]]]}
-                     for offset in range(len(rows))]}).execute()
-        return ids
+            insertDataOption="INSERT_ROWS",
+            body={"values": [[row.get(h, "") for h in header] for row in rows]}).execute()
+        return [row["Lead ID"] for row in rows]
+
+    def claim_leads(self, lead_ids, claim_key):
+        """Claim the right to write each of `lead_ids` for this commit, and return the subset won.
+
+        Cross-instance duplicate prevention without a database: each intended Lead ID is appended to the
+        append-only claims ledger with the commit's own `claim_key`, then the whole ledger is read and,
+        for each lead, the **earliest** claim (lowest row) wins. Two independent instances importing the
+        same lead append claims in serialized, contiguous blocks, so exactly one of them is earliest and
+        writes it; the other is not won and does not. A retry of the SAME commit reuses its `claim_key`,
+        so its own earlier claim is the earliest and it wins again (and reconciles by Lead ID). Raises if
+        the ledger cannot be read (fail-closed: better to refuse than risk a duplicate)."""
+        wanted = [lid for lid in dict.fromkeys(lead_ids) if lid]
+        if not wanted:
+            return set()
+        now = now_utc()
+        self._append(CLAIMS_TAB, CLAIMS_HEADER, [[lid, claim_key, now] for lid in wanted])
+        table = self.table(CLAIMS_TAB)
+        if table is None:
+            raise RuntimeError("the import claims ledger could not be read; nothing was written")
+        _, rows = table
+        earliest = {}
+        for row in rows:
+            lid = row.get("Lead ID", "")
+            if lid and lid not in earliest:
+                earliest[lid] = row.get("Claim key", "")
+        return {lid for lid in wanted if earliest.get(lid) == claim_key}
 
     def write_leads(self, updates, columns):
         """updates: {Lead ID: {system column: value}}. Returns (written, skipped reasons)."""

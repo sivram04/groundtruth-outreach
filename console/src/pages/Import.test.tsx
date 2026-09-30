@@ -56,7 +56,7 @@ describe("the import page", () => {
     const { onImported } = await previewed(commit);
     fireEvent.click(screen.getByRole("button", { name: /Import 3 leads/ }));
     await screen.findByText(/Imported 3 leads \(A-0002, A-0003, A-0004\)/);
-    expect(commit).toHaveBeenCalledWith("A", PREVIEW.accepted.map((a) => a.row), "fp123");
+    expect(commit).toHaveBeenCalledWith("A", PREVIEW.accepted.map((a) => a.row), "fp123", expect.any(String));
     expect(onImported).toHaveBeenCalledTimes(1);
     // the confirm control is gone: it cannot be pressed twice
     expect(screen.queryByRole("button", { name: /Import 3 leads/ })).toBeNull();

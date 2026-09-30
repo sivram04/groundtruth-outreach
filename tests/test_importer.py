@@ -9,6 +9,7 @@ Store.append_leads adapter is tested in `test_sheet_append.py`.
 """
 
 import io
+import re
 
 import openpyxl
 
@@ -58,20 +59,34 @@ def test_records_from_file_reads_csv_tsv_and_xlsx_and_refuses_other_types():
         assert "unsupported file type" in str(exc)
 
 
-def test_import_keeps_all_four_kinds_and_dedupes_and_numbers():
+def test_import_keeps_all_four_kinds_and_dedupes():
     result = importer.import_leads(importer.records_from_csv(CSV), existing(), prefix="A",
                                    destination_columns=FULL)
-    accepted = {item["lead_id"]: item for item in result["accepted"]}
-    assert list(accepted) == ["A-0002", "A-0003", "A-0004"]  # provisional numbering, for display
-    assert accepted["A-0002"]["channel"] == channels.EMAIL
-    assert accepted["A-0003"]["channel"] == channels.CALL   # phone-only kept
-    assert accepted["A-0003"]["row"]["Phone"] == "(614) 555-0142"
-    assert accepted["A-0004"]["channel"] == channels.COMPANY_ONLY  # company-only kept
-    assert accepted["A-0002"]["row"]["Location"] == "Columbus OH"  # a supplied field preserved
+    by_company = {item["row"]["Company"]: item for item in result["accepted"]}
+    assert set(by_company) == {"Bluebird Electric", "Redwood Plumbing", "Cedar Roofing"}
+    assert by_company["Bluebird Electric"]["channel"] == channels.EMAIL
+    assert by_company["Redwood Plumbing"]["channel"] == channels.CALL   # phone-only kept
+    assert by_company["Redwood Plumbing"]["row"]["Phone"] == "(614) 555-0142"
+    assert by_company["Cedar Roofing"]["channel"] == channels.COMPANY_ONLY  # company-only kept
+    assert by_company["Bluebird Electric"]["row"]["Location"] == "Columbus OH"  # supplied field preserved
+    # every accepted row carries a stable, immutable id in the row itself (assigned before any write)
+    for item in result["accepted"]:
+        assert item["lead_id"] == item["row"]["Lead ID"]
+        prefix, _, token = item["lead_id"].partition("-")
+        assert prefix == "A" and token and not token.isdigit()  # a hex namespace, not legacy A-000N
     assert [d["matched"] for d in result["duplicates"]] == ["A-0001"]
     assert result["skipped"] and "no company, email or phone" in result["skipped"][0]["reason"]
     assert result["summary"] == {"accepted": 3, "duplicates": 1, "skipped": 1, "unstorable": 0,
                                  "invalid": 0, "by_channel": {"EMAIL": 1, "CALL": 1, "COMPANY_ONLY": 1}}
+
+
+def test_the_stable_id_is_deterministic_and_cannot_collide_with_a_legacy_numeric_id():
+    key = importer._dedupe_key({"email": "pat@acme.test", "phone": "", "company": "Acme", "website": ""})
+    once = importer.stable_lead_id("A", key)
+    assert once == importer.stable_lead_id("A", key)  # same lead -> same id, always
+    # distinct namespace from A-0001..A-9999, so it can never equal an existing numeric id
+    assert re.match(r"^A-[0-9a-f]{12}$", once) and not once.split("-", 1)[1].isdigit()
+    assert importer.stable_lead_id("B", key) != once  # prefix is part of the identity
 
 
 def test_invalid_contact_values_are_preserved_in_the_feedback_not_discarded():
@@ -81,7 +96,8 @@ def test_invalid_contact_values_are_preserved_in_the_feedback_not_discarded():
                                    {}, destination_columns=importer.CANONICAL)
     item = result["accepted"][0]
     assert item["channel"] == channels.COMPANY_ONLY
-    assert item["row"] == {"Company": "Synthetic"}  # nothing invalid was stored
+    assert item["row"]["Company"] == "Synthetic"  # the company is kept
+    assert "BEST EMAIL" not in item["row"] and "Phone" not in item["row"]  # nothing invalid was stored
     assert {"field": "email", "value": "wrong-address", "reason": "not a valid email address"} in item["invalid"]
     assert any(i["field"] == "phone" and i["value"] == "123" for i in item["invalid"])
     assert result["summary"]["invalid"] == 2
@@ -130,18 +146,19 @@ def test_the_fingerprint_binds_the_rows_and_the_destination_schema():
     assert importer.fingerprint(rows, "A", without_phone) != a["fingerprint"]
 
 
-def test_prepare_commit_skips_rows_now_present_and_assigns_no_ids():
+def test_prepare_commit_skips_rows_now_present_by_id_or_content_and_keeps_the_ids():
     result = importer.import_leads(importer.records_from_csv(CSV), existing(), prefix="A",
                                    destination_columns=FULL)
     rows = [item["row"] for item in result["accepted"]]
     to_append, already = importer.prepare_commit(rows, existing(), prefix="A")
-    assert len(to_append) == 3 and all("Lead ID" not in r for r in to_append)  # ids assigned at append
+    assert len(to_append) == 3 and all(r.get("Lead ID") for r in to_append)  # ids carried through
     assert already == []
-    # if a row is now already present (a second commit, or added meanwhile), it is skipped
-    now = {**existing(), "A-0002": {"Company": "Bluebird Electric",
-                                    "BEST EMAIL": "dana@bluebird-electric.test"}}
+    # a retry where one row's id is now present (same identity) is skipped - no duplicate
+    bluebird = next(r for r in rows if r["Company"] == "Bluebird Electric")
+    now = {**existing(), bluebird["Lead ID"]: {"Company": "Bluebird Electric",
+                                               "BEST EMAIL": "dana@bluebird-electric.test"}}
     to_append2, already2 = importer.prepare_commit(rows, now, prefix="A")
-    assert len(to_append2) == 2 and [a["matched"] for a in already2] == ["A-0002"]
+    assert len(to_append2) == 2 and [a["matched"] for a in already2] == [bluebird["Lead ID"]]
 
 
 def test_the_imported_leads_flow_through_the_store_and_show_the_correct_next_action():
@@ -150,14 +167,15 @@ def test_the_imported_leads_flow_through_the_store_and_show_the_correct_next_act
                                     destination_columns=store.lead_columns("A"))
     rows = [item["row"] for item in preview["accepted"]]
     to_append, _ = importer.prepare_commit(rows, store.leads(), prefix="A")
-    ids = store.append_leads("A", to_append)  # the store allocates the ids
-    assert ids == ["A-0002", "A-0003", "A-0004"]
+    ids = store.append_leads("A", to_append)  # the rows already carry their ids
+    assert ids == [r["Lead ID"] for r in to_append] and all(not i.split("-", 1)[1].isdigit() for i in ids)
 
     data = console_model.snapshot(store, settings={}, now=at("2026-09-28 09:00"))
     views = {v["id"]: v for v in data["leads"]}
-    assert views["A-0003"]["channel"] == "CALL" and views["A-0003"]["phone"] == "(614) 555-0142"
-    assert views["A-0003"]["action"].startswith("Call Redwood Plumbing")
-    assert views["A-0004"]["channel"] == "COMPANY_ONLY"
-    assert views["A-0004"]["action"].startswith("Find a contact for Cedar Roofing")
+    redwood = next(v for v in views.values() if v["company"] == "Redwood Plumbing")
+    cedar = next(v for v in views.values() if v["company"] == "Cedar Roofing")
+    assert redwood["channel"] == "CALL" and redwood["phone"] == "(614) 555-0142"
+    assert redwood["action"].startswith("Call Redwood Plumbing")
+    assert cedar["channel"] == "COMPANY_ONLY" and cedar["action"].startswith("Find a contact for Cedar Roofing")
     assert views["A-0001"]["channel"] == "EMAIL"  # existing email lead untouched
     assert store.lead_writes == [] and [p for p, _ in store.lead_appends] == ["A"]

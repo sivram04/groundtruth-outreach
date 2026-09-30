@@ -322,13 +322,16 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
 
         @app.post("/api/import/commit")
         def import_commit():
-            """Append the previewed rows, after re-checking them against the leads AND the columns that
-            exist now: a changed destination or an edited preview is refused, and Lead IDs are assigned
-            by the append itself so concurrent commits cannot collide."""
+            """Append the previewed rows once. The Lead IDs were assigned at preview and travel in the
+            rows; the destination schema is revalidated (a changed destination is refused); an
+            idempotency key makes a retry safe and lets two independent instances claim each lead so
+            only one writes it; an uncertain append is reconciled by Lead ID, never assumed to have
+            written nothing."""
             body = request.get_json(silent=True) or {}
             prefix = _prefix(body.get("prefix", "A"))
             rows = body.get("rows")
-            if prefix is None or not isinstance(rows, list):
+            claim_key = str(body.get("idempotency_key", "")).strip()
+            if prefix is None or not isinstance(rows, list) or not claim_key:
                 return refuse(400, "The import to confirm was not understood. Preview it again.")
             with reading:
                 try:
@@ -347,20 +350,50 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                 to_append, already = importer.prepare_commit(rows, existing, prefix=prefix)
                 if not to_append:
                     # A second confirm, or rows added meanwhile: nothing to add, and not an error.
-                    return jsonify(written=0, already_present=len(already), lead_ids=[])
+                    return jsonify(written=0, already_present=len(already), claimed_elsewhere=0,
+                                   lead_ids=[])
+                # Claim each intended lead; only the leads this commit wins are written here. A retry
+                # (same key) wins its own earlier claims; a competing instance (different key) wins none.
                 try:
-                    lead_ids = st.append_leads(prefix, to_append)
+                    won = st.claim_leads([row["Lead ID"] for row in to_append], claim_key)
+                except Exception:
+                    log.exception("an import could not be coordinated")
+                    return refuse(502, "The import could not be coordinated just now. Nothing was "
+                                       "changed; try again in a minute.")
+                mine = [row for row in to_append if row["Lead ID"] in won]
+                claimed_elsewhere = len(to_append) - len(mine)
+                if not mine:
+                    return jsonify(written=0, already_present=len(already),
+                                   claimed_elsewhere=claimed_elsewhere, lead_ids=[])
+                try:
+                    lead_ids = st.append_leads(prefix, mine)
                 except DestinationMismatch as exc:
                     log.info("import refused: %s", exc)
                     return refuse(409, "The destination's columns changed since the preview, so a "
                                        "field would be lost. Nothing was written; preview again.")
                 except Exception:
-                    log.exception("an import append is uncertain")
-                    return refuse(502, "The import may or may not have been saved - the outcome is "
-                                       "uncertain. Reload the leads to check before confirming again; "
-                                       "rows already saved will not be added twice.")
-            log.info("import: %s rows into %s by %s", len(to_append), prefix, g.email)
-            return jsonify(written=len(lead_ids), already_present=len(already), lead_ids=lead_ids)
+                    log.exception("an import append is uncertain; reconciling by lead id")
+                    # Do not assume nothing was written: re-read and see which lead ids landed.
+                    try:
+                        landed = store().leads()
+                    except Exception:
+                        landed = {}
+                    present = [row["Lead ID"] for row in mine if row["Lead ID"] in landed]
+                    if present and len(present) == len(mine):
+                        log.info("import reconciled: the write had landed despite the error")
+                        return jsonify(written=len(present), already_present=len(already),
+                                       claimed_elsewhere=claimed_elsewhere, lead_ids=present,
+                                       reconciled=True)
+                    if not present:
+                        return refuse(502, "The import could not be saved. Nothing was written; "
+                                           "confirming again is safe - already-saved rows are not "
+                                           "added twice.")
+                    return refuse(502, "The import may or may not be fully saved - the outcome is "
+                                       "uncertain. Reload the leads to check; confirming again is "
+                                       "safe, as already-saved rows are not added twice.")
+            log.info("import: %s rows into %s by %s", len(lead_ids), prefix, g.email)
+            return jsonify(written=len(lead_ids), already_present=len(already),
+                           claimed_elsewhere=claimed_elsewhere, lead_ids=lead_ids)
 
     return app
 

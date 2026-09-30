@@ -70,6 +70,27 @@
 
 ## [DISCOVERIES]
 
+- 2026-09-30 [FIX] Replaced the import Lead ID allocation + retry mechanism (the follow-up
+  below). IDs are now a stable, immutable content hash (`importer.stable_lead_id`, `{prefix}-{12hex}`,
+  disjoint from legacy `{prefix}-NNNN`) assigned before the write and written in ONE append, so
+  (1) no collision with an existing numeric id and (3) no second position-based write for a sort to
+  corrupt. (2) Retries reconcile by id (an uncertain append is re-read, not assumed failed) and
+  `prepare_commit` skips ids/content already present. Cross-instance duplicates are prevented by a
+  claim ledger (`Store.claim_leads`, append-only `Import claims` tab, earliest claim wins, gated by a
+  required client idempotency key): two independent apps importing the same list write each lead once.
+  Consumer survey done before choosing the format (tier_of/fresh_lead/_lead_order/job_check all OK).
+  Containers: Python 877, frontend 68, tsc+build; browser sanity check via the real local API.
+  Bounded limit: a claim winner that fails and never retries needs a re-import (TTL+sweep proposed,
+  not built); no live Sheet write; enable_import off in deploy. Evidence: the Remediation-of-the-
+  allocator-follow-up section in docs/testing/import-review-2026-09-30.md.
+
+- 2026-09-30T21:07Z [TOOL] Independent follow-up of `e1f8eb2`: 35 targeted import
+  tests pass in a network-disabled container. New allocator probes reproduce an
+  existing A-0002 collision, invisible ID-less row after the second write fails plus
+  duplicate on retry, and overwrite of an existing ID when rows sort between append
+  and ID write. Supersedes the collision-free claim below; import remains incomplete.
+  Evidence appended to docs/testing/import-review-2026-09-30.md. No product edits/live writes.
+
 - 2026-09-30 [FIX] Remediated the three import acceptance failures from the review
   below. (1) `importer.fingerprint` now covers the destination columns and the commit
   route revalidates them → a changed destination is refused (409); `Store.append_leads`

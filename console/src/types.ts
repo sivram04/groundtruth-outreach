@@ -196,4 +196,8 @@ export interface ImportResult {
   written: number;
   already_present: number;
   lead_ids: string[];
+  /** Leads a concurrent submission claimed and is writing (so this commit did not). */
+  claimed_elsewhere?: number;
+  /** True when an uncertain append was reconciled to "the rows had in fact landed". */
+  reconciled?: boolean;
 }

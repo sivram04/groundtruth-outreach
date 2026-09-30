@@ -48,7 +48,6 @@ _ROLES = (
 _ROLE_HEADERS = {h for _, headers, _ in _ROLES for h in headers}
 
 _DIGITS = re.compile(r"\d")
-_LEAD_ID = re.compile(r"^([A-Za-z]+)-(\d+)$")
 
 
 def records_from_csv(text):
@@ -197,13 +196,14 @@ def _existing_keys(existing_leads):
     return seen
 
 
-def _next_number(existing_leads, prefix):
-    highest = 0
-    for lead_id in existing_leads or {}:
-        match = _LEAD_ID.match(str(lead_id))
-        if match and match.group(1).upper() == prefix.upper():
-            highest = max(highest, int(match.group(2)))
-    return highest + 1
+def stable_lead_id(prefix, dedupe_key):
+    """A stable, immutable Lead ID for a lead, derived from its identifying content (not its position
+    and not a shared counter). `{prefix}-{12 hex}` - a namespace distinct from the legacy `{prefix}-NNNN`
+    IDs, so it can never collide with an existing numeric ID, and the same lead always gets the same ID
+    (so a retry or a second instance computes the same identity). The prefix keeps tab routing and tier
+    logic working (both read the text before the first '-')."""
+    token = hashlib.sha256(f"{str(prefix).upper()}|{dedupe_key!r}".encode("utf-8")).hexdigest()[:12]
+    return f"{str(prefix).upper()}-{token}"
 
 
 def fingerprint(rows, prefix, columns):
@@ -240,7 +240,6 @@ def import_leads(records, existing_leads, *, prefix="A", destination_columns=Non
     prefix = str(prefix).strip().upper() or "A"
     destination_columns = list(destination_columns) if destination_columns else list(CANONICAL)
     seen = _existing_keys(existing_leads)
-    number = _next_number(existing_leads, prefix)
 
     accepted, skipped, duplicates, unstorable_fields = [], [], [], []
     invalid_count = 0
@@ -259,10 +258,11 @@ def import_leads(records, existing_leads, *, prefix="A", destination_columns=Non
                                "reason": f"already present as {seen[key]}"})
             continue
         row, unstorable = map_record(record, destination_columns)
-        # A PROVISIONAL Lead ID for display only; the real ID is assigned atomically at append time
-        # (Store.append_leads), so two instances importing at once cannot land on the same ID.
-        lead_id = f"{prefix}-{number:04d}"
-        number += 1
+        # The Lead ID is a stable, immutable identity derived from the lead's content, assigned here
+        # (before any write) and carried in the row, so the append writes it in one operation and a
+        # retry or a second instance computes the same identity.
+        lead_id = stable_lead_id(prefix, key)
+        row["Lead ID"] = lead_id
         seen[key] = lead_id
         # The channel is what the lead actually has (from the uploaded record), not what the
         # destination can store: a phone-only lead whose phone has no column is still a CALL lead in
@@ -295,17 +295,22 @@ def import_leads(records, existing_leads, *, prefix="A", destination_columns=Non
 def prepare_commit(rows, existing_leads, *, prefix="A"):
     """(rows to append, rows now already present) from the accepted rows.
 
-    Re-checks against the leads that exist NOW, so a row added since the preview is not added again.
-    It does NOT assign Lead IDs: `Store.append_leads` allocates them from the atomic append, so two
-    application instances committing at once cannot land on the same ID."""
+    Re-checks against the leads that exist NOW: a row whose immutable Lead ID is already present (a
+    retry of the same import) or whose content matches an existing lead is not added again. The rows
+    keep the Lead IDs the preview assigned; `Store.append_leads` writes them as-is."""
     seen = _existing_keys(existing_leads)
+    existing_ids = set(existing_leads or {})
     to_append, already_present = [], []
     for row in rows or []:
+        lead_id = str(row.get("Lead ID", "")).strip()
         key = _dedupe_key(_semantic(row))
+        if lead_id and lead_id in existing_ids:
+            already_present.append({"row": row, "matched": lead_id})  # same identity already stored
+            continue
         if key is not None and key in seen:
-            already_present.append({"row": row, "matched": seen[key]})
+            already_present.append({"row": row, "matched": seen[key]})  # same content already stored
             continue
         if key is not None:
-            seen[key] = "(pending)"  # a second identical row in the same batch is caught too
+            seen[key] = lead_id or "(pending)"  # a second identical row in the same batch is caught too
         to_append.append(dict(row))
     return to_append, already_present

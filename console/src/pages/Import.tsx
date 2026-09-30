@@ -28,6 +28,9 @@ export function Import({
   const [file, setFile] = useState<File | null>(null);
   const [prefix, setPrefix] = useState("A");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
+  // One idempotency key per previewed list, reused if the confirm is retried, so a retry is safe and
+  // two independent submissions of the same list are resolved to a single writer per lead.
+  const [key, setKey] = useState("");
   const [result, setResult] = useState<{ written: number; already: number; ids: string[] } | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -38,6 +41,14 @@ export function Import({
     setError("");
   }
 
+  function newKey() {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      return `k-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+  }
+
   function onPreview() {
     if (busy) return;
     setBusy(true);
@@ -45,6 +56,7 @@ export function Import({
     doPreview(file ? { file, prefix } : { text, prefix }).then(
       (p) => {
         setPreview(p);
+        setKey(newKey());  // a fresh idempotency key for this previewed list
         setBusy(false);
       },
       (e: unknown) => {
@@ -59,7 +71,7 @@ export function Import({
     setBusy(true);
     setError("");
     const rows = preview.accepted.map((item) => item.row);
-    doCommit(preview.prefix, rows, preview.fingerprint).then(
+    doCommit(preview.prefix, rows, preview.fingerprint, key).then(
       (r) => {
         setResult({ written: r.written, already: r.already_present, ids: r.lead_ids });
         setBusy(false);
@@ -162,9 +174,11 @@ export function Import({
                       <td className="small">{item.lead_id}</td>
                       <td><Status tone={CHANNEL_TONE[item.channel] ?? "gray"}>{CHANNEL_LABEL[item.channel] ?? item.channel}</Status></td>
                       <td className="small">
-                        {Object.entries(item.row).map(([column, value]) => (
-                          <span key={column} className="field"><strong>{column}:</strong> {value} </span>
-                        ))}
+                        {Object.entries(item.row)
+                          .filter(([column]) => column !== "Lead ID")  // shown in its own column already
+                          .map(([column, value]) => (
+                            <span key={column} className="field"><strong>{column}:</strong> {value} </span>
+                          ))}
                         {item.unstorable.length > 0 && (
                           <span className="unstorable">
                             {" "}⚠ not stored: {item.unstorable.map((u) => `${u.field} (${u.value})`).join(", ")}
