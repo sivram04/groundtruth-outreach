@@ -15,6 +15,7 @@ from outreach.sheet import CLAIMS_TAB, DestinationMismatch, Store
 
 A_HEADER = ["Company", "Decision maker", "BEST EMAIL", "Website", "Phone", "Lead ID"]
 B_HEADER = ["Company", "Decision maker", "BEST EMAIL", "Website", "Lead ID"]
+LEAD_TAB_NAMES = {"A_Contact_Now", "B_Contact_Now"}
 _CELL = re.compile(r"^([A-Za-z]+)(\d+)$")
 
 
@@ -43,10 +44,16 @@ class FakeValues:
             return _Exec({"values": [list(r) for r in self.parent.tabs.get(name, [])]})
 
     def append(self, spreadsheetId, range, valueInputOption, insertDataOption, body):
+        name = range.split("!")[0].strip().strip("'")
+        # Pause the FIRST lead-tab append (a writer that is past its presence recheck but has not yet
+        # committed), OUTSIDE the lock so other requests can proceed. Used to reproduce an overlap.
+        if name in LEAD_TAB_NAMES and self.parent.pause_leads and not self.parent._paused_once:
+            self.parent._paused_once = True
+            self.parent.reached.set()
+            self.parent.release.wait(timeout=10)
         with self.parent.lock:
             if self.parent.fail_append:
                 raise RuntimeError("the append call failed")
-            name = range.split("!")[0].strip().strip("'")
             grid = self.parent.tabs.setdefault(name, [])
             for row in body["values"]:
                 grid.append(list(row))
@@ -83,6 +90,11 @@ class FakeSheets:
         }
         self.appends = []
         self.fail_append = False
+        # An optional one-shot pause of the first lead append, to reproduce an overlapping write.
+        self.pause_leads = False
+        self._paused_once = False
+        self.reached = threading.Event()
+        self.release = threading.Event()
 
     def get(self, spreadsheetId):
         with self.lock:

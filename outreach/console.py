@@ -335,7 +335,6 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             prefix = _prefix(body.get("prefix", "A"))
             rows = body.get("rows")
             op_key = str(body.get("idempotency_key", "")).strip()
-            resume = bool(body.get("resume"))
             attempt = uuid.uuid4().hex  # this execution; distinct even when op_key is reused
             if prefix is None or not isinstance(rows, list) or not op_key:
                 return refuse(400, "The import to confirm was not understood. Preview it again.")
@@ -364,13 +363,16 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                 won = [row for row in to_append if claim.get(row["Lead ID"]) == "won"]
                 mine_prior = [row for row in to_append if claim.get(row["Lead ID"]) == "mine_prior"]
                 other = [row for row in to_append if claim.get(row["Lead ID"]) == "other"]
-                # A resume of the SAME operation deliberately takes over its own earlier attempt's
-                # leads; append re-checks presence first, so a late earlier attempt adds no duplicate.
-                writable = won + (mine_prior if resume else [])
-                pending = [] if resume else mine_prior
+                # EXCLUSIVE WRITE OWNERSHIP: only the earliest claim (this attempt won it) may write.
+                # A resume does NOT take over its own earlier attempt's leads - append-only Sheets cannot
+                # prove that earlier attempt has stopped, so a takeover could double-write it. Resume is
+                # read-only reconciliation: `mine_prior` leads are reported pending, never written.
+                writable = won
+                pending = mine_prior
                 if not writable:
-                    # Nothing this attempt may write: pending (our own earlier attempt owns them -
-                    # resume to finish) or blocked (another operation owns them). Never "done".
+                    # Nothing this attempt may write: pending (our own earlier attempt owns them and
+                    # has not finished - check again once it does) or blocked (another operation owns
+                    # them). Never "done", and never written by this request.
                     outcome = "pending" if pending else ("blocked" if other else "done")
                     return jsonify(outcome=outcome, written=0, already_present=len(already),
                                    claimed_elsewhere=len(other), pending=len(pending), lead_ids=[])

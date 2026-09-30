@@ -56,7 +56,7 @@ describe("the import page", () => {
     const { onImported } = await previewed(commit);
     fireEvent.click(screen.getByRole("button", { name: /Import 3 leads/ }));
     await screen.findByText(/Imported 3 leads \(A-0002, A-0003, A-0004\)/);
-    expect(commit).toHaveBeenCalledWith("A", PREVIEW.accepted.map((a) => a.row), "fp123", expect.any(String), { resume: false });
+    expect(commit).toHaveBeenCalledWith("A", PREVIEW.accepted.map((a) => a.row), "fp123", expect.any(String));
     expect(onImported).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: /Import 3 leads/ })).toBeNull();  // cannot press twice
     expect(screen.getByRole("link", { name: /View the leads/ }).getAttribute("href")).toBe("#/leads");
@@ -86,7 +86,7 @@ describe("the import page", () => {
     expect(commit.mock.calls[1]![3]).toBe(commit.mock.calls[0]![3]);  // same idempotency key
   });
 
-  it("shows a pending outcome as not completed, and resumes with the same key and resume=true", async () => {
+  it("shows a pending outcome as not completed, and re-checks read-only with the same key", async () => {
     const commit = vi.fn()
       .mockResolvedValueOnce({ outcome: "pending", written: 0, already_present: 0, pending: 3, lead_ids: [] })
       .mockResolvedValueOnce({ outcome: "done", written: 3, already_present: 0, lead_ids: ["A-0002", "A-0003", "A-0004"] });
@@ -94,11 +94,10 @@ describe("the import page", () => {
     fireEvent.click(screen.getByRole("button", { name: /Import 3 leads/ }));
     await screen.findByText(/Not finished yet/);
     expect(screen.getByText(/earlier attempt of this import/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Resume this import/ }));
+    expect(screen.getByText(/cannot be completed automatically yet/)).toBeTruthy();  // honest limitation
+    fireEvent.click(screen.getByRole("button", { name: /Check again/ }));
     await screen.findByText(/Imported 3 leads/);
-    expect(commit.mock.calls[0]![4]).toEqual({ resume: false });
-    expect(commit.mock.calls[1]![4]).toEqual({ resume: true });
-    expect(commit.mock.calls[1]![3]).toBe(commit.mock.calls[0]![3]);  // same key
+    expect(commit.mock.calls[1]![3]).toBe(commit.mock.calls[0]![3]);  // same key; read-only re-check
   });
 
   it("shows a blocked outcome (claimed by another submission), never as completed", async () => {

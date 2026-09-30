@@ -70,6 +70,28 @@
 
 ## [DISCOVERIES]
 
+- 2026-09-30 [FIX] Import overlapping original-vs-resume duplicate (the review below). Removed
+  write-taking Resume: `commit` now sets `writable = won`, so ONLY the request holding the earliest
+  ledger claim ever writes a lead; a resume/any other request does read-only reconciliation and reports
+  `mine_prior` as `pending`, never writing it. Ownership guarantee: append-only ledger + read-after-own-
+  append => exactly one `won` per lead => two requests can never both append it (no pause/overlap breaks
+  it). Repro-then-fixed: `test_overlapping_original_and_resume_write_the_lead_once` (pause original's lead
+  append after its recheck via a one-shot FakeSheets pause outside the lock; run a same-op resume through
+  a second app; release; ONE row). Plus `test_simultaneous_resumes_of_an_abandoned_claim_write_nothing`.
+  Frontend shows done/pending("cannot be completed automatically yet" + read-only Check again)/blocked/
+  uncertain. Containers: Python 883, frontend 70, tsc+build. REMAINING (documented, unmet): automatic
+  recovery of a lead whose owner failed BEFORE writing is not available (resume => pending; different key
+  => blocked); safe takeover needs a fenced lease/CAS (separate architecture decision, not made). Milestone
+  record corrected: concurrency/dup-prevention PASSES locally; abandoned-pre-write-claim recovery INCOMPLETE
+  by design; deploy-off != concurrency-safe; live verification a separate milestone (enable_import off).
+
+- 2026-09-30T22:05Z [TOOL] ce9cc4b targeted importer/routes/adapter tests: 42 passed.
+  Deterministic two-app probe pauses original append after its fresh read, starts same-op
+  resume, then releases both: both done/written=1, two physical copies of one ID.
+  Resume makes mine_prior writable without stopping the old attempt; sequential late
+  completion test misses overlap. Supersedes local acceptance/unreachable-race claims
+  below. Evidence appended to docs/testing/import-review-2026-09-30.md. No product edits/live writes.
+
 - 2026-09-30 [FIX] Import coordination/recovery (the review below). Claims ledger now carries
   Op key + Attempt; `claim_leads` classifies won/mine_prior/other and a request writes only "won",
   so two attempts sharing an idempotency key resolve to ONE writer (fix 1). An append exception whose

@@ -294,9 +294,10 @@ class _FailFirstAppend(MemoryStore):
         return super().append_leads(prefix, rows)
 
 
-def test_an_abandoned_claim_is_recovered_by_a_same_key_resume(built):
-    # The reviewer's failure 3: an owner wins the claim, dies before appending, and a re-import is
-    # permanently blocked. A resume of the SAME operation reconciles and completes it.
+def test_an_abandoned_pre_write_claim_stays_pending_and_is_not_auto_recovered(built):
+    # An owner wins the claim then dies before appending. Resume is READ-ONLY: it never takes over and
+    # writes the lead (a takeover could double-write it against a still-active owner). It reports
+    # pending. Recovering such a lead is a documented, unmet requirement.
     store = _FailFirstAppend([{"Lead ID": "A-0001", "Company": "Example Electric",
                                "BEST EMAIL": "sam@example-electric.test"}], lead_columns=COLUMNS)
     client = make(built, store)
@@ -305,30 +306,90 @@ def test_an_abandoned_claim_is_recovered_by_a_same_key_resume(built):
     first = commit(client, body, key="op-1")  # claims, then the append fails before writing
     assert first.status_code == 502 and "Nothing was written" in first.get_json()["error"]
 
-    # a fresh-key re-import (a different operation) is correctly told the lead is claimed elsewhere,
-    # and this is NOT presented as a completed import
+    # a fresh-key re-import (a different operation) is told the lead is claimed elsewhere - not "done"
     other = commit(client, body, key="op-2").get_json()
     assert other["written"] == 0 and other["claimed_elsewhere"] == 1 and other["outcome"] == "blocked"
 
-    # resuming the SAME operation recovers it (its own earlier attempt's claim, now taken over)
+    # resuming the SAME operation reconciles read-only: the lead is still owned and unwritten -> pending,
+    # nothing written, no physical row (the honest, documented limitation - not a false completion)
     resumed = commit(client, body, key="op-1", resume=True).get_json()
-    assert resumed["outcome"] == "done" and resumed["written"] == 1
-    assert sum(1 for r in store.rows.values() if r["Company"] == "Bluebird") == 1
+    assert resumed["outcome"] == "pending" and resumed["written"] == 0
+    assert not any(r["Company"] == "Bluebird" for r in store.rows.values())
 
 
-def test_a_late_completion_after_a_resume_adds_no_duplicate(built):
-    # After a resume writes the lead, the original (late) owner's append must not add a second copy.
-    store = _FailFirstAppend([{"Lead ID": "A-0001", "Company": "Example Electric",
-                               "BEST EMAIL": "sam@example-electric.test"}], lead_columns=COLUMNS)
-    client = make(built, store)
-    body = preview(client, "Company,Email\nBluebird,dana@bluebird.test").get_json()
-    commit(client, body, key="op-1")                     # owner claims, fails before writing
-    resumed = commit(client, body, key="op-1", resume=True).get_json()
-    assert resumed["written"] == 1
-    lead_row = next(r for r in body["accepted"])["row"]
-    # the original owner "wakes up" and appends late: the pre-append recheck skips it
-    assert store.append_leads("A", [lead_row]) == []
-    assert sum(1 for r in store.rows.values() if r["Company"] == "Bluebird") == 1
+def test_overlapping_original_and_resume_write_the_lead_once(built):
+    # The reviewer's overlap: pause the original's lead append AFTER its presence recheck, run a resume
+    # of the same operation through an independent app to its append, then release the original. Only the
+    # earliest claim (the original) may write, so exactly ONE physical row exists.
+    from outreach.sheet import Store
+    from test_sheet_append import A_HEADER, FakeSheets
+
+    api = FakeSheets()
+    api.pause_leads = True  # pause the first lead append, past its recheck, before it commits
+
+    def app():
+        return console.create_app(
+            verifier=console_auth.Verifier(AUDIENCE, ALLOWED, fetch=Keys()),
+            store=lambda: Store(api=api), settings=lambda: {}, clock=lambda: fx.NOW,
+            static_dir=built, enable_import=True).test_client()
+
+    body = importer.import_leads(importer.records_from_csv("Company,Email\nSynthetic slow,slow@example.test"),
+                                 Store(api=api).leads(), prefix="A", destination_columns=A_HEADER)
+    lead_id = body["accepted"][0]["row"]["Lead ID"]
+    payload = {"prefix": "A", "rows": [i["row"] for i in body["accepted"]],
+               "fingerprint": body["fingerprint"], "idempotency_key": "op-1"}
+    results = {}
+
+    def original():
+        results["A"] = app().post("/api/import/commit", json=payload, headers=signed()).get_json()
+
+    thread = threading.Thread(target=original)
+    thread.start()
+    assert api.reached.wait(5)  # the original is paused inside its lead append, past its recheck
+    results["B"] = app().post("/api/import/commit", json={**payload, "resume": True},
+                              headers=signed()).get_json()  # resume, same op, while the original is in flight
+    api.release.set()
+    thread.join()
+
+    assert api.count("A_Contact_Now", lead_id) == 1  # exactly one physical row, not two
+    assert results["A"]["written"] == 1 and results["A"]["outcome"] == "done"
+    assert results["B"]["written"] == 0 and results["B"]["outcome"] == "pending"  # resume wrote nothing
+
+
+def test_simultaneous_resumes_of_an_abandoned_claim_write_nothing(built):
+    from outreach.sheet import Store
+    from test_sheet_append import A_HEADER, FakeSheets
+
+    api = FakeSheets()
+    body = importer.import_leads(importer.records_from_csv("Company,Email\nGamma,g@gamma.test"),
+                                 Store(api=api).leads(), prefix="A", destination_columns=A_HEADER)
+    lead_id = body["accepted"][0]["row"]["Lead ID"]
+    Store(api=api).claim_leads([lead_id], "op-1", "attempt-original")  # the original claimed, then died
+    payload = {"prefix": "A", "rows": [i["row"] for i in body["accepted"]],
+               "fingerprint": body["fingerprint"], "idempotency_key": "op-1", "resume": True}
+    results, lock = [], threading.Lock()
+
+    def app():
+        return console.create_app(
+            verifier=console_auth.Verifier(AUDIENCE, ALLOWED, fetch=Keys()),
+            store=lambda: Store(api=api), settings=lambda: {}, clock=lambda: fx.NOW,
+            static_dir=built, enable_import=True).test_client()
+
+    def submit():
+        got = app().post("/api/import/commit", json=payload, headers=signed()).get_json()
+        with lock:
+            results.append(got)
+
+    threads = [threading.Thread(target=submit) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # two resumes, both reconciling read-only: neither writes, so no duplicate (and the lead is not
+    # recovered - the documented limitation)
+    assert api.count("A_Contact_Now", lead_id) == 0
+    assert all(r["written"] == 0 and r["outcome"] == "pending" for r in results)
 
 
 def test_import_still_needs_a_signed_in_session(built):

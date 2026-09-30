@@ -258,3 +258,83 @@ concurrency writing each lead once; unknown-not-nothing reconciliation; durable 
 honest states) **pass in containers**. **Live verification remains separate and NOT done**: a real
 Google Sheet write, a real signed-in browser, and behaviour under real Google API latency/errors are
 unverified, and `enable_import` stays off in deployment.
+
+## Independent overlapping-resume review of ce9cc4b
+
+2026-09-30T22:05Z [TOOL] Codex ran the importer, console-import and sheet-append
+tests against the current source in a network-disabled Python container, repository
+mounted read-only: **42 passed in 2.15s**. No full-suite or browser rerun.
+
+One deterministic real-route/real-adapter probe contradicts the local acceptance
+and unreachable-race claims above. Use two independent Flask application instances,
+one shared FakeSheets, and the same operation key. Pause the first request inside
+the simulated lead append, AFTER `Store.append_leads` has completed its fresh read.
+Send `resume=true` through the second instance. Pause that lead append too, then
+release both with a two-party barrier. Claims appends are not paused.
+
+Actual result: **both HTTP 200, outcome=done, written=1, same Lead ID; two physical
+copies**. Synthetic lead: Synthetic slow, slow@example.test. The test injects a slow
+in-flight write; no microsecond timing is required. No live storage or credentials.
+
+Cause: resume unconditionally makes `mine_prior` writable, despite the previous
+attempt still being active. Both presence checks can observe absence before either
+append commits. A per-app/process lock cannot serialize these independent instances.
+The existing late-completion test performs resume and the old writer sequentially
+using MemoryStore; it does not exercise this overlap.
+
+The explicit unreadable-reconciliation result has a passing targeted regression.
+The remaining local blocker is exclusive write ownership during recovery. Disabling
+import in deployment prevents live exposure; it does not satisfy the local concurrency
+acceptance criterion. Any new decision to restrict the supported execution model or
+leave automatic recovery blocked should be documented explicitly. No product-code
+changes or live operations were made during this review.
+
+## Remediation of the overlapping-resume review (2026-09-30)
+
+**Write-taking Resume is removed.** This supersedes the "durable resume takes over its own
+operation's `mine_prior` leads" behaviour above, which caused the overlap: an original owner and a
+resume could both pass their presence check before either committed its append, and both wrote.
+
+**Exact ownership guarantee now:** for any lead, **only the request whose claim is the earliest in the
+append-only ledger (`won`) ever appends it.** Every other request - a concurrent attempt of the same
+operation, a resume, or a different operation - is `mine_prior` or `other` and does **read-only
+reconciliation only**; it never appends a lead it does not own. Because the ledger is append-only with a
+total order and each request reads it *after* appending its own claim, exactly one request is `won` per
+lead. So two requests can never both append the same lead - no pause, delay or overlap changes this
+(`commit` sets `writable = won`; `mine_prior` is reported `pending`, never written).
+
+Reproduced and fixed (`tests/test_console_import.py`):
+- `test_overlapping_original_and_resume_write_the_lead_once`: the original's lead append is paused
+  **after its presence recheck** (a one-shot pause in the simulated Sheet, outside its lock); a resume
+  of the same operation runs through an independent app to completion while the original is in flight;
+  the original is released. **One physical row.** The resume wrote nothing (`outcome: "pending"`). This
+  fails on `ce9cc4b` (two rows) and passes now.
+- `test_simultaneous_resumes_of_an_abandoned_claim_write_nothing`: two resumes of an operation whose
+  owner claimed then died - neither writes; **no duplicate** (and the lead is not recovered).
+- Kept: same-key and distinct-key concurrency each write a lead once; the unknown-not-nothing
+  reconciliation; destination binding; invalid-contact feedback; single-append identity.
+
+The frontend shows the outcomes through the real parser/component: `done` / `pending` (with an honest
+"cannot be completed automatically yet" note and a read-only **Check again**) / `blocked` / `uncertain`
+(`console/src/pages/Import.test.tsx`). Verified in containers: Python **883 passed**, frontend **70
+passed**, typecheck and build clean.
+
+**Remaining recovery requirement (unmet, stated plainly).** Automatic recovery of a lead whose owning
+request **failed before writing** (an abandoned pre-write claim) is **not available**. A resume reports
+it `pending` and does not write it; a different-key re-import is told `blocked`. Safe automatic takeover
+needs exclusive-ownership coordination stronger than append-only Google Sheets provides (a lease with
+fencing, or compare-and-swap). Adding that is a **separate storage/architecture decision**, not made
+here. Until then, such a lead stays pending and must be completed by the original operation finishing,
+or recovered by a deliberate future mechanism.
+
+### Local import milestone — corrected record
+
+- **Duplicate prevention / concurrency (incl. overlapping original vs resume): PASSES** locally in
+  containers, by the ownership guarantee above.
+- **Automatic recovery of an abandoned pre-write claim: NOT AVAILABLE** (documented requirement above);
+  local recovery is therefore **incomplete** for that case, by an explicit design decision to prefer no
+  duplicate over an unsafe takeover.
+- **Disabling import in deployment prevents live exposure; it does NOT prove concurrency safety** - the
+  concurrency evidence is the container tests over the simulated Sheets API, not the live service.
+- **Live verification remains a separate milestone**: a real Google Sheet write, a signed-in browser,
+  and behaviour under real Google API latency/errors are unverified; `enable_import` stays off in deploy.

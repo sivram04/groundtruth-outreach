@@ -281,7 +281,6 @@ export async function importCommit(
   rows: Record<string, string>[],
   fingerprint: string,
   idempotencyKey: string,
-  options: { resume?: boolean } = {},
   fetcher: typeof fetch = fetch,
 ): Promise<ImportResult> {
   let response: Response;
@@ -290,8 +289,9 @@ export async function importCommit(
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
       credentials: "same-origin",
-      body: JSON.stringify({ prefix, rows, fingerprint, idempotency_key: idempotencyKey,
-                             resume: options.resume === true }),
+      // Re-committing with the same idempotency key is read-only reconciliation: it reports what has
+      // been written; it never takes over and writes a lead another attempt owns.
+      body: JSON.stringify({ prefix, rows, fingerprint, idempotency_key: idempotencyKey }),
     });
   } catch {
     throw new ImportError("The console could not be reached. Check the connection and try again.");

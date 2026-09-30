@@ -1372,6 +1372,36 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-30 (import: write-taking Resume removed; exclusive write ownership)** — a review
+  (`docs/testing/import-review-2026-09-30.md`) reproduced an overlap: an original owner and a resume
+  could both pass their presence check before either committed its append, and both wrote (two rows).
+  Cause: resume made `mine_prior` writable while the previous writer might still be active; another
+  recheck/delay/TTL/process-lock cannot resolve that cross-instance race.
+
+  **Fix:** `commit` sets `writable = won` — **only the request holding the earliest claim ever writes a
+  lead.** A resume (or any other request) does read-only reconciliation and reports `mine_prior` leads
+  as `pending`; it never takes over a write. **Ownership guarantee:** the ledger is append-only with a
+  total order and each request reads it after appending its own claim, so exactly one request is `won`
+  per lead — two requests can never both append it, regardless of pausing or overlap.
+
+  Reproduced-and-fixed regression (`test_overlapping_original_and_resume_write_the_lead_once`): the
+  original's lead append is paused after its recheck (a one-shot pause in the simulated Sheet, outside
+  its lock), a resume runs to completion through an independent app, the original is released — **one
+  physical row** (fails on `ce9cc4b`, passes now). Plus `test_simultaneous_resumes_of_an_abandoned_
+  claim_write_nothing`; the same-key/distinct-key, unknown-not-nothing, destination, invalid and
+  identity regressions are kept. The Import page shows done / pending (honest "cannot be completed
+  automatically yet" + read-only Check again) / blocked / uncertain.
+
+  **Verified in containers, no network.** Python **883 passed**, frontend **70 passed**, typecheck and
+  build clean. **Remaining recovery requirement, stated plainly:** automatic recovery of a lead whose
+  owner failed **before writing** is **not available** — a resume reports it `pending`, a different-key
+  re-import is `blocked`; safe takeover needs coordination stronger than append-only Sheets (a fenced
+  lease / CAS), a separate architecture decision not made here. **Corrected milestone record:**
+  duplicate-prevention/concurrency (incl. overlap) **passes** locally; abandoned-pre-write-claim
+  recovery is **incomplete** by explicit design (no duplicate over unsafe takeover); disabling import in
+  deploy prevents live exposure but does **not** prove concurrency safety; **live verification is a
+  separate milestone** and NOT done (`enable_import` off in deploy). No call-task work.
+
 - **2026-09-30 (import: coordination + recovery fixed; local milestone accepted)** — a review
   (`docs/testing/import-review-2026-09-30.md`) reproduced three remaining failures: two same-key
   concurrent attempts both wrote; a lost response followed by an unreadable reconciliation was reported

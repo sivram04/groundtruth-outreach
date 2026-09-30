@@ -80,12 +80,12 @@ export function Import({
     );
   }
 
-  function submit(resume: boolean) {
+  function submit() {
     if (busy || !preview) return;
     setBusy(true);
     setError("");
     const rows = preview.accepted.map((item) => item.row);
-    doCommit(preview.prefix, rows, preview.fingerprint, key, { resume }).then(
+    doCommit(preview.prefix, rows, preview.fingerprint, key).then(
       (r) => {
         setResult(r);
         setBusy(false);
@@ -108,7 +108,7 @@ export function Import({
       <PageHead title="Import leads" sub="Paste or upload a small list. You will see exactly what would be stored before anything is saved." />
 
       {result ? (
-        <Result result={result} busy={busy} onResume={() => submit(true)} onCheck={() => submit(false)}
+        <Result result={result} busy={busy} onCheck={() => submit()}
                 onAnother={() => { setText(""); setFile(null); reset(); }} />
       ) : (
         <Card title="The list">
@@ -242,7 +242,7 @@ export function Import({
               Only new rows are added to tab {preview.prefix}; your existing rows are never changed.
             </p>
             <div className="email-actions">
-              <button type="button" className="primary" disabled={busy || preview.accepted.length === 0} onClick={() => submit(false)}>
+              <button type="button" className="primary" disabled={busy || preview.accepted.length === 0} onClick={submit}>
                 <Check size={15} aria-hidden="true" /> {busy ? "Importing…" : `Import ${preview.accepted.length} lead${preview.accepted.length === 1 ? "" : "s"}`}
               </button>
               <button type="button" className="secondary" disabled={busy} onClick={reset}>Cancel</button>
@@ -259,13 +259,11 @@ export function Import({
 function Result({
   result,
   busy,
-  onResume,
   onCheck,
   onAnother,
 }: {
   result: ImportResult;
   busy: boolean;
-  onResume: () => void;
   onCheck: () => void;
   onAnother: () => void;
 }) {
@@ -283,11 +281,12 @@ function Result({
         <p>
           {wrote || "Nothing was written yet."} An earlier attempt of this import owns {result.pending ?? 0}{" "}
           lead{(result.pending ?? 0) === 1 ? "" : "s"} and has not finished — it may still be running or it
-          may have stopped. This is <strong>not</strong> a completed import.
+          may have stopped. This is <strong>not</strong> a completed import. Check again once it finishes.
+          If that attempt has stopped without writing, these leads cannot be completed automatically yet.
         </p>
         <div className="email-actions">
-          <button type="button" className="primary" disabled={busy} onClick={onResume}>
-            <RotateCw size={15} aria-hidden="true" /> {busy ? "Resuming…" : "Resume this import"}
+          <button type="button" className="primary" disabled={busy} onClick={onCheck}>
+            <RotateCw size={15} aria-hidden="true" /> {busy ? "Checking…" : "Check again"}
           </button>
           {another}
         </div>

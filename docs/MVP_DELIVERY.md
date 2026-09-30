@@ -94,20 +94,23 @@ each needs a founder decision before the conflicting capability ships.
   with the adapter refusing field loss rather than dropping; (2) each lead gets a **stable, immutable
   content-hash Lead ID** assigned before the write and written in a single append (a hex namespace, so
   no collision with an existing numeric id; no second position-based write, so a sort cannot move an
-  id); (3) invalid contact values are preserved as validation feedback, never discarded. **Coordination
-  and recovery:** the claim ledger separates the **operation** (a durable idempotency key) from each
-  **attempt** (per request), so two attempts of one operation resolve to a single writer; an append
-  whose response is lost and cannot be reconciled is an explicit **uncertain** outcome, never "nothing
-  written"; the commit reports **done / pending / blocked / uncertain** and the UI shows each honestly;
-  a reload resumes the same operation (op key kept per preview), and a pre-append recheck bounds a late
-  straggler. The production `Store.append_leads` / `claim_leads` adapters are tested against a
-  **simulated Sheets API**; the `MemoryStore` tests are kept; browser sanity-checked through the actual
-  local API. **Precise constraint:** Sheets has no atomic compare-and-swap, so **exactly-once is not
-  claimed** — the design gives a single writer per concurrent round and bounds late completion; an
-  abandoned pre-write claim is recovered by resuming the same operation (no TTL takeover, since expiry
-  does not prove the original stopped). **Local acceptance criteria pass; live verification is separate
-  and NOT done** (a real Sheet write / signed-in browser / real API latency), `enable_import` off in
-  deploy.
+  id); (3) invalid contact values are preserved as validation feedback, never discarded. **Coordination:**
+  the claim ledger separates the **operation** (a durable idempotency key) from each **attempt** (per
+  request); for any lead, **only the request holding the earliest claim (`won`) ever writes it** — every
+  other request (a concurrent attempt, a resume, or a different op) does read-only reconciliation and is
+  reported `pending` / `blocked`, never written. This is the ownership guarantee: two requests can never
+  both append the same lead, regardless of pausing/overlap. An append whose response is lost and cannot
+  be reconciled is an explicit **uncertain** outcome, never "nothing written". The commit reports **done
+  / pending / blocked / uncertain** and the UI shows each honestly. The `Store.append_leads` /
+  `claim_leads` adapters are tested against a **simulated Sheets API** (including a reproduced
+  original-vs-resume overlap that now writes the lead once); the `MemoryStore` tests are kept.
+  **Corrected milestone record:** duplicate-prevention/concurrency (incl. overlap) **passes** locally;
+  **automatic recovery of an abandoned pre-write claim is NOT available** (a resume reports it pending;
+  safe takeover needs coordination stronger than append-only Sheets — a fenced lease / CAS — a separate
+  architecture decision), so local recovery is **incomplete** for that case by explicit design (no
+  duplicate over an unsafe takeover). Disabling import in deploy prevents live exposure but does **not**
+  prove concurrency safety. **Live verification is a separate milestone and NOT done** (a real Sheet
+  write / signed-in browser / real API latency), `enable_import` off in deploy.
 - **M3 Call tasks:** a call outcome recorded through a real route saves to the correct lead (incl.
   phone-only), drafts an email only when an address exists, schedules the next call per the playbook,
   and the task stays visible until done/snoozed/cancelled without repeat notifications.
