@@ -8,14 +8,14 @@ const PREVIEW: ImportPreview = {
   prefix: "A",
   destination_columns: ["Lead ID", "Company", "BEST EMAIL", "Phone"],
   accepted: [
-    { lead_id: "A-0002", channel: "EMAIL", row: { Company: "Bluebird Electric", "BEST EMAIL": "dana@bluebird-electric.test" }, unstorable: [] },
-    { lead_id: "A-0003", channel: "CALL", row: { Company: "Redwood Plumbing", Phone: "(614) 555-0142" }, unstorable: [{ field: "Location", value: "Dublin OH" }] },
-    { lead_id: "A-0004", channel: "COMPANY_ONLY", row: { Company: "Cedar Roofing" }, unstorable: [] },
+    { lead_id: "A-0002", channel: "EMAIL", row: { Company: "Bluebird Electric", "BEST EMAIL": "dana@bluebird-electric.test" }, unstorable: [], invalid: [{ field: "phone", value: "12", reason: "not enough digits for a phone number" }] },
+    { lead_id: "A-0003", channel: "CALL", row: { Company: "Redwood Plumbing", Phone: "(614) 555-0142" }, unstorable: [{ field: "Location", value: "Dublin OH" }], invalid: [] },
+    { lead_id: "A-0004", channel: "COMPANY_ONLY", row: { Company: "Cedar Roofing" }, unstorable: [], invalid: [] },
   ],
   duplicates: [{ record: { Company: "Example Electric" }, matched: "A-0001", reason: "already present as A-0001" }],
   skipped: [{ record: {}, reason: "no company, email or phone to import" }],
   unstorable_fields: ["Location"],
-  summary: { accepted: 3, duplicates: 1, skipped: 1, unstorable: 1, by_channel: { EMAIL: 1, CALL: 1, COMPANY_ONLY: 1 } },
+  summary: { accepted: 3, duplicates: 1, skipped: 1, unstorable: 1, invalid: 1, by_channel: { EMAIL: 1, CALL: 1, COMPANY_ONLY: 1 } },
   fingerprint: "fp123",
 };
 
@@ -43,6 +43,8 @@ describe("the import page", () => {
     // a field with no column is shown, not hidden
     expect(screen.getByText(/not stored: Location/)).toBeTruthy();
     expect(screen.getByText(/have no column in tab A/)).toBeTruthy();
+    // an invalid contact value is shown with why, never silently discarded
+    expect(screen.getByText(/cannot use: phone "12" — not enough digits/)).toBeTruthy();
     // duplicates and skipped are visible
     expect(screen.getByText("A-0001")).toBeTruthy();
     expect(screen.getByText(/no company, email or phone/)).toBeTruthy();

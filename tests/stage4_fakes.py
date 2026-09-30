@@ -216,6 +216,7 @@ class MemoryStore:
         self.research_rows = [dict(r) for r in research]
         self.lead_writes, self.columns_added, self.draft_writes = [], [], []
         self.lead_appends = []
+        self._data_rows = len(self.rows)  # how many lead rows exist, for row-based ID allocation
         self.refuse_writes = False
 
     def table(self, name):
@@ -244,13 +245,25 @@ class MemoryStore:
         return list(self.lead_header)
 
     def append_leads(self, prefix, rows):
-        """Mirror of Store.append_leads: add new lead rows in the tab's column order, keyed by Lead ID,
-        never rewriting one. A field with no destination column is dropped from the stored row (the
-        preview is what warns the user about it), exactly as the real Store does."""
-        self.lead_appends.append((prefix, [dict(r) for r in rows]))
+        """Mirror of Store.append_leads: allocate Lead IDs from the row position (never a pre-read max),
+        refuse a field the tab has no column for, never rewrite an existing row, and return the new IDs."""
+        prefix = str(prefix).strip().upper()
         for row in rows:
+            lost = sorted(k for k, v in row.items()
+                          if str(v).strip() and k != "Lead ID" and k not in self.lead_header)
+            if lost:
+                from outreach.sheet import DestinationMismatch
+                raise DestinationMismatch(f"no column for {', '.join(lost)}; nothing was written")
+        self.lead_appends.append((prefix, [dict(r) for r in rows]))
+        ids = []
+        for row in rows:
+            self._data_rows += 1
+            lead_id = f"{prefix}-{self._data_rows:04d}"
+            ids.append(lead_id)
             stored = {h: row.get(h, "") for h in self.lead_header}
-            self.rows[row["Lead ID"]] = stored
+            stored["Lead ID"] = lead_id
+            self.rows[lead_id] = stored
+        return ids
 
     def events(self):
         return [dict(e) for e in self.event_rows]

@@ -11,6 +11,7 @@ Requires the built pages in `console/dist` (a container build) and the test depe
 openpyxl). Not part of the deployed app; it is never imported by the console or the worker.
 """
 
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,7 +40,10 @@ class StubVerifier:
 
 
 def main():
-    store = MemoryStore(SEED, lead_columns=COLUMNS)  # one shared, in-memory Store; appends persist
+    # IMPORT_NO_PHONE=1 drops the Phone column, to demonstrate a destination that changed after a
+    # preview: a commit built against a Phone column is then refused (stale) instead of losing data.
+    columns = [c for c in COLUMNS if c != "Phone"] if os.environ.get("IMPORT_NO_PHONE") == "1" else COLUMNS
+    store = MemoryStore(SEED, lead_columns=columns)  # one shared, in-memory Store; appends persist
     app = console.create_app(
         verifier=StubVerifier(),
         store=lambda: store,

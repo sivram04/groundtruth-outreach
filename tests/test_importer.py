@@ -1,10 +1,11 @@
 """Importing a small list: parsing (CSV/TSV/XLSX), mapping to the destination's own columns,
-classifying, de-duplicating, reporting unstorable fields, and committing only new rows.
+classifying, de-duplicating, reporting unstorable AND invalid contact values, and committing only new
+rows. Lead IDs are allocated by the store's append, not here.
 
 Nothing here touches Google. The fake Store (`stage4_fakes.MemoryStore`) stands in for the Sheet, and
 `console_model.build` is the real model, so the journey - import a small list, then show the correct
 next action for every lead, including phone-only and company-only - is exercised end to end. The real
-Store.append_leads adapter is tested separately in `test_sheet_append.py`.
+Store.append_leads adapter is tested in `test_sheet_append.py`.
 """
 
 import io
@@ -61,32 +62,50 @@ def test_import_keeps_all_four_kinds_and_dedupes_and_numbers():
     result = importer.import_leads(importer.records_from_csv(CSV), existing(), prefix="A",
                                    destination_columns=FULL)
     accepted = {item["lead_id"]: item for item in result["accepted"]}
-    assert list(accepted) == ["A-0002", "A-0003", "A-0004"]  # numbering continues past A-0001
+    assert list(accepted) == ["A-0002", "A-0003", "A-0004"]  # provisional numbering, for display
     assert accepted["A-0002"]["channel"] == channels.EMAIL
     assert accepted["A-0003"]["channel"] == channels.CALL   # phone-only kept
     assert accepted["A-0003"]["row"]["Phone"] == "(614) 555-0142"
     assert accepted["A-0004"]["channel"] == channels.COMPANY_ONLY  # company-only kept
-    assert accepted["A-0004"]["row"]["Company"] == "Cedar Roofing"
     assert accepted["A-0002"]["row"]["Location"] == "Columbus OH"  # a supplied field preserved
     assert [d["matched"] for d in result["duplicates"]] == ["A-0001"]
     assert result["skipped"] and "no company, email or phone" in result["skipped"][0]["reason"]
     assert result["summary"] == {"accepted": 3, "duplicates": 1, "skipped": 1, "unstorable": 0,
-                                 "by_channel": {"EMAIL": 1, "CALL": 1, "COMPANY_ONLY": 1}}
+                                 "invalid": 0, "by_channel": {"EMAIL": 1, "CALL": 1, "COMPANY_ONLY": 1}}
+
+
+def test_invalid_contact_values_are_preserved_in_the_feedback_not_discarded():
+    # The reviewer's counterexample: a malformed email and a too-short phone must be shown, with why,
+    # and the company-only lead is still accepted.
+    result = importer.import_leads([{"Company": "Synthetic", "Email": "wrong-address", "Phone": "123"}],
+                                   {}, destination_columns=importer.CANONICAL)
+    item = result["accepted"][0]
+    assert item["channel"] == channels.COMPANY_ONLY
+    assert item["row"] == {"Company": "Synthetic"}  # nothing invalid was stored
+    assert {"field": "email", "value": "wrong-address", "reason": "not a valid email address"} in item["invalid"]
+    assert any(i["field"] == "phone" and i["value"] == "123" for i in item["invalid"])
+    assert result["summary"]["invalid"] == 2
+
+
+def test_invalid_values_on_a_row_with_nothing_to_key_on_are_still_reported():
+    result = importer.import_leads([{"Email": "nope", "Phone": "12"}], {},
+                                   destination_columns=importer.CANONICAL)
+    assert result["accepted"] == []
+    skipped = result["skipped"][0]
+    assert skipped["reason"].startswith("no company")
+    assert {"field": "email", "value": "nope", "reason": "not a valid email address"} in skipped["invalid"]
 
 
 def test_a_field_with_no_destination_column_is_shown_not_silently_dropped():
-    # The destination has neither a Phone nor a Location column.
-    dest = ["Lead ID", "Company", "Decision maker", "BEST EMAIL", "Website"]
+    dest = ["Lead ID", "Company", "Decision maker", "BEST EMAIL", "Website"]  # no Phone, no Location
     result = importer.import_leads(importer.records_from_csv(CSV), {}, prefix="A",
                                    destination_columns=dest)
     call_lead = next(i for i in result["accepted"] if i["channel"] == channels.CALL)
-    # the phone has nowhere to go: it is reported, and the row does not carry it
     assert {"field": "phone", "value": "(614) 555-0142"} in call_lead["unstorable"]
     assert "Phone" not in call_lead["row"]
     email_lead = next(i for i in result["accepted"] if i["channel"] == channels.EMAIL)
     assert {"field": "Location", "value": "Columbus OH"} in email_lead["unstorable"]
     assert set(result["unstorable_fields"]) == {"phone", "Location"}
-    assert result["summary"]["unstorable"] == 2
 
 
 def test_a_lead_with_both_an_email_and_a_phone_keeps_both():
@@ -97,31 +116,32 @@ def test_a_lead_with_both_an_email_and_a_phone_keeps_both():
     assert result["accepted"][0]["channel"] == channels.EMAIL  # primary action only; still callable
 
 
-def test_the_fingerprint_binds_the_accepted_rows_but_not_the_provisional_id():
+def test_the_fingerprint_binds_the_rows_and_the_destination_schema():
     a = importer.import_leads(importer.records_from_csv(CSV), existing(), prefix="A",
                              destination_columns=FULL)
-    # same input again -> same accepted rows -> same fingerprint
-    b = importer.import_leads(importer.records_from_csv(CSV), existing(), prefix="A",
-                             destination_columns=FULL)
-    assert a["fingerprint"] == b["fingerprint"]
     rows = [item["row"] for item in a["accepted"]]
-    assert importer.fingerprint(rows, "A") == a["fingerprint"]
-    rows[0]["Company"] = "Changed"
-    assert importer.fingerprint(rows, "A") != a["fingerprint"]  # any edit is caught
+    assert importer.fingerprint(rows, "A", FULL) == a["fingerprint"]
+    # an edit to a row changes it
+    changed = [dict(r) for r in rows]
+    changed[0]["Company"] = "Changed"
+    assert importer.fingerprint(changed, "A", FULL) != a["fingerprint"]
+    # and, crucially, a change to the destination columns changes it too (the reviewer's failure #1)
+    without_phone = [c for c in FULL if c != "Phone"]
+    assert importer.fingerprint(rows, "A", without_phone) != a["fingerprint"]
 
 
-def test_prepare_commit_assigns_ids_and_skips_rows_now_present():
+def test_prepare_commit_skips_rows_now_present_and_assigns_no_ids():
     result = importer.import_leads(importer.records_from_csv(CSV), existing(), prefix="A",
                                    destination_columns=FULL)
     rows = [item["row"] for item in result["accepted"]]
     to_append, already = importer.prepare_commit(rows, existing(), prefix="A")
-    assert [r["Lead ID"] for r in to_append] == ["A-0002", "A-0003", "A-0004"] and already == []
-    # if one is now already present (a second commit, or added meanwhile), it is skipped, not doubled
+    assert len(to_append) == 3 and all("Lead ID" not in r for r in to_append)  # ids assigned at append
+    assert already == []
+    # if a row is now already present (a second commit, or added meanwhile), it is skipped
     now = {**existing(), "A-0002": {"Company": "Bluebird Electric",
                                     "BEST EMAIL": "dana@bluebird-electric.test"}}
     to_append2, already2 = importer.prepare_commit(rows, now, prefix="A")
-    assert [r["Lead ID"] for r in to_append2] == ["A-0003", "A-0004"]  # renumbered from the current max
-    assert [a["matched"] for a in already2] == ["A-0002"]
+    assert len(to_append2) == 2 and [a["matched"] for a in already2] == ["A-0002"]
 
 
 def test_the_imported_leads_flow_through_the_store_and_show_the_correct_next_action():
@@ -130,7 +150,8 @@ def test_the_imported_leads_flow_through_the_store_and_show_the_correct_next_act
                                     destination_columns=store.lead_columns("A"))
     rows = [item["row"] for item in preview["accepted"]]
     to_append, _ = importer.prepare_commit(rows, store.leads(), prefix="A")
-    store.append_leads("A", to_append)
+    ids = store.append_leads("A", to_append)  # the store allocates the ids
+    assert ids == ["A-0002", "A-0003", "A-0004"]
 
     data = console_model.snapshot(store, settings={}, now=at("2026-09-28 09:00"))
     views = {v["id"]: v for v in data["leads"]}

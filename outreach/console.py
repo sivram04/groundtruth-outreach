@@ -29,7 +29,7 @@ from pathlib import Path
 from flask import Flask, g, jsonify, request, send_from_directory
 
 from outreach import assistant, console_auth, console_model, importer, job_draft, review
-from outreach.sheet import LEAD_TABS, Store
+from outreach.sheet import LEAD_TABS, DestinationMismatch, Store
 
 DEFAULT_STATIC = Path(__file__).resolve().parent.parent / "console" / "dist"
 SECURITY_HEADERS = {
@@ -322,37 +322,45 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
 
         @app.post("/api/import/commit")
         def import_commit():
-            """Append the previewed rows, after re-checking them against the leads that exist now."""
+            """Append the previewed rows, after re-checking them against the leads AND the columns that
+            exist now: a changed destination or an edited preview is refused, and Lead IDs are assigned
+            by the append itself so concurrent commits cannot collide."""
             body = request.get_json(silent=True) or {}
             prefix = _prefix(body.get("prefix", "A"))
             rows = body.get("rows")
             if prefix is None or not isinstance(rows, list):
                 return refuse(400, "The import to confirm was not understood. Preview it again.")
-            if importer.fingerprint(rows, prefix) != body.get("fingerprint", ""):
-                return refuse(409, "This preview is out of date. Preview the list again before "
-                                   "confirming.")
             with reading:
                 try:
                     st = store()
                     existing = st.leads()
+                    columns = st.lead_columns(prefix)
                 except Exception:
                     log.exception("the Sheet could not be read for an import commit")
                     return refuse(502, "The Sheet could not be read just now. Nothing was changed; "
                                        "try again in a minute.")
+                # The fingerprint binds the rows, the prefix AND the destination's columns, so an edited
+                # preview or a tab whose columns changed since the preview is refused before any write.
+                if importer.fingerprint(rows, prefix, columns) != body.get("fingerprint", ""):
+                    return refuse(409, "This preview is out of date (the rows or the destination's "
+                                       "columns changed). Preview the list again before confirming.")
                 to_append, already = importer.prepare_commit(rows, existing, prefix=prefix)
                 if not to_append:
                     # A second confirm, or rows added meanwhile: nothing to add, and not an error.
                     return jsonify(written=0, already_present=len(already), lead_ids=[])
                 try:
-                    st.append_leads(prefix, to_append)
+                    lead_ids = st.append_leads(prefix, to_append)
+                except DestinationMismatch as exc:
+                    log.info("import refused: %s", exc)
+                    return refuse(409, "The destination's columns changed since the preview, so a "
+                                       "field would be lost. Nothing was written; preview again.")
                 except Exception:
                     log.exception("an import append is uncertain")
                     return refuse(502, "The import may or may not have been saved - the outcome is "
                                        "uncertain. Reload the leads to check before confirming again; "
                                        "rows already saved will not be added twice.")
             log.info("import: %s rows into %s by %s", len(to_append), prefix, g.email)
-            return jsonify(written=len(to_append), already_present=len(already),
-                           lead_ids=[row["Lead ID"] for row in to_append])
+            return jsonify(written=len(lead_ids), already_present=len(already), lead_ids=lead_ids)
 
     return app
 

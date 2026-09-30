@@ -85,14 +85,22 @@ each needs a founder decision before the conflicting capability ships.
   build (browser).
 - **M2 Import as a usable workflow (this change):** through the real routes and the Import page, a
   founder uploads a small mixed list (CSV/TSV/XLSX), sees the fields as they will be stored, the
-  validation results, the duplicates and the skipped/unstorable fields, confirms **once**, and after
-  reload sees the imported leads with their correct next actions — **without a developer script**.
-  Company-only, phone-only, email-only and email+phone records are all preserved. Only new rows are
-  written; founder data is never overwritten. The preview is revalidated at commit (no duplicate
-  submission, no Lead ID collision, an uncertain append reported honestly). The production
-  `Store.append_leads` adapter is tested against a **simulated Sheets API** (column ordering, a missing
-  destination column, a failing append), and the `MemoryStore` tests are kept. Browser-verified through
-  the actual local API with synthetic storage (a static demo alone is not enough).
+  validation results (including **invalid contact values, with why**), the duplicates and the
+  skipped/unstorable fields, confirms **once**, and after reload sees the imported leads with their
+  correct next actions — **without a developer script**. Company-only, phone-only, email-only and
+  email+phone records are all preserved. Only new rows are written; founder data is never overwritten.
+  Three acceptance failures found by review (`docs/testing/import-review-2026-09-30.md`) are fixed:
+  (1) the preview is bound to the destination **schema** and a changed destination is refused (409),
+  with the adapter refusing field loss rather than dropping; (2) Lead IDs are allocated from the
+  **atomic append's row**, not `max+1`, so concurrent instances cannot collide (regression through two
+  independent Flask apps); (3) invalid contact values are preserved as validation feedback, never
+  discarded. The production `Store.append_leads` adapter is tested against a **simulated Sheets API**
+  (column ordering, a missing destination column, a failing append, row-based ids), and the
+  `MemoryStore` tests are kept. Browser-verified through the actual local API with synthetic storage.
+  **Remaining limits:** cross-instance **dedupe** is best-effort (two processes committing the same
+  lead at once can create two rows with distinct ids — not an id collision); a row-derived id could
+  in principle clash with a sparse legacy id; **no live Sheet write** is verified and `enable_import`
+  is off in deploy.
 - **M3 Call tasks:** a call outcome recorded through a real route saves to the correct lead (incl.
   phone-only), drafts an email only when an address exists, schedules the next call per the playbook,
   and the task stays visible until done/snoozed/cancelled without repeat notifications.

@@ -4,6 +4,7 @@ committing, and is safe to retry.
 """
 
 import io
+import threading
 
 import pytest
 
@@ -65,7 +66,7 @@ def test_preview_shows_what_would_be_stored_without_writing(built):
     store = a_store()
     body = preview(make(built, store), CSV).get_json()
     assert body["summary"] == {"accepted": 3, "duplicates": 0, "skipped": 1, "unstorable": 0,
-                               "by_channel": {"EMAIL": 1, "CALL": 1, "COMPANY_ONLY": 1}}
+                               "invalid": 0, "by_channel": {"EMAIL": 1, "CALL": 1, "COMPANY_ONLY": 1}}
     assert store.lead_appends == []  # preview writes nothing
 
 
@@ -182,3 +183,115 @@ def test_too_many_rows_are_refused(built):
 
 def test_import_still_needs_a_signed_in_session(built):
     assert make(built, a_store()).post("/api/import/preview", json={"text": CSV}).status_code == 401
+
+
+# --- reviewer failure 1: a destination that changed after the preview -----------------------------
+
+def test_a_destination_that_changed_after_the_preview_is_refused(built):
+    store = a_store()  # has a Phone column at preview time
+    client = make(built, store)
+    body = preview(client, "Company,Phone\nRedwood Plumbing,614-555-0142").get_json()
+    rows = [i["row"] for i in body["accepted"]]
+    assert rows[0].get("Phone") == "614-555-0142"  # the preview mapped the phone into a Phone column
+    # the Phone column is removed from the destination after the preview
+    store.lead_header = [c for c in store.lead_header if c != "Phone"]
+    response = client.post("/api/import/commit",
+                           json={"prefix": "A", "rows": rows, "fingerprint": body["fingerprint"]},
+                           headers=signed())
+    assert response.status_code == 409  # stale destination, refused
+    assert store.lead_appends == []  # nothing was written, the phone was not silently dropped
+
+
+# --- reviewer failure 3: invalid contact values in the validation results -------------------------
+
+def test_invalid_contact_values_show_in_the_preview(built):
+    store = a_store()
+    body = preview(make(built, store), "Company,Email,Phone\nSynthetic,wrong-address,123").get_json()
+    item = body["accepted"][0]
+    assert item["channel"] == "COMPANY_ONLY" and item["row"] == {"Company": "Synthetic"}
+    fields = {i["field"] for i in item["invalid"]}
+    assert fields == {"email", "phone"} and body["summary"]["invalid"] == 2
+
+
+# --- reviewer failure 2: Lead ID collisions across independent application instances ---------------
+
+def test_concurrent_imports_from_two_apps_get_distinct_ids(built):
+    from outreach.sheet import Store
+    from test_sheet_append import A_HEADER, FakeSheets
+
+    api = FakeSheets()  # one shared, thread-safe simulated Sheet; existing A-0001 at row 3
+    barrier = threading.Barrier(2, timeout=10)
+
+    class BarrierStore(Store):
+        def leads(self):
+            snapshot = super().leads()
+            barrier.wait()  # both commits read the same existing leads, then race to append
+            return snapshot
+
+    def make_app():
+        return console.create_app(
+            verifier=console_auth.Verifier(AUDIENCE, ALLOWED, fetch=Keys()),
+            store=lambda: BarrierStore(api=api), settings=lambda: {}, clock=lambda: fx.NOW,
+            static_dir=built, enable_import=True).test_client()
+
+    def payload(company, email):
+        rows = [{"Company": company, "BEST EMAIL": email}]
+        return {"prefix": "A", "rows": rows, "fingerprint": importer.fingerprint(rows, "A", A_HEADER)}
+
+    results = {}
+
+    def commit(key, company, email):
+        results[key] = make_app().post("/api/import/commit", json=payload(company, email),
+                                       headers=signed()).get_json()
+
+    threads = [threading.Thread(target=commit, args=("1", "Alpha", "a@alpha.test")),
+               threading.Thread(target=commit, args=("2", "Beta", "b@beta.test"))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    ids = sorted(results["1"]["lead_ids"] + results["2"]["lead_ids"])
+    assert ids == ["A-0002", "A-0003"]  # distinct row-based ids, never both A-0002
+    assert results["1"]["written"] == 1 and results["2"]["written"] == 1
+    # both rows really landed, with distinct ids
+    assert api.row_for("A_Contact_Now", "A-0002") is not None
+    assert api.row_for("A_Contact_Now", "A-0003") is not None
+
+
+def test_concurrent_duplicate_submissions_do_not_collide_on_an_id(built):
+    from outreach.sheet import Store
+    from test_sheet_append import A_HEADER, FakeSheets
+
+    api = FakeSheets()
+    barrier = threading.Barrier(2, timeout=10)
+
+    class BarrierStore(Store):
+        def leads(self):
+            snapshot = super().leads()
+            barrier.wait()
+            return snapshot
+
+    def make_app():
+        return console.create_app(
+            verifier=console_auth.Verifier(AUDIENCE, ALLOWED, fetch=Keys()),
+            store=lambda: BarrierStore(api=api), settings=lambda: {}, clock=lambda: fx.NOW,
+            static_dir=built, enable_import=True).test_client()
+
+    rows = [{"Company": "Gamma", "BEST EMAIL": "g@gamma.test"}]
+    body = {"prefix": "A", "rows": rows, "fingerprint": importer.fingerprint(rows, "A", A_HEADER)}
+    results = {}
+
+    def commit(key):
+        results[key] = make_app().post("/api/import/commit", json=body, headers=signed()).get_json()
+
+    threads = [threading.Thread(target=commit, args=("1",)), threading.Thread(target=commit, args=("2",))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    all_ids = results["1"]["lead_ids"] + results["2"]["lead_ids"]
+    # The same submission racing itself never yields two rows with the SAME id (the failure). Cross-
+    # instance dedupe is best-effort, so it may create two rows; but the ids are always distinct.
+    assert len(all_ids) == len(set(all_ids))

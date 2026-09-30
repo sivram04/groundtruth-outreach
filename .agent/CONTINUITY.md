@@ -70,6 +70,26 @@
 
 ## [DISCOVERIES]
 
+- 2026-09-30 [FIX] Remediated the three import acceptance failures from the review
+  below. (1) `importer.fingerprint` now covers the destination columns and the commit
+  route revalidates them → a changed destination is refused (409); `Store.append_leads`
+  refuses field loss (`DestinationMismatch`) instead of dropping. (2) Lead IDs come from
+  the atomic append's row (`updatedRange`), not `max+1`, so concurrent instances get
+  distinct IDs (regression via two Flask apps on one simulated Sheet + a barrier).
+  (3) Invalid contact values are preserved as validation feedback on accepted/skipped
+  rows and shown on the Import page. Containers: Python 875, frontend 68, tsc+build.
+  Browser-verified through the real local API (validation + stale-destination 409).
+  Limits: cross-instance dedupe is best-effort (may create two rows, distinct IDs); a
+  row id could clash with a sparse legacy id; no live Sheet write; `enable_import` off in
+  deploy. Evidence: docs/testing/import-review-2026-09-30.md (Remediation section).
+
+- 2026-09-30T17:26Z [TOOL] Reviewed import milestone `03a29c7`; three synthetic
+  container probes reproduced: removing Phone after preview returns success but loses
+  the number; two app instances append the same A-0002 ID; invalid email/phone values
+  disappear without validation feedback. Evidence: docs/testing/import-review-2026-09-30.md.
+  M2 is incomplete on these acceptance criteria. No product-code edits, live writes,
+  deployment or full-suite rerun during this review.
+
 - 2026-09-23T03:39Z [TOOL] Before the fix, an old-template hash could reach the Gmail
   draft path without a Drive handbook. Word overlap also accepted a negated quote as a
   positive company claim and "MVP is finished" from a "still being finished" handbook.

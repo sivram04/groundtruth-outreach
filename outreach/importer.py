@@ -206,12 +206,28 @@ def _next_number(existing_leads, prefix):
     return highest + 1
 
 
-def fingerprint(rows, prefix):
-    """A stable hash of the accepted rows and the destination prefix, so a commit can prove it is
-    writing exactly what the preview showed (any edit in between is caught)."""
-    payload = json.dumps({"prefix": str(prefix).upper(), "rows": rows}, sort_keys=True,
-                         ensure_ascii=False)
+def fingerprint(rows, prefix, columns):
+    """A stable hash of the accepted rows, the destination prefix AND the destination's columns, so a
+    commit can prove it is writing exactly what the preview showed into the same schema. If the tab's
+    columns change between preview and commit (e.g. a Phone column is removed), this changes and the
+    commit is refused - a field is never silently dropped."""
+    payload = json.dumps({"prefix": str(prefix).upper(), "rows": rows, "columns": list(columns)},
+                         sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _invalid_contacts(record):
+    """Contact values the user supplied that cannot be used, each with why. Never discarded silently:
+    they are shown in the preview so the founder can fix them."""
+    invalid = []
+    raw_email = _pick(record, channels.EMAIL_HEADERS)
+    if raw_email and not channels.email_of(record):
+        invalid.append({"field": "email", "value": raw_email, "reason": "not a valid email address"})
+    raw_phone = _pick(record, channels.PHONE_HEADERS)
+    if raw_phone and not channels.phone_of(record):
+        invalid.append({"field": "phone", "value": raw_phone,
+                        "reason": "not enough digits for a phone number"})
+    return invalid
 
 
 def import_leads(records, existing_leads, *, prefix="A", destination_columns=None):
@@ -227,17 +243,24 @@ def import_leads(records, existing_leads, *, prefix="A", destination_columns=Non
     number = _next_number(existing_leads, prefix)
 
     accepted, skipped, duplicates, unstorable_fields = [], [], [], []
+    invalid_count = 0
     for record in records or []:
         semantic = _semantic(record)
+        invalid = _invalid_contacts(record)
         key = _dedupe_key(semantic)
         if key is None:
-            skipped.append({"record": record, "reason": "no company, email or phone to import"})
+            # Nothing to key on, but any supplied-yet-unusable contact values are still reported.
+            skipped.append({"record": record, "reason": "no company, email or phone to import",
+                            "invalid": invalid})
+            invalid_count += len(invalid)
             continue
         if key in seen:
             duplicates.append({"record": record, "matched": seen[key],
                                "reason": f"already present as {seen[key]}"})
             continue
         row, unstorable = map_record(record, destination_columns)
+        # A PROVISIONAL Lead ID for display only; the real ID is assigned atomically at append time
+        # (Store.append_leads), so two instances importing at once cannot land on the same ID.
         lead_id = f"{prefix}-{number:04d}"
         number += 1
         seen[key] = lead_id
@@ -245,7 +268,8 @@ def import_leads(records, existing_leads, *, prefix="A", destination_columns=Non
         # destination can store: a phone-only lead whose phone has no column is still a CALL lead in
         # the preview, with the phone shown as unstorable.
         accepted.append({"lead_id": lead_id, "channel": channels.channel_of(record), "row": row,
-                         "unstorable": unstorable})
+                         "unstorable": unstorable, "invalid": invalid})
+        invalid_count += len(invalid)
         for item in unstorable:
             if item["field"] not in unstorable_fields:
                 unstorable_fields.append(item["field"])
@@ -263,28 +287,25 @@ def import_leads(records, existing_leads, *, prefix="A", destination_columns=Non
         "unstorable_fields": unstorable_fields,
         "summary": {"accepted": len(accepted), "duplicates": len(duplicates),
                     "skipped": len(skipped), "unstorable": len(unstorable_fields),
-                    "by_channel": by_channel},
-        "fingerprint": fingerprint(rows_only, prefix),
+                    "invalid": invalid_count, "by_channel": by_channel},
+        "fingerprint": fingerprint(rows_only, prefix, destination_columns),
     }
 
 
 def prepare_commit(rows, existing_leads, *, prefix="A"):
-    """(rows to append with a Lead ID assigned, rows now already present) from the accepted rows.
+    """(rows to append, rows now already present) from the accepted rows.
 
-    Re-checks against the leads that exist now, so a row added since the preview is not added again,
-    and assigns Lead IDs from the current numbering, so two commits cannot collide."""
-    prefix = str(prefix).strip().upper() or "A"
+    Re-checks against the leads that exist NOW, so a row added since the preview is not added again.
+    It does NOT assign Lead IDs: `Store.append_leads` allocates them from the atomic append, so two
+    application instances committing at once cannot land on the same ID."""
     seen = _existing_keys(existing_leads)
-    number = _next_number(existing_leads, prefix)
     to_append, already_present = [], []
     for row in rows or []:
         key = _dedupe_key(_semantic(row))
         if key is not None and key in seen:
             already_present.append({"row": row, "matched": seen[key]})
             continue
-        lead_id = f"{prefix}-{number:04d}"
-        number += 1
         if key is not None:
-            seen[key] = lead_id
-        to_append.append({**row, "Lead ID": lead_id})
+            seen[key] = "(pending)"  # a second identical row in the same batch is caught too
+        to_append.append(dict(row))
     return to_append, already_present

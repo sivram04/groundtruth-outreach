@@ -80,6 +80,20 @@ def col_letter(index):
     return s
 
 
+class DestinationMismatch(RuntimeError):
+    """A write cannot go ahead because the tab's columns are not what the caller expected (a field
+    would be lost). Nothing was written; the caller should re-read the columns and try again."""
+
+
+def _range_start_row(updated_range):
+    """The first sheet row number in an A1 range like "'Tab'!A5:F7" (here 5), or None."""
+    if "!" not in str(updated_range):
+        return None
+    cell = updated_range.split("!", 1)[1].split(":", 1)[0]
+    digits = "".join(ch for ch in cell if ch.isdigit())
+    return int(digits) if digits else None
+
+
 class Tab:
     """One lead tab, read once. `rows` holds (sheet_row_number, {header: value}).
 
@@ -348,23 +362,51 @@ class Store:
         return list(next(tab.header for tab in self.tabs if tab.name == name))
 
     def append_leads(self, prefix, rows):
-        """Append new lead rows to the tab for `prefix` (e.g. "A"), in that tab's own column order.
+        """Append new lead rows to the tab for `prefix` (e.g. "A") and return their assigned Lead IDs.
 
         New rows only: this never rewrites or reorders an existing row, and it only fills columns the
-        tab already has, so it can never overwrite a founder column or invent one. Each row is a
-        {header: value} dict (a Lead ID and whatever founder fields the import carried). Used by lead
-        import; in this change it is exercised only against the in-memory store, not the live Sheet."""
+        tab already has. **It refuses (DestinationMismatch) rather than silently drop** a field the tab
+        has no column for, so a schema that changed after a preview cannot lose data.
+
+        **Lead IDs are allocated from the atomic append itself**, not from a pre-read maximum: the
+        append reports the exact rows it wrote (`updatedRange`), and the ID is derived from each row's
+        own sheet position. Two application instances (or processes) appending at once are serialized by
+        the Sheets append and land on different rows, so they can never be given the same Lead ID.
+        Existing IDs are never touched. Returns the list of new Lead IDs, in row order."""
         if not rows:
-            return
+            return []
         name = next((tab for tab, pref in LEAD_TABS.items() if pref == str(prefix).strip().upper()),
                     None)
         if name is None:
             raise RuntimeError(f"{prefix} is not a lead tab prefix")
+        prefix = str(prefix).strip().upper()
         header = next(tab.header for tab in self.tabs if tab.name == name)
-        self.api.values().append(
+        if "Lead ID" not in header:
+            raise RuntimeError(f"{name} has no Lead ID column; lead IDs cannot be assigned")
+        for row in rows:
+            lost = sorted(k for k, v in row.items()
+                          if str(v).strip() and k != "Lead ID" and k not in header)
+            if lost:
+                raise DestinationMismatch(
+                    f"{name} has no column for {', '.join(lost)}; nothing was written. "
+                    f"Preview the list again against the current columns.")
+        # Append with the Lead ID cell blank; a row with no Lead ID is invisible to readers until its
+        # ID is set below, so a half-written row is never treated as a lead.
+        values = [[("" if h == "Lead ID" else row.get(h, "")) for h in header] for row in rows]
+        result = self.api.values().append(
             spreadsheetId=SHEET_ID, range=f"'{name}'!A{HEADER_ROW}", valueInputOption="RAW",
-            insertDataOption="INSERT_ROWS",
-            body={"values": [[row.get(h, "") for h in header] for row in rows]}).execute()
+            insertDataOption="INSERT_ROWS", body={"values": values}).execute()
+        start = _range_start_row((result.get("updates") or {}).get("updatedRange", ""))
+        if start is None:
+            raise RuntimeError("the append did not report where the rows landed; lead IDs were not "
+                               "assigned")
+        lead_col = col_letter(header.index("Lead ID"))
+        ids = [f"{prefix}-{start + offset - HEADER_ROW:04d}" for offset in range(len(rows))]
+        self.api.values().batchUpdate(spreadsheetId=SHEET_ID, body={
+            "valueInputOption": "RAW",
+            "data": [{"range": f"'{name}'!{lead_col}{start + offset}", "values": [[ids[offset]]]}
+                     for offset in range(len(rows))]}).execute()
+        return ids
 
     def write_leads(self, updates, columns):
         """updates: {Lead ID: {system column: value}}. Returns (written, skipped reasons)."""

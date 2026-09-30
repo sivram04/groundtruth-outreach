@@ -143,6 +143,7 @@ export function Import({
               {summary?.accepted ?? 0} to add · {summary?.duplicates ?? 0} already present ·{" "}
               {summary?.skipped ?? 0} skipped
               {summary && summary.unstorable > 0 && ` · ${summary.unstorable} field(s) cannot be stored`}
+              {summary && summary.invalid > 0 && ` · ${summary.invalid} value(s) cannot be used`}
             </p>
             {preview.accepted.length === 0 ? (
               <p className="muted">Nothing new to import from this list.</p>
@@ -167,6 +168,11 @@ export function Import({
                         {item.unstorable.length > 0 && (
                           <span className="unstorable">
                             {" "}⚠ not stored: {item.unstorable.map((u) => `${u.field} (${u.value})`).join(", ")}
+                          </span>
+                        )}
+                        {item.invalid.length > 0 && (
+                          <span className="unstorable">
+                            {" "}⚠ cannot use: {item.invalid.map((u) => `${u.field} "${u.value}" — ${u.reason}`).join("; ")}
                           </span>
                         )}
                       </td>
@@ -200,7 +206,16 @@ export function Import({
             <Card title={`Skipped (${preview.skipped.length})`}>
               <ul className="mini-list">
                 {preview.skipped.map((s, index) => (
-                  <li key={index}><span>{s.reason}</span></li>
+                  <li key={index}>
+                    <span>
+                      {s.reason}
+                      {s.invalid && s.invalid.length > 0 && (
+                        <span className="unstorable">
+                          {" "}(supplied: {s.invalid.map((u) => `${u.field} "${u.value}" — ${u.reason}`).join("; ")})
+                        </span>
+                      )}
+                    </span>
+                  </li>
                 ))}
               </ul>
             </Card>

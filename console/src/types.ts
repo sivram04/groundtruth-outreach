@@ -166,7 +166,10 @@ export interface ImportAccepted {
   lead_id: string;
   channel: string;
   row: Record<string, string>;
+  /** Fields with a value but no column at the destination — shown, not stored. */
   unstorable: { field: string; value: string }[];
+  /** Contact values supplied but not usable (e.g. a malformed email) — shown with why, never stored. */
+  invalid: { field: string; value: string; reason: string }[];
 }
 
 /** POST /api/import/preview: what would be stored, before anything is written. */
@@ -175,13 +178,14 @@ export interface ImportPreview {
   destination_columns: string[];
   accepted: ImportAccepted[];
   duplicates: { record: Record<string, string>; matched: string; reason: string }[];
-  skipped: { record: Record<string, string>; reason: string }[];
+  skipped: { record: Record<string, string>; reason: string; invalid?: { field: string; value: string; reason: string }[] }[];
   unstorable_fields: string[];
   summary: {
     accepted: number;
     duplicates: number;
     skipped: number;
     unstorable: number;
+    invalid: number;
     by_channel: Record<string, number>;
   };
   fingerprint: string;

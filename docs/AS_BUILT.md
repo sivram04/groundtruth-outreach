@@ -1372,6 +1372,38 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-30 (import: three acceptance failures fixed)** — a review
+  (`docs/testing/import-review-2026-09-30.md`) reproduced three import failures against `03a29c7`; all
+  are fixed, each with a regression that encodes the counterexample. The import milestone stays open
+  until these were resolved; it is not "complete" beyond the limits noted below.
+
+  1. **Destination changed after preview.** `importer.fingerprint` now hashes the destination
+     **columns** as well as the rows/prefix; the commit route recomputes it against the tab's current
+     columns and refuses a mismatch (**409**) before any write. Defence in depth: `Store.append_leads`
+     raises `sheet.DestinationMismatch` on a field the tab has no column for, instead of dropping it.
+     The old test that expected silent dropping was replaced.
+  2. **Concurrent Lead ID collisions.** IDs are no longer `max(existing)+1`. `Store.append_leads`
+     appends with a blank Lead ID, reads the exact rows the **atomic** append wrote (`updatedRange`),
+     and derives each ID from its own sheet row — so two application instances appending at once are
+     serialized by the append and get different IDs. `prepare_commit` no longer assigns IDs. Regression
+     runs two independent Flask apps over one shared simulated Sheet, synchronised on a barrier.
+  3. **Invalid contact values discarded.** `importer` records each supplied-but-unusable contact value
+     with a reason; `import_leads` carries `invalid` on accepted and skipped rows and counts it; the
+     Import page shows "cannot use …". A company-only lead is still accepted; the bad email/phone is
+     shown, never stored.
+
+  **Verified in containers, no network.** Python **875 passed** (importer, sheet-append adapter with a
+  simulated Sheets API — column order, row-based ids, field-loss refusal, failing append; console-import
+  routes — stale destination 409, invalid-values preview, two-app concurrency, duplicate-submission,
+  uncertain append). Frontend **68 passed**, typecheck and build clean. **Browser-verified through the
+  actual local API** (`tools/local_import_console.py`, now with `IMPORT_NO_PHONE=1` to simulate a
+  dropped column): the invalid-values preview ("cannot use: email … phone …", company-only still
+  accepted) and the stale-destination refusal ("This preview is out of date … Preview again", preview
+  cleared, nothing written). **Remaining limits:** row-based IDs prevent *ID* collision across
+  instances, but cross-instance **dedupe** is best-effort (two processes may create two rows with
+  distinct ids); a row-derived id could in principle clash with a sparse legacy id; all verification is
+  synthetic/simulated — **no live Sheet write**, `enable_import` off in deploy. No call-task work.
+
 - **2026-09-30 (MVP: lead import as a usable workflow — upload → preview → confirm → persist → reload)**
   — completes the import milestone through the real routes and the real pages, over synthetic storage.
   Corrected `docs/MVP_DELIVERY.md` first: a **local** parsing library (Excel/PDF/DOCX) is not a
