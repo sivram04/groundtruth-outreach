@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
+import review_fixtures as rf
 from outreach import drafting, gmail_drafts, handbook_drive, job_draft, review, worker, writer
+from outreach.review_identity import Signer
 
 HANDBOOK_TEXT = (Path(__file__).resolve().parent.parent / "examples" / "synthetic_handbook.txt"
                  ).read_text(encoding="utf-8")
@@ -41,7 +43,8 @@ def settings(**changes):
               "sender_email": "admin@lakshyaa.ai", "daily_cap": 4, "offer_approved": True,
               "version": "prelaunch-v1", "handbook_doc_id": "1AbCdEfGhIjKlMnOpQrStUvWxYz01234",
               "intended_use": "an early preview", "next_week_action": "a short call",
-              "cta_question": "Would next week work?", "review_reviewers": ["admin@lakshyaa.ai"]}
+              "cta_question": "Would next week work?", "review_reviewers": ["admin@lakshyaa.ai"],
+              "review_public_key": rf.PUBLIC_KEY_B64}  # the trusted verifier key for the signed gate
     config.update(changes)
     return config
 
@@ -76,12 +79,12 @@ def _compose(row=None, *, book=BOOK, model=None, config=None, suppressed=False, 
 
 
 def confirmed_store(row=None, *, book=BOOK, model=None, config=None, reviewer="admin@lakshyaa.ai"):
-    """A store confirming the standard candidate for `row` (composed once, unreviewed, to get its
-    fingerprint)."""
+    """A store holding a SIGNED confirmation of the standard candidate for `row` (composed once,
+    unreviewed, to get its fingerprint), the way the console would record it."""
     bare = _compose(row, book=book, model=model, config=config, review_store=review.MemoryReviewStore())
     store = review.MemoryReviewStore()
-    review.record_confirmation(store, bare["lead_id"], reviewer,
-                               review.candidate_fingerprint(bare, book, config or settings()))
+    rf.confirm(store, bare["lead_id"], reviewer,
+               review.candidate_fingerprint(bare, book, config or settings()))
     return store
 
 
@@ -143,6 +146,15 @@ def test_the_default_hash_path_is_fail_closed_without_a_review():
     assert out["preview_hash"] is None and review.AWAITING_BLOCKER in out["blockers"]
 
 
+def test_no_verifier_configured_issues_no_hash():
+    """Missing verification configuration (no trusted public key) blocks approval-hash issuance; the
+    deployable path never falls back to unsigned review."""
+    no_key = settings()
+    no_key.pop("review_public_key")
+    out = _compose(config=no_key, review_store=confirmed_store())
+    assert out["preview_hash"] is None and review.UNVERIFIABLE_BLOCKER in out["blockers"]
+
+
 def test_an_edit_after_review_stops_the_hash_being_reissued():
     """A review confirmed for one candidate does not carry over to an edited one: the approval hash
     is not reissued for the changed candidate (a stale review does not mint a hash)."""
@@ -173,8 +185,8 @@ def test_a_reviewed_template_candidate_can_carry_a_hash_but_create_refuses_to_us
     monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
     bare = _template_preview(review.MemoryReviewStore())  # unreviewed: content present, no hash
     store = review.MemoryReviewStore()
-    review.record_confirmation(store, bare["lead_id"], "admin@lakshyaa.ai",
-                               review.candidate_fingerprint(bare, None, settings()))
+    rf.confirm(store, bare["lead_id"], "admin@lakshyaa.ai",
+               review.candidate_fingerprint(bare, None, settings()))
     reviewed = _template_preview(store)
     assert reviewed["preview_hash"]  # gated on review, not disabled
     # ...but create will not act on a template hash (it requires a Drive-handbook written draft).
@@ -326,12 +338,17 @@ def test_one_approved_written_draft_reaches_gmail_once(ready):
 # path to a Gmail draft, and the one the HTTP create route calls), rechecked at the action
 # boundary, so a direct API call cannot bypass it.
 
-class BadStore:
-    def __init__(self, record):
-        self.record = record
+class HistoryStore:
+    """A store exposing a fixed history for the gate's signed-chain resolution."""
+
+    def __init__(self, records):
+        self._records = list(records)
 
     def get(self, lead_id):
-        return self.record
+        return self._records[-1] if self._records else None
+
+    def history(self, lead_id):
+        return list(self._records)
 
     def put(self, record):
         raise AssertionError("the gate must never write")
@@ -341,17 +358,31 @@ class BrokenStore:
     def get(self, lead_id):
         raise RuntimeError("the review store is unreachable")
 
+    def history(self, lead_id):
+        raise RuntimeError("the review store is unreachable")
+
     def put(self, record):
         raise AssertionError("the gate must never write")
 
 
+def _signed_root(fingerprint, decision, at, *, signer=rf.SIGNER, reviewer="admin@lakshyaa.ai"):
+    """A signed decision at the root of a chain (prev="")."""
+    sig = signer.sign(review_id="A-0001", prev="", fingerprint=fingerprint, reviewer=reviewer,
+                      decision=decision, reviewed_at=at)
+    return {"lead_id": "A-0001", "prev": "", "fingerprint": fingerprint, "reviewer": reviewer,
+            "decision": decision, "reviewed_at": at, "signature": sig}
+
+
+def _blocks(row, store, config=None, match="review"):
+    written, digest = approved_written(row)
+    with pytest.raises(job_draft.DraftBlocked, match=match):
+        job_draft.create("A-0001", digest, written=written, settings=config or settings(),
+                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE, review_store=store)
+
+
 def test_no_confirmed_review_blocks_even_a_perfect_approved_draft(ready):
     row, _, created = ready
-    written, digest = approved_written(row)
-    with pytest.raises(job_draft.DraftBlocked, match="REVIEW_MISSING"):
-        job_draft.create("A-0001", digest, written=written, settings=settings(),
-                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE,
-                         review_store=review.MemoryReviewStore())
+    _blocks(row, review.MemoryReviewStore(), match="REVIEW_MISSING")
     assert created == []
 
 
@@ -376,28 +407,29 @@ def test_the_default_review_store_is_fail_closed(monkeypatch):
     assert created == []
 
 
-def test_a_rejected_review_blocks(ready):
+def test_no_verifier_configured_blocks_create(ready):
+    """Missing verification configuration blocks draft creation; no unsigned fallback."""
     row, _, created = ready
-    written, digest = approved_written(row)
-    store = review.MemoryReviewStore()
-    review.record_rejection(store, "A-0001", "admin@lakshyaa.ai",
-                            review.candidate_fingerprint(preview(row), BOOK, settings()))
-    with pytest.raises(job_draft.DraftBlocked, match="REVIEW_REJECTED"):
-        job_draft.create("A-0001", digest, written=written, settings=settings(),
-                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE,
-                         review_store=store)
+    no_key = settings()
+    no_key.pop("review_public_key")
+    _blocks(row, confirmed_store(), config=no_key, match="verification is not configured")
     assert created == []
 
 
-def test_a_review_of_a_different_candidate_is_stale(ready):
+def test_a_signed_rejection_blocks(ready):
     row, _, created = ready
-    written, digest = approved_written(row)
     store = review.MemoryReviewStore()
-    review.record_confirmation(store, "A-0001", "admin@lakshyaa.ai", "a" * 64)
-    with pytest.raises(job_draft.DraftBlocked, match="REVIEW_STALE"):
-        job_draft.create("A-0001", digest, written=written, settings=settings(),
-                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE,
-                         review_store=store)
+    rf.reject(store, "A-0001", "admin@lakshyaa.ai",
+              review.candidate_fingerprint(preview(row), BOOK, settings()))
+    _blocks(row, store, match="REVIEW_REJECTED")
+    assert created == []
+
+
+def test_a_signed_review_of_a_different_candidate_is_stale(ready):
+    row, _, created = ready
+    store = review.MemoryReviewStore()
+    rf.confirm(store, "A-0001", "admin@lakshyaa.ai", "a" * 64)  # a different candidate's fingerprint
+    _blocks(row, store, match="REVIEW_STALE")
     assert created == []
 
 
@@ -413,43 +445,47 @@ def test_an_offer_edit_between_review_and_action_invalidates_the_review(ready):
     assert created == []
 
 
-def test_a_forged_review_by_a_non_human_reviewer_is_rejected(ready):
+def test_a_signed_review_by_a_non_human_reviewer_is_rejected(ready):
     row, _, created = ready
-    written, digest = approved_written(row)
     store = review.MemoryReviewStore()
-    review.record_confirmation(store, "A-0001", "model@service.internal",
-                               review.candidate_fingerprint(preview(row), BOOK, settings()))
-    with pytest.raises(job_draft.DraftBlocked, match="REVIEW_NOT_HUMAN"):
-        job_draft.create("A-0001", digest, written=written, settings=settings(),
-                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE,
-                         review_store=store)
+    rf.confirm(store, "A-0001", "model@service.internal",
+               review.candidate_fingerprint(preview(row), BOOK, settings()))
+    _blocks(row, store, match="REVIEW_NOT_HUMAN")
     assert created == []
 
 
-@pytest.mark.parametrize("record", [
-    {"lead_id": "A-0001", "reviewer": "admin@lakshyaa.ai", "decision": "confirmed"},  # no fingerprint
-    {"lead_id": "A-0001", "fingerprint": "a" * 64, "reviewer": "admin@lakshyaa.ai",
-     "decision": "maybe", "reviewed_at": "2026-09-29T00:00:00+00:00"},  # bad decision
-    {"lead_id": "A-0001", "fingerprint": "nothex", "reviewer": "admin@lakshyaa.ai",
-     "decision": "confirmed", "reviewed_at": "2026-09-29T00:00:00+00:00"},  # bad fingerprint
-])
-def test_a_malformed_review_blocks(ready, record):
+def test_an_unsigned_record_blocks(ready):
     row, _, created = ready
-    written, digest = approved_written(row)
-    with pytest.raises(job_draft.DraftBlocked, match="REVIEW_MALFORMED"):
-        job_draft.create("A-0001", digest, written=written, settings=settings(),
-                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE,
-                         review_store=BadStore(record))
+    store = review.MemoryReviewStore()
+    review.record_confirmation(store, "A-0001", "admin@lakshyaa.ai",  # no signer -> unsigned
+                               review.candidate_fingerprint(preview(row), BOOK, settings()))
+    _blocks(row, store, match="REVIEW_TAMPERED")
+    assert created == []
+
+
+def test_a_record_signed_by_the_wrong_key_blocks(ready):
+    row, _, created = ready
+    store = review.MemoryReviewStore()
+    other = Signer.generate()  # a key the configured verifier does not trust
+    review.record_confirmation(store, "A-0001", "admin@lakshyaa.ai",
+                               review.candidate_fingerprint(preview(row), BOOK, settings()),
+                               signer=other)
+    _blocks(row, store, match="REVIEW_TAMPERED")
+    assert created == []
+
+
+def test_a_conflicting_history_blocks(ready):
+    row, _, created = ready
+    fingerprint = review.candidate_fingerprint(preview(row), BOOK, settings())
+    store = HistoryStore([_signed_root(fingerprint, "confirmed", "t1"),
+                          _signed_root(fingerprint, "rejected", "t2")])  # two roots -> conflict
+    _blocks(row, store, match="REVIEW_CONFLICT")
     assert created == []
 
 
 def test_an_unreadable_review_store_blocks(ready):
     row, _, created = ready
-    written, digest = approved_written(row)
-    with pytest.raises(job_draft.DraftBlocked, match="REVIEW_UNREADABLE"):
-        job_draft.create("A-0001", digest, written=written, settings=settings(),
-                         api=object(), gmail=Mailbox(), handbook=BOOK, pages=SITE,
-                         review_store=BrokenStore())
+    _blocks(row, BrokenStore(), match="REVIEW_UNREADABLE")
     assert created == []
 
 
@@ -506,7 +542,7 @@ def test_a_revocation_before_the_recheck_is_caught(ready, monkeypatch):
     fingerprint = review.candidate_fingerprint(preview(row), BOOK, settings())
 
     def reject_first(gmail, recipient):
-        review.record_rejection(store, "A-0001", "admin@lakshyaa.ai", fingerprint)
+        rf.reject(store, "A-0001", "admin@lakshyaa.ai", fingerprint)  # signed, chained rejection
         return False
     monkeypatch.setattr(gmail_drafts, "prior_sends", reject_first)
     with pytest.raises(job_draft.DraftBlocked, match="REVIEW_REJECTED"):
@@ -525,7 +561,7 @@ def test_a_revocation_after_the_recheck_is_not_caught_the_window_is_not_closed(r
     fingerprint = review.candidate_fingerprint(preview(row), BOOK, settings())
 
     def write_then_revoke(gmail, **kwargs):
-        review.record_rejection(store, "A-0001", "admin@lakshyaa.ai", fingerprint)
+        rf.reject(store, "A-0001", "admin@lakshyaa.ai", fingerprint)  # signed, chained
         created.append(kwargs)
         return {"id": "draft-1"}
     monkeypatch.setattr(gmail_drafts, "create", write_then_revoke)
@@ -787,8 +823,8 @@ def test_the_operator_can_choose_which_verified_quote_is_written_from():
                                            "suppressed": {"A-0001": False}})[0]
     bare = compose(review.MemoryReviewStore())
     store = review.MemoryReviewStore()
-    review.record_confirmation(store, bare["lead_id"], "admin@lakshyaa.ai",
-                               review.candidate_fingerprint(bare, BOOK, settings()))
+    rf.confirm(store, bare["lead_id"], "admin@lakshyaa.ai",
+               review.candidate_fingerprint(bare, BOOK, settings()))
     out = compose(store)
     assert out["evidence"]["quote"] == market and out["preview_hash"]
 

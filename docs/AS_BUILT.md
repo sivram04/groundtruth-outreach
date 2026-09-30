@@ -1372,6 +1372,52 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-30 (reviewer identity wired through the real application paths) — the deployable paths
+  now require one trusted identity configuration and block without it; no silent unsigned fallback.**
+  Continues from `47c9b73`; scoped to the local integration of reviewer identity. The signing/
+  verification and chain-resolution helpers existed (entry below) but the real entry points still
+  bypassed them; this closes that.
+
+  1. **One trusted identity configuration, two halves.** The **public key** (verifier) is
+     `settings['review_public_key']` (b64), read by both the worker gate and the console
+     (`review.configured_verifier`). The **private key** (signer) is the console-only env
+     `REVIEW_PRIVATE_KEY` (b64, `review.configured_signer_from_env`), kept out of worker settings — so
+     the worker verifies but cannot sign. `console.create_app` takes a `review_signer`; `_deployed()`
+     supplies it from the env.
+  2. **Deployable paths block on missing configuration (no fallback to unsigned).**
+     `job_draft._gate_hash` issues **no approval hash** when no verifier is configured;
+     `job_draft.create` and `followup._create` **refuse** ("review verification is not configured (no
+     trusted key); cannot approve"). None of them calls the review checks with `verifier=None` any
+     more. The unsigned `verifier=None` path remains only for explicitly isolated unit fixtures
+     (legacy `tests/test_review_identity.py`).
+  3. **One verified current-decision resolver for status, hash and action boundary.** `_current_record`
+     (gate/create/follow-up) and `resolved_status` (console) both resolve the signed chain via
+     `review_identity.resolve_current`, so a conflicted or tampered history **never** appears as current
+     approval. The console GET renders `resolved_status`; the POST refuses with **503** when no signer
+     is configured, then reads back through `resolved_status`, keeping the distinction between a saved
+     decision and an unavailable/conflicted current status ("recorded, but its current status could not
+     be loaded").
+
+  **Application-level tests through the real paths** (`tests/test_draft_pipeline.py`,
+  `tests/test_followup.py`, `tests/test_console_api.py`), with ephemeral in-memory keys
+  (`tests/review_fixtures.py`, never a production key): missing verifier → no hash and `create` blocks;
+  unsigned record and **wrong-key** signature → TAMPERED block; **conflicting history** → CONFLICT
+  block, never shown as current; valid **signed confirmation** gates and mints the hash; later **signed
+  rejection** blocks; console POST → 503 with no signer, and recorded-but-status-unavailable when the
+  read-back can't be verified.
+
+  **Verified in the Python container** (`deploy/test.Dockerfile`, `--network none`): **831 passed**.
+  Frontend source unchanged; `deploy/console-test.Dockerfile` re-run for the record: **54 passed**,
+  typecheck and build clean. **Still mocked-store tests — they establish that the application code
+  requires and honours one trusted identity config and fails closed without it; they do NOT establish
+  the deployed Drive access guarantees** (shared-drive write-exclusivity is a Workspace config for the
+  admin). Nothing deployed or pushed; no spreadsheet, key, credential or permission created or changed;
+  no `review_public_key`/`REVIEW_PRIVATE_KEY` set in any deployable config; review gate and Gmail
+  drafting stay off; follow-up creation stays blocked. Docs corrected
+  (`docs/REVIEW_IDENTITY_RECOMMENDATION.md`): harmless row reordering does **not** break an intact
+  chain (the resolver reads `prev` links, not physical order), and the "missing verification already
+  blocks every path" claim is now true only because this integration wired it.
+
 - **2026-09-30 (reviewer identity implemented locally; two design errors corrected) — signed,
   ordered review decisions the worker can verify but not forge; activation still disabled.**
   Continues from `cbba196`; scoped to reviewer identity.

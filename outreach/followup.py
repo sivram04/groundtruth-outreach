@@ -346,9 +346,13 @@ def _create(store, gmail, item, state, row, book, settings, now, review_store=No
     review id, rechecked here at the action boundary). No follow-up review path exists yet, so this
     is fail-closed - follow-ups are blocked, never silently exempted, until that path is built."""
     plan = _prepare_followup(gmail, item, state, row, book, settings)
+    verifier = review.configured_verifier(settings)
+    if verifier is None:
+        raise FollowupBlocked("review verification is not configured (no trusted key); cannot approve")
     try:
         review.enforce(plan["candidate"], book, settings,
-                       store=review_store or review.default_store(), review_id=plan["review_id"])
+                       store=review_store or review.default_store(), review_id=plan["review_id"],
+                       verifier=verifier)
     except review.ReviewInvalid as exc:
         raise FollowupBlocked(f"human evidence review required ({exc.reason}): {exc}") from None
     lead_id, step, thread_id, address = plan["lead_id"], plan["step"], plan["thread_id"], plan["address"]

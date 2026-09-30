@@ -147,14 +147,21 @@ def _gate_hash(result, handbook, settings, review_store):
 
     `drafting._finish` computes a digest over the candidate's content for anyone who renders a
     preview (an *internal candidate digest*). It only becomes an *actionable approval token* -
-    something `create` will accept - once a review exists. Every preview path that could expose a
-    hash routes through here, so no supported CLI or API path exposes an approval token without a
-    review; `create` rechecks at the action boundary as well."""
+    something `create` will accept - once a valid, verified review exists. Every preview path that
+    could expose a hash routes through here, so no supported CLI or API path exposes an approval
+    token without a verified review; `create` rechecks at the action boundary as well.
+
+    A trusted verifier (public key) must be configured: without it, or without a valid current
+    signed review, NO approval hash is issued. There is no unsigned fallback on this path."""
     if result.get("preview_hash"):
         store = review_store or review.default_store()
         fingerprint = review.candidate_fingerprint(result, handbook, settings)
-        if not review.is_reviewed(store, result.get("lead_id", ""), fingerprint,
-                                  reviewers=review.allowed_reviewers(settings)):
+        verifier = review.configured_verifier(settings)
+        if verifier is None:
+            result["preview_hash"] = None
+            result["blockers"].append(review.UNVERIFIABLE_BLOCKER)
+        elif not review.is_reviewed(store, result.get("lead_id", ""), fingerprint,
+                                    reviewers=review.allowed_reviewers(settings), verifier=verifier):
             result["preview_hash"] = None
             result["blockers"].append(review.AWAITING_BLOCKER)
     return result
@@ -294,8 +301,12 @@ def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
     # is exactly the candidate that was just checked. The window is NOT closed: a rejection or edit
     # landing after this line and before the Gmail write is not caught (see docs); drafting is
     # disabled anyway, and a half-done create leaves a RESERVED row for reconciliation.
+    verifier = review.configured_verifier(settings)
+    if verifier is None:
+        raise DraftBlocked("review verification is not configured (no trusted key); cannot approve")
     try:
-        review.enforce(result, book, settings, store=review_store or review.default_store())
+        review.enforce(result, book, settings, store=review_store or review.default_store(),
+                       verifier=verifier)
     except review.ReviewInvalid as exc:
         raise DraftBlocked(f"human evidence review required ({exc.reason}): {exc}") from None
 

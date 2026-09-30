@@ -1,9 +1,14 @@
 # Reviewer identity: recording decisions the worker can verify but not forge
 
 Status: the **signing/verification and ordering mechanism is implemented locally and tested**
-(`outreach/review_identity.py`; opt-in, review activation still disabled). The **permission model
-below is a recommendation** — no spreadsheet, credential, key or permission is created or changed
-here. Enabling the review gate stays blocked until the permission model is in place and approved.
+(`outreach/review_identity.py`), and it is now **wired through the real application entry points**
+(the draft gate, `job_draft.create`, the follow-up boundary, and the console review GET/POST) — these
+deployable paths resolve one trusted identity configuration and **block when it is missing**, with no
+silent fall-back to unsigned mode (see "What is implemented now"). The **permission model below is
+still a recommendation** — no spreadsheet, credential, key or permission is created or changed here,
+and no key or verifier/signer config is provisioned. Review-gate activation stays disabled until the
+permission model is in place and approved; with no configuration present, every gated path fails
+closed.
 
 ## The problem
 
@@ -59,9 +64,13 @@ a per-review **hash chain**:
 
 - The current decision is the single **tip** of a single unbroken chain.
 - Two decisions off the same predecessor (concurrent writes from any thread/process/instance), a
-  replayed row (a duplicate signature), a reordering, a cycle, or a detached branch all make the tip
-  non-unique or the chain ill-formed. The worker reports **CONFLICT/TAMPERED and BLOCKS** — it never
-  picks an arbitrary confirmation. (`outreach/review_identity.resolve_current`.)
+  replayed row (a duplicate signature), a cycle, or a detached branch all make the tip non-unique or
+  the chain ill-formed. The worker reports **CONFLICT/TAMPERED and BLOCKS** — it never picks an
+  arbitrary confirmation. (`outreach/review_identity.resolve_current`.)
+- **Harmless row reordering does NOT break an intact chain.** `resolve_current` reconstructs the order
+  from the `prev` links, not from where rows physically sit, so shuffling the rows of an otherwise
+  intact history resolves to the same tip. Physical order is irrelevant; only a genuine fork,
+  duplicate, cycle or detached branch conflicts.
 
 Ordering is thus the chain itself, allocated safely (each decision only references what it observed),
 and conflicts fail closed.
@@ -84,23 +93,46 @@ public key, so it can verify but cannot forge.
   alone do NOT stop this (a shorter chain still verifies) — write-exclusivity is what stops it.
 - **Replay of an old signed confirmation:** the duplicate signature is detected → TAMPERED; and with
   write-exclusivity an outsider cannot append at all.
-- **Concurrent conflict / reordering:** resolved by the chain (highest is the unique tip), forks →
-  CONFLICT → block; row order is irrelevant.
+- **Concurrent conflict:** resolved by the chain (the single tip), genuine forks → CONFLICT → block.
+- **Harmless reordering:** the resolver reads the `prev` chain, not physical row position, so shuffled
+  but intact rows resolve to the same tip — reordering alone is not a conflict.
 - **Public-key substitution:** the key is trusted config, not read from the store.
 
 **Acknowledged residuals:** the console is trusted (it is the authenticated writer and the signer); a
 compromised console private key allows forgery until rotated (standard secret hygiene). Denial is
 possible only by the console (the sole writer). Fail-closed throughout: any doubt blocks approval.
 
-## What is implemented now (local, activation disabled)
+## What is implemented now (local; wired through the real paths, no config provisioned)
 
 `outreach/review_identity.py`: `Signer`, `Verifier`, `resolve_current` (chain + conflict/tamper
-blocking), and `tip_signature`. Wired opt-in through the existing contract: `record_confirmation` /
-`record_rejection` accept a `signer` (the console signs and chains onto the tip);
-`enforce` / `is_reviewed` accept a `verifier` (the worker resolves the signed chain). The stores keep
-a per-review `history` for chain resolution and preserve the existing uncertain-write handling. All
-defaults are unsigned/unverified, so nothing is activated: no `Signer`/`Verifier` is configured in
-the worker or console, no key exists, and the gate still fails closed.
+blocking), and `tip_signature`. The contract carries it: `record_confirmation` / `record_rejection`
+accept a `signer` (the console signs and chains onto the tip); `enforce` / `is_reviewed` accept a
+`verifier` (the worker resolves the signed chain); `_current_record`, `resolved_status` and the
+console read-back all resolve the **same** signed chain, so a conflicted or tampered history can never
+surface as current approval. The stores keep a per-review `history` for chain resolution and preserve
+the existing uncertain-write handling.
+
+**The deployable paths are now wired to one trusted identity configuration and block when it is
+missing:**
+
+- One config, two halves. The **public key** (verifier) is `settings['review_public_key']`
+  (`configured_verifier`), read by both the worker gate and the console. The **private key** (signer)
+  is the console-only env `REVIEW_PRIVATE_KEY` (`configured_signer_from_env`), kept out of worker
+  settings — so the worker can verify but cannot sign.
+- `job_draft._gate_hash`, `job_draft.create` and `followup._create` resolve the verifier and **refuse
+  to issue an approval hash / create a draft / create a follow-up when it is absent** (they no longer
+  call the review checks with `verifier=None`). Missing verification configuration blocks; it does not
+  fall back to accepting unsigned records.
+- The console GET resolves status through `resolved_status` (the signed-chain resolver), and the POST
+  refuses the write with **503** when no signer is configured, then reads the result back through
+  `resolved_status` — preserving the distinction between a successfully saved decision and an
+  unavailable/conflicted current status ("recorded, but its current status could not be loaded").
+- The unsigned `verifier=None` path remains **only** for explicitly isolated unit fixtures
+  (legacy `tests/test_review_identity.py`); no deployable caller passes `None`.
+
+Activation is still disabled and nothing is provisioned: no `review_public_key` or `REVIEW_PRIVATE_KEY`
+is set in any deployable config, no key exists, the review store is the fail-closed default, and
+`ENABLE_GMAIL_DRAFTS` is unset. With no configuration present, every gated path fails closed.
 
 ## Required credential / permission changes (identify only — not applied, no key generated)
 
@@ -124,7 +156,24 @@ the worker or console, no key exists, and the gate still fails closed.
 `tests/test_review_identity.py` proves the **cryptographic and chain logic**: valid decisions verify
 and gate; forged/altered records and wrong-key signatures are rejected; replay after rejection
 blocks; concurrent/forked decisions block as conflicts; missing/invalid verification material blocks;
-and a signed write still surfaces the store's uncertain-write outcome. These are **mocked-store**
-tests. They do **not** establish the deployed access guarantees — the shared-drive write-exclusivity
-(Correction 1) is a Google Workspace configuration to verify with the admin, not something this suite
-can assert.
+and a signed write still surfaces the store's uncertain-write outcome.
+
+The **application-level** tests now exercise the same behaviour **through the real entry points**, not
+just the crypto helpers (`tests/test_draft_pipeline.py`, `tests/test_followup.py`,
+`tests/test_console_api.py`, using ephemeral in-memory keys from `tests/review_fixtures.py`):
+
+- missing verifier configuration issues **no approval hash** and **blocks `create`**;
+- an unsigned record and a record signed by the **wrong key** block as TAMPERED;
+- a **conflicting history** blocks as CONFLICT and never shows as current approval;
+- a valid **signed confirmation** gates and mints the hash; a later **signed rejection** blocks;
+- the console POST refuses with **503** when no signer is configured, and reports
+  recorded-but-status-unavailable when the read-back cannot be verified.
+
+All of these are **mocked-store** tests: they establish that the application code requires and honours
+one trusted identity configuration and fails closed without it. They do **not** establish the deployed
+access guarantees — the shared-drive write-exclusivity (Correction 1) is a Google Workspace
+configuration to verify with the admin, not something this suite can assert.
+
+Container result (`deploy/test.Dockerfile`, `docker run --network none`): **831 Python tests passed**.
+Frontend unchanged this pass; `deploy/console-test.Dockerfile` re-run for the record: **54 tests
+passed**, typecheck and build clean.

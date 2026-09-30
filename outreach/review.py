@@ -45,6 +45,7 @@ recheck is not atomic with the external action; nothing here claims it is. In pr
 the reservation write plus the create call, and drafting is disabled anyway.
 """
 
+import base64
 import json
 import os
 import re
@@ -80,6 +81,9 @@ REJECTED_REASON = "REVIEW_REJECTED"  # a human reviewed THIS candidate and rejec
 # approval hash is issued. Distinct from writer.REVIEW_PREFIX (a claim the validator held): this one
 # still lets the words be read so a person can review them.
 AWAITING_BLOCKER = "awaiting a human evidence review of this candidate"
+# A blocker when review verification is not configured (no trusted public key): no approval hash is
+# issued - a deployable path never falls back to unsigned/unverified review.
+UNVERIFIABLE_BLOCKER = "review verification is not configured (no trusted key); cannot approve"
 
 
 class ReviewInvalid(ValueError):
@@ -332,12 +336,14 @@ def _status(existing, fingerprint):
             "current": existing.get("fingerprint") == fingerprint}
 
 
-def review_view(preview, book=None, settings=None, *, existing=None):
+def review_view(preview, book=None, settings=None, *, existing=None, status=None):
     """The candidate and its cited evidence, side by side, for a person to confirm or reject.
 
     Shows the words and the sources; states plainly that confirming is a human judgment, not
-    proof. Carries the candidate fingerprint the confirm/reject action must echo back, and the
-    status of any existing review for this candidate.
+    proof. Carries the candidate fingerprint the confirm/reject action must echo back. The `review`
+    field is the resolved current status (`status`, from `resolved_status` over the signed chain)
+    when given - so a conflicted, tampered or unverifiable chain never shows as approval - falling
+    back to the legacy latest-record status only for explicitly-unsigned callers.
     """
     settings = settings or {}
     written = preview.get("written") or {}
@@ -356,7 +362,7 @@ def review_view(preview, book=None, settings=None, *, existing=None):
         "handbook_hash": (book or {}).get("content_hash") or preview.get("handbook_hash", ""),
         "handbook_version": str(settings.get("version", "")),
         "fingerprint": fingerprint,
-        "review": _status(existing, fingerprint),
+        "review": status if status is not None else _status(existing, fingerprint),
         "note": HUMAN_JUDGMENT_NOTE,
     }
 
@@ -563,3 +569,57 @@ def default_store():
     """The store used when a caller injects none: whatever configuration selects, fail-closed by
     default (nothing configured -> `UnmigratedReviewStore`)."""
     return store_from_env()
+
+
+# --- the one trusted identity configuration -------------------------------------------------
+# The worker and console read the PUBLIC verification key from the drafting settings (it is not
+# secret). The console reads the PRIVATE signing key from its own environment only (never the
+# worker's settings). Where either is absent or invalid, callers BLOCK - deployable paths must not
+# fall back to unsigned mode.
+
+def configured_verifier(settings):
+    """The trusted `Verifier` from `settings['review_public_key']` (base64 Ed25519 public key), or
+    None when unconfigured or the material is invalid. None must BLOCK in deployable paths."""
+    key = (settings or {}).get("review_public_key")
+    if not key:
+        return None
+    try:
+        return review_identity.Verifier(base64.b64decode(key))
+    except Exception:
+        return None
+
+
+def configured_signer_from_env(environ=None):
+    """The console's `Signer` from the `REVIEW_PRIVATE_KEY` environment variable (base64 Ed25519
+    private key), or None when unconfigured or invalid. Kept out of the worker's settings so the
+    worker can verify but never sign. None must BLOCK an authenticated review write."""
+    environ = os.environ if environ is None else environ
+    key = environ.get("REVIEW_PRIVATE_KEY", "").strip()
+    if not key:
+        return None
+    try:
+        return review_identity.Signer(base64.b64decode(key))
+    except Exception:
+        return None
+
+
+def resolved_status(store, review_id, fingerprint, verifier):
+    """The current review status for display/read-back, resolved from the signed chain. Never
+    reports a conflicted, tampered or unverifiable chain as current approval. Returns the dict
+    `review_view` uses for its `review` field.
+
+      state: "resolved" (a verified tip; `decision`/`current` are meaningful),
+             "unverifiable" (no verifier configured), "unreadable" (history could not be read),
+             or a resolve code (REVIEW_MISSING / REVIEW_CONFLICT / REVIEW_TAMPERED)."""
+    if verifier is None:
+        return {"decision": None, "current": False, "state": "unverifiable"}
+    try:
+        records = store.history(review_id) if hasattr(store, "history") else []
+    except Exception:
+        return {"decision": None, "current": False, "state": "unreadable"}
+    record, code = review_identity.resolve_current(records, verifier)
+    if record is None:
+        return {"decision": None, "current": False, "state": code}
+    return {"decision": record.get("decision"), "reviewer": record.get("reviewer", ""),
+            "reviewed_at": record.get("reviewed_at", ""),
+            "current": record.get("fingerprint") == fingerprint, "state": "resolved"}

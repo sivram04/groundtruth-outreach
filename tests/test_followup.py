@@ -6,6 +6,7 @@ a recipient must fail closed.
 
 import pytest
 
+import review_fixtures as rf
 from outreach import drafting, followup, gmail_drafts, review, sequence, sync
 from stage4_fakes import FakeGmail, MemoryStore, at, lead, message, parsed, sent
 
@@ -86,7 +87,7 @@ def settings(**changes):
               "postal_address": "1 Example St, Columbus, OH 43215", "sender_phone": "614-555-0100",
               "sender_email": "admin@lakshyaa.ai", "daily_cap": 4, "offer_approved": True,
               "version": "prelaunch-v1", followup.APPROVAL_KEY: "hash-one",
-              "review_reviewers": ["admin@lakshyaa.ai"]}
+              "review_reviewers": ["admin@lakshyaa.ai"], "review_public_key": rf.PUBLIC_KEY_B64}
     config.update(changes)
     return config
 
@@ -119,8 +120,7 @@ def reviewed_store(store, gmail, *, config=None, book=BOOK, now=NOW, reviewer="a
     cfg = config or settings()
     rs = review.MemoryReviewStore()
     for review_id, candidate in followup.pending_reviews(store, gmail, cfg, book, now):
-        review.record_confirmation(rs, review_id, reviewer,
-                                   review.candidate_fingerprint(candidate, book, cfg))
+        rf.confirm(rs, review_id, reviewer, review.candidate_fingerprint(candidate, book, cfg))
     return rs
 
 
@@ -517,8 +517,8 @@ def test_an_initial_email_review_does_not_count_as_the_follow_ups_review(enabled
     # A review recorded under the lead id (an initial email's key) must not admit the follow-up.
     rs = review.MemoryReviewStore()
     _rid, candidate = followup.pending_reviews(store, gmail, settings(), BOOK, NOW)[0]
-    review.record_confirmation(rs, "A-0001", "admin@lakshyaa.ai",
-                               review.candidate_fingerprint(candidate, BOOK, settings()))
+    rf.confirm(rs, "A-0001", "admin@lakshyaa.ai",
+               review.candidate_fingerprint(candidate, BOOK, settings()))
     report = run(store, gmail, review_store=rs)
     assert report["created"] == [] and gmail.created == []
     assert "human evidence review required" in report["blocked"][0]["why"][0]

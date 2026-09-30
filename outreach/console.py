@@ -207,14 +207,12 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             if refused:
                 return refused
             chosen = _chosen_settings()
-            try:
-                existing = reviews.get(lead_id)
-            except Exception:
-                # A review store that cannot be read never shows a review as done: fail closed.
-                log.exception("the review record could not be read")
-                return refuse(502, "The review record could not be read just now. Nothing was "
-                                   "changed; try again in a minute.")
-            return jsonify(review.review_view(candidate, None, chosen, existing=existing))
+            fingerprint = review.candidate_fingerprint(candidate, None, chosen)
+            # The current status is resolved from the SIGNED chain with the trusted verifier, so a
+            # conflicted, tampered or unverifiable history never shows as current approval.
+            status = review.resolved_status(reviews, lead_id, fingerprint,
+                                            review.configured_verifier(chosen))
+            return jsonify(review.review_view(candidate, None, chosen, status=status))
 
         @app.post("/api/review/<lead_id>")
         def record_review(lead_id):
@@ -230,7 +228,11 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                                    "again.")
             if decision not in ("confirm", "reject"):
                 return refuse(400, "A review is either confirm or reject.")
-            # SAVE the review. The reviewer is the IAP-verified signed-in identity (g.email),
+            if review_signer is None:
+                # No signing authority configured: an authenticated review cannot be recorded, and we
+                # do not fall back to an unsigned write.
+                return refuse(503, "Review signing is not configured, so a review cannot be recorded.")
+            # SAVE the review, signed. The reviewer is the IAP-verified signed-in identity (g.email),
             # never a body field.
             try:
                 (review.record_confirmation if decision == "confirm"
@@ -246,17 +248,17 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                 # The save failed; nothing was recorded.
                 log.exception("the review could not be recorded")
                 return refuse(502, "The review could not be recorded just now. Nothing was changed.")
-            # The save SUCCEEDED. Reading the current status back is a separate step: if it fails, the
-            # review is still recorded - never say "nothing was changed" or show approval as current.
-            try:
-                existing = reviews.get(lead_id)
-            except Exception:
-                log.exception("the review was recorded but its status could not be read back")
+            # The save SUCCEEDED. Reading the current status back is a SEPARATE step, resolved from the
+            # signed chain: if it cannot be verified/read, the review is still recorded - never say
+            # "nothing was changed" or show approval as current.
+            status = review.resolved_status(reviews, lead_id, fingerprint,
+                                            review.configured_verifier(chosen))
+            if status.get("state") in ("unverifiable", "unreadable"):
                 return jsonify(recorded=True, status_unavailable=True,
                                message="Your review was recorded, but its current status could not "
                                        "be loaded. Reload before continuing.")
             log.info("review %s by %s for %s", decision, g.email, lead_id)
-            return jsonify(review.review_view(candidate, None, chosen, existing=existing))
+            return jsonify(review.review_view(candidate, None, chosen, status=status))
 
     return app
 
@@ -270,9 +272,13 @@ def _deployed():
     # a test/stub verifier - that override is a `create_app` argument only tests pass. Drafting and
     # sending stay disabled regardless (ENABLE_GMAIL_DRAFTS on the worker).
     enable_review = os.environ.get("ENABLE_REVIEW") == "true"
+    # The signer (private key) comes from the console's own environment only, never the worker's
+    # settings; None (unconfigured) blocks review writes. The verifier (public key) is read per
+    # request from the drafting settings.
     return create_app(static_dir=os.environ.get("CONSOLE_STATIC_DIR") or None,
                       handbook_doc_id=os.environ.get("HANDBOOK_DOC_ID", ""),
-                      enable_review=enable_review, review_store=review.store_from_env())
+                      enable_review=enable_review, review_store=review.store_from_env(),
+                      review_signer=review.configured_signer_from_env())
 
 
 app = _deployed()

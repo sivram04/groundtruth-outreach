@@ -239,6 +239,7 @@ def test_unreadable_settings_leave_the_rest_of_the_console_working(built):
 
 import json  # noqa: E402
 
+import review_fixtures as rf  # noqa: E402
 from outreach import review  # noqa: E402
 
 WRITTEN = {
@@ -263,12 +264,18 @@ def review_rows():
     return [row]
 
 
+def review_settings():
+    return {**fx.SETTINGS, "review_public_key": rf.PUBLIC_KEY_B64}  # the trusted verifier key
+
+
 def review_app(static, reviews=None, **changes):
     shared = MemoryStore(fx.rows(), events=fx.events(), suppression=fx.suppression(),
                          runs=fx.runs(), drafts=review_rows())
-    return app(static, store=lambda: shared, enable_review=True,
-               review_store=reviews if reviews is not None else review.MemoryReviewStore(),
-               **changes)
+    options = dict(store=lambda: shared, enable_review=True, settings=review_settings,
+                   review_signer=rf.SIGNER,  # the console's signing authority (ephemeral test key)
+                   review_store=reviews if reviews is not None else review.MemoryReviewStore())
+    options.update(changes)
+    return app(static, **options)
 
 
 def test_the_review_routes_are_absent_unless_the_flow_is_enabled(built):
@@ -403,7 +410,7 @@ def test_the_console_review_flow_lets_an_approval_hash_mint_end_to_end(built):
     shared = MemoryStore(fx.rows(), events=fx.events(), suppression=fx.suppression(), runs=fx.runs(),
                          drafts=[_drafts_row(bare)])
     client = app(built, store=lambda: shared, settings=lambda: dp_settings(), enable_review=True,
-                 review_store=reviews)
+                 review_store=reviews, review_signer=rf.SIGNER)
 
     view = client.get("/api/review/A-0001", headers=signed()).get_json()
     assert view["review"]["decision"] is None and view["subject"] == bare["subject"]
@@ -419,8 +426,13 @@ def test_the_console_review_flow_lets_an_approval_hash_mint_end_to_end(built):
 
 # --- item 4: fail-closed on storage errors, and rejected/stale states survive a reload --------
 
-class _GetFails:
+class _ReadFails:
+    """History cannot be read: the resolver reports 'unreadable' and never shows approval."""
+
     def get(self, lead_id):
+        raise RuntimeError("the review store is unreachable")
+
+    def history(self, lead_id):
         raise RuntimeError("the review store is unreachable")
 
     def put(self, record):
@@ -431,13 +443,20 @@ class _PutFails:
     def get(self, lead_id):
         return None
 
+    def history(self, lead_id):
+        return []
+
     def put(self, record):
         raise RuntimeError("the review store is unwritable")
 
 
 def test_a_review_store_read_error_fails_closed(built):
-    assert review_app(built, reviews=_GetFails()).get("/api/review/A-0014",
-                                                      headers=signed()).status_code == 502
+    # A read error never shows approval: the resolver reports 'unreadable' and the status is not
+    # a confirmation.
+    view = review_app(built, reviews=_ReadFails()).get("/api/review/A-0014",
+                                                       headers=signed()).get_json()
+    assert view["review"]["decision"] is None and view["review"]["current"] is False
+    assert view["review"]["state"] == "unreadable"
 
 
 def test_a_review_store_write_error_shows_no_success(built):
@@ -460,9 +479,18 @@ def test_a_rejected_state_survives_a_reload(built):
 
 def test_a_stale_state_survives_a_reload(built):
     reviews = review.MemoryReviewStore()
-    review.record_confirmation(reviews, "A-0014", "admin@lakshyaa.ai", "a" * 64)  # an old candidate
+    rf.confirm(reviews, "A-0014", "admin@lakshyaa.ai", "a" * 64)  # a signed review of an old candidate
     view = review_app(built, reviews=reviews).get("/api/review/A-0014", headers=signed()).get_json()
     assert view["review"]["decision"] == "confirmed" and view["review"]["current"] is False
+
+
+def test_no_signer_configured_blocks_the_write(built):
+    reviews = review.MemoryReviewStore()
+    client = review_app(built, reviews=reviews, review_signer=None)  # no signing authority
+    fingerprint = client.get("/api/review/A-0014", headers=signed()).get_json()["fingerprint"]
+    resp = client.post("/api/review/A-0014", headers=signed(),
+                       json={"decision": "confirm", "fingerprint": fingerprint})
+    assert resp.status_code == 503 and reviews.get("A-0014") is None
 
 
 # --- item 3: test authentication cannot be turned on through production configuration ---------
@@ -493,6 +521,9 @@ class _Uncertain:
     def get(self, lead_id):
         return None
 
+    def history(self, lead_id):
+        return []
+
     def put(self, record):
         raise review.ReviewsUncertain("the outcome is uncertain")
 
@@ -521,6 +552,11 @@ class _ReadFailsAfterSave:
         if self.saved:
             raise RuntimeError("the review store read failed after the save")
         return self._m.get(lead_id)
+
+    def history(self, lead_id):
+        if self.saved:
+            raise RuntimeError("the review store read failed after the save")
+        return self._m.history(lead_id)
 
     def put(self, record):
         self.saved = True
@@ -553,10 +589,18 @@ class _RejectAfterConfirm:
     def get(self, lead_id):
         return self._m.get(lead_id)
 
+    def history(self, lead_id):
+        return self._m.history(lead_id)
+
     def put(self, record):
         self._m.put(record)
         if record["decision"] == "confirmed":
-            self._m.put({**record, "decision": "rejected"})  # the later rejection supersedes it
+            # a concurrent, genuinely-signed rejection chained onto the confirmation lands first
+            rej = {**record, "decision": "rejected", "prev": record["signature"]}
+            rej["signature"] = rf.SIGNER.sign(
+                review_id=rej["lead_id"], prev=rej["prev"], fingerprint=rej["fingerprint"],
+                reviewer=rej["reviewer"], decision="rejected", reviewed_at=rej["reviewed_at"])
+            self._m.put(rej)
 
 
 def test_a_rejection_between_the_confirm_write_and_the_read_is_not_shown_as_approval(built):

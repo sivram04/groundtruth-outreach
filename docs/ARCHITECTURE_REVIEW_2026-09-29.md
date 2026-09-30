@@ -272,13 +272,23 @@ Drive files (use an org-owned shared drive; write access by strictly-expansive d
 founder account `reader` not writer since the worker holds its OAuth), and `max(seq)+1` races. Signer
 binds the authenticated reviewer and candidate fingerprint into each decision; the worker verifies but
 cannot forge. Wired opt-in through `record_*` (signer) and `enforce`/`is_reviewed` (verifier), stores
-gained `history`, schema gained `Prev`+`Signature` (8 cols, exact). Verified in the Python container:
-**828 passed** (+17 identity tests, incl. forged/altered/replay/conflict/missing-key). These are
-mocked-store tests; the deployed shared-drive write-exclusivity is a Workspace config to verify with
-the admin, not asserted here. Frontend unchanged (54 from `cbba196`, not re-run). Nothing deployed;
-no spreadsheet, key, credential or permission created or changed. **Not deployed**: `outreach/writer.py` and the review
-gate run inside `outreach-worker`/`outreach-console`, neither rebuilt; the `Reviews` tab is not
-created and its permissions posture is undecided, so nothing touches the live Sheet.
+gained `history`, schema gained `Prev`+`Signature` (8 cols, exact). **Then (2026-09-30) wired through
+the real application entry points**: one trusted config — public key in `settings['review_public_key']`
+(worker + console), console-only private key in env `REVIEW_PRIVATE_KEY`. `job_draft._gate_hash`,
+`job_draft.create` and `followup._create` now resolve a verifier and **block when it is missing** (no
+approval hash / draft / follow-up), with no silent unsigned fallback; the console GET resolves status
+through the signed-chain resolver (`resolved_status`) and the POST refuses with 503 when no signer is
+configured, so a conflicted/tampered history never shows as current approval and a saved-but-
+unverifiable status is reported as such. The unsigned `verifier=None` path survives only for isolated
+unit fixtures. Verified in the Python container: **831 passed** (application-level tests through the
+real paths cover missing verifier, unsigned/wrong-key records, conflicting histories, signed
+confirmation and later signed rejection, using ephemeral keys). These remain mocked-store tests; the
+deployed shared-drive write-exclusivity is a Workspace config to verify with the admin, not asserted
+here. Frontend re-run for the record (54 passed, typecheck/build clean). Nothing deployed; no
+spreadsheet, key, credential or permission created or changed, and no verifier/signer config is set in
+any deployable path. **Not deployed**: `outreach/writer.py` and the review gate run inside
+`outreach-worker`/`outreach-console`, neither rebuilt; the `Reviews` tab is not created and its
+permissions posture is undecided, so nothing touches the live Sheet.
 
 ### 3.2 Prompt injection
 

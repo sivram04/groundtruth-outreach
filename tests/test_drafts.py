@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+import review_fixtures as rf
 from outreach import drafting, drafts, job_draft, review, sequence, sheet
 from outreach.sync import _event
 from stage4_fakes import MemoryStore, at
@@ -60,8 +61,8 @@ def reviewed_store(memory, *, config=None):
                                          model=model_for(), pages=SITE,
                                          review_store=review.MemoryReviewStore())
         if bare.get("written"):
-            review.record_confirmation(store, bare["lead_id"], "admin@lakshyaa.ai",
-                                       review.candidate_fingerprint(bare, BOOK, cfg))
+            rf.confirm(store, bare["lead_id"], "admin@lakshyaa.ai",
+                       review.candidate_fingerprint(bare, BOOK, cfg))
     return store
 
 

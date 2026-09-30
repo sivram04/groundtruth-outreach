@@ -387,16 +387,24 @@ measurement honest and avoid overfitting**:
   worker-verifies), which stays an explicit blocker to enabling the gate. Nothing deployed; the
   `Reviews` tab is not created.
 - **Verified in the repository's containers, no network at run time.** Python
-  (`deploy/test.Dockerfile`): **828 passed (0 xfailed)** — includes 17 reviewer-identity tests
-  (valid/forged/altered/replay/concurrent-conflict/missing-key + uncertain-write preserved). Frontend
-  (`deploy/console-test.Dockerfile`): **54 tests, tsc clean, vite build** (from `cbba196`; unchanged
-  this pass, not re-run). Reviewer identity is now implemented locally (activation disabled):
-  Ed25519 console-only `Signer` / `Verifier` (public key as trusted config) and a signed per-review
-  hash chain so concurrent/forked/replayed/tampered decisions block instead of an arbitrary pick.
-  Two design errors were corrected — a service account cannot own Drive files (org-owned shared drive
-  with write-exclusivity by drive-level role; founder account `reader`, not writer) and the unsafe
-  `max(seq)+1`. The tests are mocked-store; the deployed Drive write-exclusivity is a Workspace config
-  to verify with the admin. See `docs/REVIEW_IDENTITY_RECOMMENDATION.md`.
+  (`deploy/test.Dockerfile`): **831 passed (0 xfailed)** — includes the reviewer-identity crypto/chain
+  tests plus application-level tests through the real paths. Frontend (`deploy/console-test.Dockerfile`):
+  **54 tests, tsc clean, vite build** (re-run for the record; frontend source unchanged this pass).
+  Reviewer identity is implemented locally (activation disabled): Ed25519 console-only `Signer` /
+  `Verifier` (public key as trusted config) and a signed per-review hash chain so concurrent/forked/
+  replayed/tampered decisions block instead of an arbitrary pick. Two design errors were corrected — a
+  service account cannot own Drive files (org-owned shared drive with write-exclusivity by drive-level
+  role; founder account `reader`, not writer) and the unsafe `max(seq)+1`. **The identity mechanism is
+  now wired through the real application entry points** (2026-09-30): one trusted config (public key in
+  settings, console-only private key in env); `job_draft._gate_hash`, `job_draft.create` and
+  `followup._create` block when no verifier is configured (no unsigned fallback); the console resolves
+  status and read-back through the signed-chain resolver and refuses the write with 503 when no signer
+  is configured, so a conflicted/tampered history never shows as current approval. Application-level
+  tests cover missing verifier, unsigned/wrong-key records, conflicting histories, a signed
+  confirmation and a later signed rejection (ephemeral keys). The tests are mocked-store: they establish
+  that the application requires and honours one trusted identity config and fails closed without it;
+  the deployed Drive write-exclusivity is a Workspace config to verify with the admin. See
+  `docs/REVIEW_IDENTITY_RECOMMENDATION.md`.
 
 ## What this does not establish (limits of the evidence itself)
 
