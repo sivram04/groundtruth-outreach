@@ -262,9 +262,21 @@ build ok** (no host npm/tsc/vite). **24 deliberate breaks all caught** (prior co
 review page's stale-status handling was then fixed (a save whose status can't be read back shows
 "Current status unavailable", disables actions, offers a reload), and the reviewer-identity
 recommendation was corrected: per-row signatures do not protect the latest decision (deletion/replay/
-reorder), so the design is a separate console-owned review spreadsheet with write-exclusivity (the
-founder account viewer, not editor, since the worker holds its token) plus a signed monotonic
-per-review sequence (`docs/REVIEW_IDENTITY_RECOMMENDATION.md`). **Not deployed**: `outreach/writer.py` and the review
+reorder), so the design is a separate review spreadsheet with write-exclusivity plus signed ordering
+(`docs/REVIEW_IDENTITY_RECOMMENDATION.md`). **Reviewer identity was then implemented locally**
+(`outreach/review_identity.py`, activation disabled): Ed25519 `Signer` (console-only) / `Verifier`
+(public key as trusted config), and a **signed per-review hash chain** (`prev` links; the current
+decision is the unique tip; concurrent/forked/replayed/tampered records block, never an arbitrary
+pick — no unsafe `max(seq)+1` counter). Two design errors were fixed: a service account cannot own
+Drive files (use an org-owned shared drive; write access by strictly-expansive drive-level role, the
+founder account `reader` not writer since the worker holds its OAuth), and `max(seq)+1` races. Signer
+binds the authenticated reviewer and candidate fingerprint into each decision; the worker verifies but
+cannot forge. Wired opt-in through `record_*` (signer) and `enforce`/`is_reviewed` (verifier), stores
+gained `history`, schema gained `Prev`+`Signature` (8 cols, exact). Verified in the Python container:
+**828 passed** (+17 identity tests, incl. forged/altered/replay/conflict/missing-key). These are
+mocked-store tests; the deployed shared-drive write-exclusivity is a Workspace config to verify with
+the admin, not asserted here. Frontend unchanged (54 from `cbba196`, not re-run). Nothing deployed;
+no spreadsheet, key, credential or permission created or changed. **Not deployed**: `outreach/writer.py` and the review
 gate run inside `outreach-worker`/`outreach-console`, neither rebuilt; the `Reviews` tab is not
 created and its permissions posture is undecided, so nothing touches the live Sheet.
 

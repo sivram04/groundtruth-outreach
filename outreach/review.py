@@ -52,7 +52,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from outreach import console_auth, drafting
+from outreach import console_auth, drafting, review_identity
 
 CONFIRMED = "confirmed"
 REJECTED = "rejected"
@@ -113,12 +113,15 @@ class ReviewsUncertain(ReviewsUnavailable):
 # column holds the review id (the lead id for an initial email, `followup:<lead>:<step>` for a
 # follow-up), so an initial's review and a follow-up's are separate rows. "Attempt ID" is a unique
 # id per append, so a specific write can be reconciled without an older identical row masking it.
+# "Prev" and "Signature" carry the signed hash chain (see outreach/review_identity.py): each decision
+# names the signature of the one it supersedes, and the worker verifies with the trusted public key.
 REVIEWS_TAB = "Reviews"
-REVIEWS_HEADER = ["Review ID", "Attempt ID", "Fingerprint", "Reviewer", "Decision",
-                  "Reviewed at (UTC)"]
+REVIEWS_HEADER = ["Review ID", "Attempt ID", "Prev", "Fingerprint", "Reviewer", "Decision",
+                  "Reviewed at (UTC)", "Signature"]
 # Row column index -> review-record field (the Attempt ID column is storage-internal, not a record
 # field).
-_ROW_TO_RECORD = {0: "lead_id", 2: "fingerprint", 3: "reviewer", 4: "decision", 5: "reviewed_at"}
+_ROW_TO_RECORD = {0: "lead_id", 2: "prev", 3: "fingerprint", 4: "reviewer", 5: "decision",
+                  6: "reviewed_at", 7: "signature"}
 _ATTEMPT_COL = 1
 
 
@@ -219,9 +222,10 @@ def _evaluate(record, fingerprint, reviewers):
         raise ReviewInvalid(REJECTED_REASON, "this candidate was rejected in review")
 
 
-def enforce(preview, book, settings, *, store, reviewers=None, review_id=None):
+def enforce(preview, book, settings, *, store, reviewers=None, review_id=None, verifier=None):
     """Raise `ReviewInvalid` unless a valid, current, confirmed human review of THIS candidate
-    exists. Returns the candidate fingerprint on success.
+    exists. Returns the candidate fingerprint on success. With a `verifier`, the current decision is
+    resolved from the signed hash chain (forged records and concurrent conflicts block).
 
     Called at the action boundary, after the candidate has been rebuilt and every existing gate
     has passed, immediately before any Gmail write. Because the fingerprint is recomputed here,
@@ -232,32 +236,55 @@ def enforce(preview, book, settings, *, store, reviewers=None, review_id=None):
     reviewers = _reviewers(settings, reviewers)
     fingerprint = candidate_fingerprint(preview, book, settings)
     key = review_id or preview.get("lead_id", "")
-    try:
-        record = store.get(key)
-    except Exception as exc:  # a store that cannot be read never permits approval
-        raise ReviewInvalid(UNREADABLE, f"the review record could not be read: {exc}") from None
+    record = _current_record(store, key, verifier)  # raises ReviewInvalid on read/chain problems
     _evaluate(record, fingerprint, reviewers)
     return fingerprint
 
 
-def is_reviewed(store, review_id, fingerprint, *, reviewers):
+def _current_record(store, review_id, verifier):
+    """The single current decision record for a review id, or raise ReviewInvalid.
+
+    Without a `verifier` (the default), reads the store's latest record. With one, resolves the
+    signed hash chain over the full history, so an unverifiable/forged record or a concurrent
+    conflict blocks (TAMPERED / CONFLICT) instead of an arbitrary decision being chosen."""
+    if verifier is None:
+        try:
+            return store.get(review_id)
+        except Exception as exc:
+            raise ReviewInvalid(UNREADABLE, f"the review record could not be read: {exc}") from None
+    try:
+        records = store.history(review_id)
+    except Exception as exc:
+        raise ReviewInvalid(UNREADABLE, f"the review history could not be read: {exc}") from None
+    record, code = review_identity.resolve_current(records, verifier)
+    if record is None:
+        raise ReviewInvalid(code, {
+            review_identity.NO_REVIEW: "no human evidence review exists for this candidate",
+            review_identity.TAMPERED: "a review record could not be verified",
+            review_identity.CONFLICT: "the review decisions conflict; approval is blocked",
+        }.get(code, "the review could not be resolved"))
+    return record
+
+
+def is_reviewed(store, review_id, fingerprint, *, reviewers, verifier=None):
     """True iff a valid, current, confirmed human review with this fingerprint exists for
-    `review_id`. Used to gate approval-hash issuance; an unreadable store returns False."""
+    `review_id`. Used to gate approval-hash issuance; anything unresolved returns False."""
     reviewers = frozenset(r.strip().lower() for r in reviewers if r and r.strip())
     try:
-        record = store.get(review_id)
-    except Exception:
-        return False
-    try:
+        record = _current_record(store, review_id, verifier)
         _evaluate(record, fingerprint, reviewers)
         return True
     except ReviewInvalid:
         return False
 
 
-def _record(store, lead_id, reviewer, decision, fingerprint, now=None):
+def _record(store, lead_id, reviewer, decision, fingerprint, now=None, signer=None):
     """Write one review. The reviewer identity must be supplied by an authenticated caller: this
     function never infers or invents it, so the model/worker cannot mint a review of its own work.
+
+    With a `signer` (the console's signing authority), the decision is chained onto the current tip
+    (`prev`) and signed, so the worker can later verify it and detect conflicts. Without a signer
+    (the current default), the record is unsigned and the legacy latest-wins path applies.
     """
     lead_id = str(lead_id).strip()
     reviewer = str(reviewer or "").strip()
@@ -269,19 +296,25 @@ def _record(store, lead_id, reviewer, decision, fingerprint, now=None):
         raise ValueError(f"unknown review decision {decision!r}")
     if not isinstance(fingerprint, str) or not _HEX64.match(fingerprint):
         raise ValueError("a review needs the candidate fingerprint it reviewed")
-    record = {"lead_id": lead_id, "fingerprint": fingerprint, "reviewer": reviewer,
-              "decision": decision,
-              "reviewed_at": (now or datetime.now(timezone.utc)).isoformat()}
+    reviewed_at = (now or datetime.now(timezone.utc)).isoformat()
+    prev, signature = review_identity.FIRST, ""
+    if signer is not None:
+        history = store.history(lead_id) if hasattr(store, "history") else []
+        prev = review_identity.tip_signature(history, review_identity.Verifier(signer.public_key_bytes()))
+        signature = signer.sign(review_id=lead_id, prev=prev, fingerprint=fingerprint,
+                                reviewer=reviewer, decision=decision, reviewed_at=reviewed_at)
+    record = {"lead_id": lead_id, "prev": prev, "fingerprint": fingerprint, "reviewer": reviewer,
+              "decision": decision, "reviewed_at": reviewed_at, "signature": signature}
     store.put(record)
     return record
 
 
-def record_confirmation(store, lead_id, reviewer, fingerprint, *, now=None):
-    return _record(store, lead_id, reviewer, CONFIRMED, fingerprint, now)
+def record_confirmation(store, lead_id, reviewer, fingerprint, *, now=None, signer=None):
+    return _record(store, lead_id, reviewer, CONFIRMED, fingerprint, now, signer)
 
 
-def record_rejection(store, lead_id, reviewer, fingerprint, *, now=None):
-    return _record(store, lead_id, reviewer, REJECTED, fingerprint, now)
+def record_rejection(store, lead_id, reviewer, fingerprint, *, now=None, signer=None):
+    return _record(store, lead_id, reviewer, REJECTED, fingerprint, now, signer)
 
 
 HUMAN_JUDGMENT_NOTE = (
@@ -334,20 +367,26 @@ def review_view(preview, book=None, settings=None, *, existing=None):
 
 
 class MemoryReviewStore:
-    """In memory, for tests and short-lived local use."""
+    """In memory, for tests and short-lived local use. Append-only per review id: `get` returns the
+    latest recorded decision, `history` returns them all (for chain resolution)."""
 
     def __init__(self, records=None):
-        self._by_lead = dict(records or {})
+        self._by_lead = {k: [dict(v)] for k, v in (records or {}).items()}
 
     def get(self, lead_id):
-        return self._by_lead.get(lead_id)
+        rows = self._by_lead.get(lead_id)
+        return dict(rows[-1]) if rows else None
 
     def put(self, record):
-        self._by_lead[record["lead_id"]] = dict(record)
+        self._by_lead.setdefault(record["lead_id"], []).append(dict(record))
+
+    def history(self, lead_id):
+        return [dict(r) for r in self._by_lead.get(lead_id, [])]
 
 
 class JsonFileReviewStore:
-    """A local JSON file, for the local console review flow. Never the live Sheet."""
+    """A local JSON file, for the local console review flow. Never the live Sheet. Append-only per
+    review id ({review_id: [records]}); `get` returns the latest, `history` returns them all."""
 
     def __init__(self, path):
         self.path = Path(path)
@@ -358,13 +397,17 @@ class JsonFileReviewStore:
         return json.loads(self.path.read_text(encoding="utf-8"))
 
     def get(self, lead_id):
-        return self._load().get(lead_id)
+        rows = self._load().get(lead_id) or []
+        return rows[-1] if rows else None
 
     def put(self, record):
         data = self._load()
-        data[record["lead_id"]] = dict(record)
+        data.setdefault(record["lead_id"], []).append(dict(record))
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+
+    def history(self, lead_id):
+        return list(self._load().get(lead_id) or [])
 
 
 class UnmigratedReviewStore:
@@ -376,6 +419,9 @@ class UnmigratedReviewStore:
 
     def get(self, review_id):
         return None
+
+    def history(self, review_id):
+        return []
 
     def put(self, record):
         raise NotMigrated(
@@ -464,12 +510,17 @@ class SheetReviewStore:
             return None
         return self._record(matches[-1])  # append order is the authority
 
+    def history(self, review_id):
+        """Every recorded decision for a review id, in append order, for chain resolution."""
+        return [self._record(row) for row in self._values()[1:] if (row[0] if row else "") == review_id]
+
     def put(self, record):
         self._values()  # a missing tab / changed header blocks the write; never create the tab
         api, sid = self._service(), self._sid()
         attempt_id = uuid.uuid4().hex
-        row = [record.get("lead_id", ""), attempt_id, record.get("fingerprint", ""),
-               record.get("reviewer", ""), record.get("decision", ""), record.get("reviewed_at", "")]
+        row = [record.get("lead_id", ""), attempt_id, record.get("prev", ""),
+               record.get("fingerprint", ""), record.get("reviewer", ""), record.get("decision", ""),
+               record.get("reviewed_at", ""), record.get("signature", "")]
         response_ok = True
         try:
             api.values().append(

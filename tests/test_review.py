@@ -283,9 +283,10 @@ class Sheets:
 HDR = review.REVIEWS_HEADER
 
 
-def srow(review_id, fingerprint, decision, at, *, attempt="att", reviewer="founder@lakshyaa.ai"):
-    """A 6-column Reviews row: Review ID | Attempt ID | Fingerprint | Reviewer | Decision | at."""
-    return [review_id, attempt, fingerprint, reviewer, decision, at]
+def srow(review_id, fingerprint, decision, at, *, attempt="att", reviewer="founder@lakshyaa.ai",
+         prev="", signature="sig"):
+    """A Reviews row: Review ID | Attempt ID | Prev | Fingerprint | Reviewer | Decision | at | Sig."""
+    return [review_id, attempt, prev, fingerprint, reviewer, decision, at, signature]
 
 
 def sheet_store(tabs, **kw):

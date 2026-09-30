@@ -43,8 +43,9 @@ def dry_run(api=None, spreadsheet_id=None):
             status="HEADER_MISMATCH", found_header=list(header), existing_rows=len(data_rows),
             plan=[f"the {review.REVIEWS_TAB} tab exists with a header that is not exactly the schema; "
                   f"a person must reconcile it by hand to {review.REVIEWS_HEADER} (for example, an "
-                  f"older tab without the 'Attempt ID' column needs that column inserted at position "
-                  f"2 and every existing row given a unique Attempt ID). This dry run changes nothing."],
+                  f"older tab is missing the 'Attempt ID', 'Prev' and 'Signature' columns; each must "
+                  f"be added and every existing row given a unique Attempt ID and its signed chain "
+                  f"fields). This dry run changes nothing."],
             existing_data=f"{len(data_rows)} row(s) present under a non-matching header; not read",
             rollback="none needed (nothing changes)",
             older_revisions="a header that is not exactly the schema already blocks the store "

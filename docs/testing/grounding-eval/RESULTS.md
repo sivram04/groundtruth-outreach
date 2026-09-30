@@ -387,14 +387,16 @@ measurement honest and avoid overfitting**:
   worker-verifies), which stays an explicit blocker to enabling the gate. Nothing deployed; the
   `Reviews` tab is not created.
 - **Verified in the repository's containers, no network at run time.** Python
-  (`deploy/test.Dockerfile`): **811 passed (0 xfailed)**. Frontend (`deploy/console-test.Dockerfile`,
-  added): **54 tests passed, `tsc --noEmit` clean, `vite build` succeeded** — no npm/tsc/vite on the
-  host. **24 deliberate breaks caught** (prior commit, unchanged). Then the review page's stale-status
-  handling was fixed (on a save whose status can't be read back it shows "Current status
-  unavailable", disables actions, and offers a working reload) and the reviewer-identity
-  recommendation was corrected (per-row signatures do not protect the latest decision; the fix is a
-  separate console-owned review spreadsheet with write-exclusivity — the founder account viewer, not
-  editor — plus a signed monotonic per-review `seq`). See `docs/REVIEW_IDENTITY_RECOMMENDATION.md`.
+  (`deploy/test.Dockerfile`): **828 passed (0 xfailed)** — includes 17 reviewer-identity tests
+  (valid/forged/altered/replay/concurrent-conflict/missing-key + uncertain-write preserved). Frontend
+  (`deploy/console-test.Dockerfile`): **54 tests, tsc clean, vite build** (from `cbba196`; unchanged
+  this pass, not re-run). Reviewer identity is now implemented locally (activation disabled):
+  Ed25519 console-only `Signer` / `Verifier` (public key as trusted config) and a signed per-review
+  hash chain so concurrent/forked/replayed/tampered decisions block instead of an arbitrary pick.
+  Two design errors were corrected — a service account cannot own Drive files (org-owned shared drive
+  with write-exclusivity by drive-level role; founder account `reader`, not writer) and the unsafe
+  `max(seq)+1`. The tests are mocked-store; the deployed Drive write-exclusivity is a Workspace config
+  to verify with the admin. See `docs/REVIEW_IDENTITY_RECOMMENDATION.md`.
 
 ## What this does not establish (limits of the evidence itself)
 

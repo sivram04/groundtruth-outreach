@@ -1372,6 +1372,66 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-30 (reviewer identity implemented locally; two design errors corrected) — signed,
+  ordered review decisions the worker can verify but not forge; activation still disabled.**
+  Continues from `cbba196`; scoped to reviewer identity.
+
+  1. **Ownership corrected (a service account cannot own Drive files).** Per Google's shared-drive
+     docs (read 2026-09-30), files in a shared drive belong to the organization and service accounts
+     can't own files; shared-drive permissions are **strictly expansive** (a file-level permission
+     can't reduce access below a member's drive-level role). The review spreadsheet therefore lives in
+     an **organization-owned shared drive**, with the console identity `writer` (sole writer), the
+     worker `reader`, and **the founder account `reader`, not writer** — because the worker holds the
+     shared founder OAuth (`google-signin-token`), a read-only worker identity is insufficient if any
+     credential it holds can still write. Whether a service account may be a shared-drive `writer`
+     member (vs domain-wide delegation), and the founder-account role, are **unverified — for the
+     Workspace admin**; nothing was inspected with write access or changed. See
+     `docs/REVIEW_IDENTITY_RECOMMENDATION.md`.
+  2. **Ordering corrected (`max(seq)+1` races).** Replaced with a **signed per-review hash chain**
+     (`outreach/review_identity.py`): each decision names the signature of the one it supersedes
+     (`prev`); the current decision is the single tip of a single unbroken chain. Concurrent writes
+     off the same predecessor, replays (duplicate signatures), reorderings, cycles and detached
+     branches all block as **CONFLICT/TAMPERED** — never an arbitrary confirmation. No sequence
+     counter is allocated (there is no safe allocator on a bare Sheet); ordering is the chain.
+
+  **Implemented (opt-in; activation disabled).** `review_identity.Signer` (Ed25519 private key, the
+  console's exclusive signing authority) and `Verifier` (public key, supplied as trusted config,
+  never read from the store, so it can't be substituted). The signature covers
+  `review_id | prev | fingerprint | reviewer | decision | reviewed_at`, binding the **authenticated
+  reviewer and the candidate fingerprint** to each decision. Wired through the contract:
+  `record_confirmation`/`record_rejection` accept a `signer` (sign + chain onto the tip);
+  `enforce`/`is_reviewed` accept a `verifier` (resolve the signed chain, blocking conflicts/tamper);
+  the stores gained a per-review `history` and preserve the uncertain-write handling; the console
+  `create_app` accepts a `review_signer`. All defaults are unsigned/unverified — no key exists, the
+  worker and console configure neither, and the gate still fails closed. Schema gained `Prev` and
+  `Signature` columns (now 8, exact; the migration dry-run describes the manual change). `cryptography`
+  pinned in `requirements.txt`.
+
+  **How each attack is handled:** forgery needs the console private key (impossible for the worker);
+  **deletion** of a later rejection is stopped by write-exclusivity (Correction 1) — signatures alone
+  do not stop it, which the earlier doc got wrong; replay → duplicate-signature block; concurrency/
+  reorder → chain resolution / conflict block; key substitution → key is trusted config.
+
+  **Verified in the Python container** (`deploy/test.Dockerfile`, `--network none`): **828 passed**
+  (+17 identity tests). `tests/test_review_identity.py` proves the crypto and chain logic: valid
+  decisions, forged/altered records and wrong-key signatures, replay after rejection, concurrent
+  conflicts, and missing/invalid verification material, plus that a signed write still surfaces the
+  store's uncertain-write outcome. **These are mocked-store tests; they do NOT establish the deployed
+  Drive access guarantees** (the shared-drive write-exclusivity is a Workspace config to verify with
+  the admin). Frontend was unchanged this pass; the frontend container result stands at 54 from
+  `cbba196` and was not re-run. Nothing deployed or pushed; no spreadsheet, key, credential or
+  permission created or changed; review and Gmail drafting stay off; follow-up creation stays blocked;
+  item 1's authenticated dashboard load stays pending a signed-in session.
+
+  **Exact remaining migration & permission steps** (do NOT execute; for approval): (a) create the
+  org-owned shared drive + review spreadsheet (console uploads it); (b) set shared-drive roles —
+  console `writer`, worker `reader`, founder `reader` — and confirm no worker credential can write;
+  (c) confirm SA shared-drive membership vs domain-wide delegation with the admin; (d) generate the
+  Ed25519 keypair, private key to a console-only secret, public key to the worker as trusted config;
+  (e) point `SheetReviewStore` at the review spreadsheet and apply the `Reviews` header (dry-run →
+  create → dry-run READY); (f) activation: configure the console `Signer` and the worker `Verifier`,
+  keeping `ENABLE_GMAIL_DRAFTS` unset.
+
 - **2026-09-30 (UI/persistence closed) — stale review status fixed; identity recommendation
   corrected; frontend checks run in a container.** Continues from `4cb427f`; two scoped items.
 

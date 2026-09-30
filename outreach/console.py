@@ -56,7 +56,8 @@ def _now():
 
 
 def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings, clock=_now,
-               static_dir=None, handbook_doc_id="", review_store=None, enable_review=False):
+               static_dir=None, handbook_doc_id="", review_store=None, enable_review=False,
+               review_signer=None):
     """The console. `store`, `settings` and `clock` are called once per data request, and a test
     passes stand-ins for them. `verifier` None means not configured: every request is refused.
 
@@ -233,7 +234,8 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             # never a body field.
             try:
                 (review.record_confirmation if decision == "confirm"
-                 else review.record_rejection)(reviews, lead_id, g.email, fingerprint, now=clock())
+                 else review.record_rejection)(reviews, lead_id, g.email, fingerprint, now=clock(),
+                                               signer=review_signer)
             except review.ReviewsUncertain:
                 # The write MAY have landed; never claim nothing changed.
                 log.exception("the review outcome is uncertain")
