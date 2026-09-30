@@ -48,6 +48,9 @@ export interface Lead {
   company: string;
   contact: string;
   email: string;
+  phone: string;
+  /** EMAIL, CALL or COMPANY_ONLY: how this lead can be reached (outreach/channels.py). */
+  channel: string;
   website: string;
   website_href: string;
   email_check: string;

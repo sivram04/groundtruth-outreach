@@ -17,6 +17,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from urllib.parse import quote, urlparse
 
+from outreach import channels
 from outreach import drafts as drafts_tab
 from outreach import sequence, suppression, sync
 from outreach.business_days import NEW_YORK, add_business_days, new_york_date
@@ -179,6 +180,7 @@ def _lead(lead_id, row, events, entries, today, now=None):
         "id": lead_id, "tier": tier, "tier_label": TIER_LABELS.get(tier, ""),
         "company": row.get("Company", ""), "contact": row.get("Decision maker", ""),
         "email": row.get("BEST EMAIL", "").strip(), "website": row.get("Website", "").strip(),
+        "phone": channels.phone_of(row), "channel": channels.channel_of(row),
         "website_href": safe_href(row.get("Website", "")),
         "email_check": row.get("Email check", ""), "email_reason": row.get("Reason", ""),
         "fit": row.get("Fit", ""), "fit_reason": row.get("Fit reason", ""),
@@ -209,6 +211,11 @@ def _lead(lead_id, row, events, entries, today, now=None):
                         "day": sequence.day_text(upcoming[1])} if upcoming else None),
         gmail_drafts=_drafts_of(row, state["sends"],
                           {e["Step"] for e in running["sends"]} if running else set()))
+    # A lead with no email to draft is not a dead end: show the correct next action so it stays
+    # usable. Only for a lead nothing has happened to yet (status ""), and never over a hold. This is
+    # display only - it is not the "Next action" the sync writes to the Sheet (that stays about email).
+    if view["channel"] != channels.EMAIL and view["status"] == "" and not view["hold"]:
+        view["action"] = channels.next_action(view["channel"], view["company"])
     blockers = drafts_tab.first_draft_blockers(row, events, entries)
     view["blockers"] = blockers
     view["ready"] = not blockers

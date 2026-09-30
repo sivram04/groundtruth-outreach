@@ -80,6 +80,14 @@ def rows():
         # Ready, and not written yet.
         person("A-0014", "Cobalt Glass", "Rene Diaz", "rene@cobalt-glass.test",
                "https://cobalt-glass.test/"),
+        # Phone-only: no email to draft, so the next action is a call, not a draft.
+        lead("A-0015", Company="Redwood Plumbing", Website="https://redwood-plumbing.test/",
+             **{"BEST EMAIL": "", "Their email": "", "Decision maker": "Sam Ford",
+                "Phone": "(614) 555-0142", "Email check": "", "Fit": "", "Profile status": ""}),
+        # Company-only: no email or phone yet, so the next action is to find a contact.
+        lead("A-0016", Company="Cedar Roofing", Website="cedar-roofing.test",
+             **{"BEST EMAIL": "", "Their email": "", "Decision maker": "", "Phone": "",
+                "Email check": "", "Fit": "", "Profile status": ""}),
         # This system's tracked draft, sent, opened and clicked.
         person("B-0001", "Pine Electrical", "Dana Cole", "dana@pine-electrical.test",
                "https://pine-electrical.test/",

@@ -105,10 +105,14 @@ export function Leads({ data, query }: { data: Snapshot; query: URLSearchParams 
                       </div>
                     </div>
                   </td>
-                  <td className="small">{lead.email}</td>
+                  <td className="small">
+                    {lead.email || (lead.phone ? `☎ ${lead.phone}` : <span className="muted">no email yet</span>)}
+                  </td>
                   <td>
                     <div className="chips">
                       <Status tone={leadTone(lead.status)}>{lead.status_label}</Status>
+                      {lead.channel === "CALL" && <Status tone="amber">Call</Status>}
+                      {lead.channel === "COMPANY_ONLY" && <Status tone="gray">No contact</Status>}
                       {draft && <Status tone={draftTone(draft.status)}>Draft: {draft.status_label.toLowerCase()}</Status>}
                       {lead.ready && !draft && <Status tone="green">Ready</Status>}
                     </div>

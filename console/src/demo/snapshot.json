@@ -121,6 +121,7 @@
         "Sent to": "sam@example-electric.test",
         "Tracked sends": ""
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -195,6 +196,7 @@
         "step": 1
       },
       "origin": "HAND",
+      "phone": "",
       "profile": "READY",
       "ready": false,
       "sent_ago": "5 days ago",
@@ -225,6 +227,7 @@
         "Sent to": "pat@acme-plumbing.test",
         "Tracked sends": ""
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -307,6 +310,7 @@
         "step": 1
       },
       "origin": "HAND",
+      "phone": "",
       "profile": "READY",
       "ready": false,
       "sent_ago": "4 days ago",
@@ -337,6 +341,7 @@
         "Sent to": "robin@northside-mech.test",
         "Tracked sends": ""
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -411,6 +416,7 @@
         "step": 1
       },
       "origin": "HAND",
+      "phone": "",
       "profile": "READY",
       "ready": false,
       "sent_ago": "2 days ago",
@@ -441,6 +447,7 @@
         "Sent to": "jeff@riverbend-drywall.test",
         "Tracked sends": ""
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -511,6 +518,7 @@
       "id": "A-0004",
       "next_followup": null,
       "origin": null,
+      "phone": "",
       "profile": "READY",
       "ready": false,
       "sent_ago": "",
@@ -542,6 +550,7 @@
         "Sent to": "kim@harbor-glass.test",
         "Tracked sends": ""
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -624,6 +633,7 @@
         "step": 1
       },
       "origin": "HAND",
+      "phone": "",
       "profile": "READY",
       "ready": false,
       "sent_ago": "5 days ago",
@@ -655,6 +665,7 @@
         "Sent to": "lee@summit-roofing.test",
         "Tracked sends": ""
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -737,6 +748,7 @@
         "step": 1
       },
       "origin": "HAND",
+      "phone": "",
       "profile": "READY",
       "ready": false,
       "sent_ago": "5 days ago",
@@ -764,6 +776,7 @@
         "Sent to": "",
         "Tracked sends": ""
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -825,6 +838,7 @@
       "id": "A-0007",
       "next_followup": null,
       "origin": null,
+      "phone": "",
       "profile": "READY",
       "ready": true,
       "sent_ago": "",
@@ -852,6 +866,7 @@
         "Sent to": "",
         "Tracked sends": ""
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -913,6 +928,7 @@
       "id": "A-0008",
       "next_followup": null,
       "origin": null,
+      "phone": "",
       "profile": "READY",
       "ready": true,
       "sent_ago": "",
@@ -942,6 +958,7 @@
         "Sent to": "",
         "Tracked sends": ""
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -1007,6 +1024,7 @@
       "id": "A-0009",
       "next_followup": null,
       "origin": null,
+      "phone": "",
       "profile": "READY",
       "ready": false,
       "sent_ago": "",
@@ -1036,6 +1054,7 @@
         "Sent to": "",
         "Tracked sends": ""
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -1101,6 +1120,7 @@
       "id": "A-0010",
       "next_followup": null,
       "origin": null,
+      "phone": "",
       "profile": "READY",
       "ready": false,
       "sent_ago": "",
@@ -1130,6 +1150,7 @@
         "Sent to": "",
         "Tracked sends": ""
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -1195,6 +1216,7 @@
       "id": "A-0011",
       "next_followup": null,
       "origin": null,
+      "phone": "",
       "profile": "READY",
       "ready": false,
       "sent_ago": "",
@@ -1224,6 +1246,7 @@
         "Sent to": "",
         "Tracked sends": ""
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -1285,6 +1308,7 @@
       "id": "A-0012",
       "next_followup": null,
       "origin": null,
+      "phone": "",
       "profile": "",
       "ready": false,
       "sent_ago": "",
@@ -1312,6 +1336,7 @@
         "Sent to": "",
         "Tracked sends": ""
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -1373,6 +1398,7 @@
       "id": "A-0013",
       "next_followup": null,
       "origin": null,
+      "phone": "",
       "profile": "READY",
       "ready": true,
       "sent_ago": "",
@@ -1400,6 +1426,7 @@
         "Sent to": "",
         "Tracked sends": ""
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -1461,6 +1488,7 @@
       "id": "A-0014",
       "next_followup": null,
       "origin": null,
+      "phone": "",
       "profile": "READY",
       "ready": true,
       "sent_ago": "",
@@ -1472,6 +1500,200 @@
       "tier_label": "A: proven commercial",
       "website": "https://cobalt-glass.test/",
       "website_href": "https://cobalt-glass.test/"
+    },
+    {
+      "action": "Call Redwood Plumbing: no email is on file. Record the call outcome after.",
+      "blockers": [
+        "email check is not done",
+        "company profile is not READY"
+      ],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "",
+        "Last event": "",
+        "Next action": "",
+        "Opens (est.)": "",
+        "Outreach status": "",
+        "Replied at": "",
+        "Sent at": "",
+        "Sent to": "",
+        "Tracked sends": ""
+      },
+      "channel": "CALL",
+      "columns": [
+        [
+          "Lead ID",
+          "A-0015"
+        ],
+        [
+          "Company",
+          "Redwood Plumbing"
+        ],
+        [
+          "BEST EMAIL",
+          ""
+        ],
+        [
+          "Their email",
+          ""
+        ],
+        [
+          "Decision maker",
+          "Sam Ford"
+        ],
+        [
+          "Website",
+          "https://redwood-plumbing.test/"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          ""
+        ],
+        [
+          "Fit",
+          ""
+        ],
+        [
+          "Sent by hand",
+          ""
+        ],
+        [
+          "Phone",
+          "(614) 555-0142"
+        ],
+        [
+          "Profile status",
+          ""
+        ]
+      ],
+      "company": "Redwood Plumbing",
+      "contact": "Sam Ford",
+      "draft": null,
+      "email": "",
+      "email_check": "",
+      "email_reason": "",
+      "error": null,
+      "events": [],
+      "fit": "",
+      "fit_reason": "",
+      "gmail_drafts": [],
+      "hold": "",
+      "id": "A-0015",
+      "next_followup": null,
+      "origin": null,
+      "phone": "(614) 555-0142",
+      "profile": "",
+      "ready": false,
+      "sent_ago": "",
+      "sent_by_hand": "",
+      "status": "",
+      "status_label": "Not emailed",
+      "suppressed": false,
+      "tier": "A",
+      "tier_label": "A: proven commercial",
+      "website": "https://redwood-plumbing.test/",
+      "website_href": "https://redwood-plumbing.test/"
+    },
+    {
+      "action": "Find a contact for Cedar Roofing: there is no email or phone yet.",
+      "blockers": [
+        "email check is not done",
+        "company profile is not READY"
+      ],
+      "cells": {
+        "Clicks": "",
+        "Follow-ups sent": "",
+        "Last event": "",
+        "Next action": "",
+        "Opens (est.)": "",
+        "Outreach status": "",
+        "Replied at": "",
+        "Sent at": "",
+        "Sent to": "",
+        "Tracked sends": ""
+      },
+      "channel": "COMPANY_ONLY",
+      "columns": [
+        [
+          "Lead ID",
+          "A-0016"
+        ],
+        [
+          "Company",
+          "Cedar Roofing"
+        ],
+        [
+          "BEST EMAIL",
+          ""
+        ],
+        [
+          "Their email",
+          ""
+        ],
+        [
+          "Decision maker",
+          ""
+        ],
+        [
+          "Website",
+          "cedar-roofing.test"
+        ],
+        [
+          "Emails we already had",
+          ""
+        ],
+        [
+          "Email check",
+          ""
+        ],
+        [
+          "Fit",
+          ""
+        ],
+        [
+          "Sent by hand",
+          ""
+        ],
+        [
+          "Phone",
+          ""
+        ],
+        [
+          "Profile status",
+          ""
+        ]
+      ],
+      "company": "Cedar Roofing",
+      "contact": "",
+      "draft": null,
+      "email": "",
+      "email_check": "",
+      "email_reason": "",
+      "error": null,
+      "events": [],
+      "fit": "",
+      "fit_reason": "",
+      "gmail_drafts": [],
+      "hold": "",
+      "id": "A-0016",
+      "next_followup": null,
+      "origin": null,
+      "phone": "",
+      "profile": "",
+      "ready": false,
+      "sent_ago": "",
+      "sent_by_hand": "",
+      "status": "",
+      "status_label": "Not emailed",
+      "suppressed": false,
+      "tier": "A",
+      "tier_label": "A: proven commercial",
+      "website": "cedar-roofing.test",
+      "website_href": ""
     },
     {
       "action": "Follow-up 1 is due Tue 2026-09-29; it will be drafted then.",
@@ -1491,6 +1713,7 @@
         "Sent to": "dana@pine-electrical.test",
         "Tracked sends": "1"
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -1613,6 +1836,7 @@
         "step": 1
       },
       "origin": "SYSTEM",
+      "phone": "",
       "profile": "READY",
       "ready": false,
       "sent_ago": "3 days ago",
@@ -1642,6 +1866,7 @@
         "Sent to": "",
         "Tracked sends": ""
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -1739,6 +1964,7 @@
       "id": "B-0002",
       "next_followup": null,
       "origin": null,
+      "phone": "",
       "profile": "READY",
       "ready": false,
       "sent_ago": "",
@@ -1769,6 +1995,7 @@
         "Sent to": "",
         "Tracked sends": ""
       },
+      "channel": "EMAIL",
       "columns": [
         [
           "Lead ID",
@@ -1830,6 +2057,7 @@
       "id": "B-0003",
       "next_followup": null,
       "origin": null,
+      "phone": "",
       "profile": "",
       "ready": false,
       "sent_ago": "",
@@ -1917,7 +2145,7 @@
       "emailed": 6,
       "emails_sent": 6,
       "label": "A: proven commercial",
-      "leads": 14,
+      "leads": 16,
       "open_rate": "-",
       "opened": 0,
       "opted_out": 1,
@@ -1963,7 +2191,7 @@
       "emailed": 7,
       "emails_sent": 7,
       "label": "A and B",
-      "leads": 17,
+      "leads": 19,
       "open_rate": "100%",
       "opened": 1,
       "opted_out": 1,

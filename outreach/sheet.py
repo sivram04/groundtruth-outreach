@@ -338,6 +338,25 @@ class Store:
         self._append(SUPPRESSION_TAB, SUPPRESSION_HEADER,
                      [[suppression.cell(e, h) for h in header] for e in entries])
 
+    def append_leads(self, prefix, rows):
+        """Append new lead rows to the tab for `prefix` (e.g. "A"), in that tab's own column order.
+
+        New rows only: this never rewrites or reorders an existing row, and it only fills columns the
+        tab already has, so it can never overwrite a founder column or invent one. Each row is a
+        {header: value} dict (a Lead ID and whatever founder fields the import carried). Used by lead
+        import; in this change it is exercised only against the in-memory store, not the live Sheet."""
+        if not rows:
+            return
+        name = next((tab for tab, pref in LEAD_TABS.items() if pref == str(prefix).strip().upper()),
+                    None)
+        if name is None:
+            raise RuntimeError(f"{prefix} is not a lead tab prefix")
+        header = next(tab.header for tab in self.tabs if tab.name == name)
+        self.api.values().append(
+            spreadsheetId=SHEET_ID, range=f"'{name}'!A{HEADER_ROW}", valueInputOption="RAW",
+            insertDataOption="INSERT_ROWS",
+            body={"values": [[row.get(h, "") for h in header] for row in rows]}).execute()
+
     def write_leads(self, updates, columns):
         """updates: {Lead ID: {system column: value}}. Returns (written, skipped reasons)."""
         written, skipped = 0, []

@@ -63,7 +63,7 @@ describe("the dashboard", () => {
     await open("#/");
     const pipeline = within(card("Pipeline")).getAllByRole("listitem");
     expect(pipeline.map((step) => step.textContent)).toEqual([
-      "Leads17",
+      "Leads19",
       "Email checked OK15",
       "Company qualified15",
       "Profiled15",
@@ -175,10 +175,10 @@ describe("the drafts", () => {
 describe("the other pages", () => {
   it("filters the leads from the address, and marks a lead's draft", async () => {
     await open("#/leads?show=ready");
-    expect(screen.getByText("4 of 17 leads", { selector: "p" })).toBeTruthy();
+    expect(screen.getByText("4 of 19 leads", { selector: "p" })).toBeTruthy();
     expect(screen.getAllByText("Draft: waiting for you").length).toBe(2);
     await go("#/leads?tier=B");
-    expect(screen.getByText("3 of 17 leads", { selector: "p" })).toBeTruthy();
+    expect(screen.getByText("3 of 19 leads", { selector: "p" })).toBeTruthy();
     const tab = screen.getByRole("link", { name: "Replied" });
     expect(tab.getAttribute("href")).toBe("#/leads?tier=B&show=replied");
   });
@@ -250,10 +250,10 @@ describe("the dashboard's leads table", () => {
     await open("#/");
     const tabs = screen.getByRole("tablist", { name: "Which leads" });
     const named = (name: string) => within(tabs).getByRole("tab", { name: new RegExp(`^${name}`) });
-    expect(named("All leads").textContent).toBe("All leads17");
+    expect(named("All leads").textContent).toBe("All leads19");
     expect(named("Replied").textContent).toBe("Replied1");
     expect(named("Ready for a first draft").textContent).toBe("Ready for a first draft4");
-    expect(within(screen.getAllByRole("table")[0]!).getAllByRole("row").length - 1).toBe(17);
+    expect(within(screen.getAllByRole("table")[0]!).getAllByRole("row").length - 1).toBe(19);
     await act(async () => named("Replied").click());
     const rows = within(screen.getAllByRole("table")[0]!).getAllByRole("row");
     expect(rows.length - 1).toBe(1);

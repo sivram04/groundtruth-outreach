@@ -27,7 +27,8 @@ def test_each_lead_gets_the_status_the_sync_writes(data):
     assert {v["id"]: v["status"] for v in data["leads"]} == {
         "A-0001": "SENT", "A-0002": "REPLIED", "A-0003": "SENT", "A-0004": "REVIEW_NEEDED",
         "A-0005": "BOUNCED", "A-0006": "OPTED_OUT", "A-0007": "", "A-0008": "", "A-0009": "",
-        "A-0010": "", "A-0011": "", "A-0012": "", "A-0013": "", "A-0014": "", "B-0001": "SENT",
+        "A-0010": "", "A-0011": "", "A-0012": "", "A-0013": "", "A-0014": "", "A-0015": "",
+        "A-0016": "", "B-0001": "SENT",
         "B-0002": "DRAFTED",
         "B-0003": ""}
 
@@ -76,12 +77,22 @@ def test_ready_for_a_first_draft_uses_the_drafting_steps_own_checks(data):
 
 def test_the_counts_follow_the_sheet_dashboards_definitions(data):
     a, b, both = data["tiers"]
-    assert (a["leads"], a["emailed"], a["emails_sent"], a["replied"], a["reply_rate"]) == (14, 6, 6, 2, "33%")
+    assert (a["leads"], a["emailed"], a["emails_sent"], a["replied"], a["reply_rate"]) == (16, 6, 6, 2, "33%")
     assert (a["opted_out"], a["bounced"], a["review_needed"], a["ready"]) == (1, 1, 1, 4)
     assert (a["checked_ok"], a["qualified"], a["profiled"], a["drafted"]) == (13, 13, 13, 3)
     assert (b["emailed"], b["tracked"], b["opened"], b["open_rate"], b["clicked"]) == (1, 1, 1, "100%", 1)
     assert a["open_rate"] == "-"  # no tracked email in A: no rate, never 0%
     assert both["label"] == "A and B" and both["emails_sent"] == 7  # the tracking test is no lead
+
+
+def test_a_phone_only_and_a_company_only_lead_show_the_right_channel_and_next_action(data):
+    view = leads(data)
+    assert view["A-0015"]["channel"] == "CALL" and view["A-0015"]["phone"] == "(614) 555-0142"
+    assert view["A-0015"]["action"].startswith("Call Redwood Plumbing")
+    assert view["A-0016"]["channel"] == "COMPANY_ONLY"
+    assert view["A-0016"]["action"].startswith("Find a contact for Cedar Roofing")
+    # an email lead is unchanged: its channel is EMAIL and its action stays what the draft path gives
+    assert view["A-0001"]["channel"] == "EMAIL"
 
 
 def test_gmail_drafts_waiting_are_the_ones_the_sheet_knows_and_were_not_sent(data):

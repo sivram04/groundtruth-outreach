@@ -1372,6 +1372,42 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-30 (MVP: lead channels + correct next action, and an import core)** — first slice of the
+  outreach MVP plan (`docs/MVP_DELIVERY.md`, new: capability status, the exact rule conflicts, and
+  milestones with acceptance criteria). Advances the priority journey's tail — **show the correct next
+  action** — for **email, phone-only and company-only** leads, and adds the reusable **import** core.
+
+  - `outreach/channels.py` (new): `channel_of(row)` → `EMAIL` / `CALL` / `COMPANY_ONLY` from the row
+    alone (email or phone matched by header name, not position), and `next_action(channel, company)`
+    for a lead with no email to draft. Pure; reused by the importer and the console model so they agree.
+  - `outreach/importer.py` (new): `import_leads(records, existing_leads, prefix=)` parses a small
+    CSV/TSV list (stdlib only), maps the founder's headers to canonical lead columns, **keeps
+    phone-only and company-only records**, assigns Lead IDs (continuing the prefix's numbering),
+    de-duplicates (by email, else phone, else company+website) against existing and within the batch,
+    and reports every skip/duplicate with a reason. Excel (.xlsx) is **not** read — it needs a
+    third-party parser (conflict #1 in the delivery doc). Pure: no Google, no write.
+  - `console_model` (read-only): every lead view now carries `channel` and `phone`; a **not-emailed**
+    phone-only lead's next action is a call and a company-only lead's is "find a contact". This is
+    display only — it does **not** change the `Next action` the live sync writes (that stays about
+    email), so the console and the Sheet still agree. Email leads are unchanged.
+  - `sheet.Store.append_leads(prefix, rows)` (new, append-only): adds new lead rows in the tab's own
+    column order, never rewriting a row or a founder column. Exercised only against the in-memory store
+    here — **not run against the live Sheet** (the console stays read-only; a flag-gated import route is
+    the next step, per the delivery doc).
+  - Console pages: Leads shows the phone when there is no email and a Call / No-contact chip; the Lead
+    page shows Phone and "How to reach". Two demo leads (A-0015 phone-only, A-0016 company-only) added
+    to the fixture and `snapshot.json`.
+
+  **Verified in containers, no network.** Python **846 passed** (new `tests/test_channels.py`,
+  `tests/test_importer.py` incl. an end-to-end import → `append_leads` → `console_model` through the
+  fake store; updated `test_console_model.py`). Frontend **63 passed**, typecheck and build clean.
+  **Browser-verified** on the demo build (served from `dist-demo` on 127.0.0.1): the Leads page shows
+  A-0015 "☎ (614) 555-0142 / Call / Call Redwood Plumbing: no email is on file…" and A-0016 "no email
+  yet / No contact / Find a contact for Cedar Roofing…"; the Lead page shows Phone and How-to-reach.
+  Synthetic data only; nothing provisioned, deployed, sent, or written to the live Sheet; safeguards
+  (signing, suppression, approval, review-state, read-only console) unchanged. Remaining MVP work and
+  conflicts are in `docs/MVP_DELIVERY.md`.
+
 - **2026-09-30 (explicit review state required; local verification)** — follow-up to
   `4c8f896`, superseding its missing-state compatibility exception below. `state` is now
   required in `ReviewView`; only explicit `resolved` or `REVIEW_MISSING` permits review.

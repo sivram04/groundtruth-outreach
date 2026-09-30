@@ -75,7 +75,7 @@ describe("the Leads filters", () => {
     expect(ids("", "", "bounced")).toEqual(["A-0005"]);
     expect(ids("", "", "check")).toEqual(["A-0004"]);
     expect(ids("", "", "emailed")).toHaveLength(7);
-    expect(ids("", "", "not-emailed")).toHaveLength(10);
+    expect(ids("", "", "not-emailed")).toHaveLength(12);  // incl. the phone-only and company-only leads
     expect(ids("", "A", "ready")).toEqual(["A-0007", "A-0008", "A-0013", "A-0014"]);
   });
 

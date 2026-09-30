@@ -62,6 +62,16 @@ export function LeadPage({ data, id }: { data: Snapshot; id: string }) {
                 "-"
               )}
             </dd>
+            <dt>Phone</dt>
+            <dd>{lead.phone || "-"}</dd>
+            <dt>How to reach</dt>
+            <dd>
+              {lead.channel === "CALL"
+                ? "Call: no email on file"
+                : lead.channel === "COMPANY_ONLY"
+                  ? "No contact yet — find one"
+                  : "Email"}
+            </dd>
             <dt>Website</dt>
             <dd>{site ? <ExternalLink href={site}>{lead.website}</ExternalLink> : lead.website || "-"}</dd>
             <dt>Company profile</dt>

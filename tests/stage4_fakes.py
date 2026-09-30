@@ -212,6 +212,7 @@ class MemoryStore:
         self.draft_rows = [dict(d) for d in drafts]
         self.research_rows = [dict(r) for r in research]
         self.lead_writes, self.columns_added, self.draft_writes = [], [], []
+        self.lead_appends = []
         self.refuse_writes = False
 
     def table(self, name):
@@ -235,6 +236,12 @@ class MemoryStore:
 
     def leads(self):
         return {lead_id: dict(row) for lead_id, row in self.rows.items()}
+
+    def append_leads(self, prefix, rows):
+        """Mirror of Store.append_leads: add new lead rows, keyed by Lead ID, never rewriting one."""
+        self.lead_appends.append((prefix, [dict(r) for r in rows]))
+        for row in rows:
+            self.rows[row["Lead ID"]] = dict(row)
 
     def events(self):
         return [dict(e) for e in self.event_rows]
