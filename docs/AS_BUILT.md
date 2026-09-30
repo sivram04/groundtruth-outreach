@@ -1372,6 +1372,41 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-30 (review-status API/UI mismatch fixed) — the backend `review.state` is carried through
+  the typed contract and rendered explicitly; a failed or invalid history keeps the actions disabled
+  even on an HTTP 200.** Continues from `f939d4a`; scoped to the review-status contract, no broader
+  audit or redesign. Console GET already returned 200 with `review.state` (`resolved`, `REVIEW_MISSING`,
+  `unreadable`, `unverifiable`, `REVIEW_CONFLICT`, `REVIEW_TAMPERED`), but `ReviewView` did not model
+  `state` and `Review.tsx` cleared `statusUnavailable` after any successful load — so after a save whose
+  status could not be read, a reload that returned 200/`unreadable` showed "Awaiting your review" and
+  re-enabled Confirm/Reject. HTTP success does not establish a usable decision.
+
+  - **Contract (`console/src/api.ts`):** `ReviewView.review` gains `state?: string`; a new
+    `reviewIsPermitted(review)` says review is allowed only for a clean, readable result —
+    `"resolved"` (a verified tip) or `"REVIEW_MISSING"` (a genuine absence) — or the legacy unsigned/
+    demo shape (no `state`). Every other value is a failed/invalid history that blocks.
+  - **Rendering (`console/src/pages/Review.tsx`):** `stateOf` reads `state` and returns `canReview`
+    plus a per-state reason; actions are disabled whenever the loaded state does not permit review OR a
+    save's status could not be read back (`statusUnavailable`), the candidate/evidence stay visible, a
+    reload is offered, and the `act` guard also refuses a click that races the disabled state. A
+    genuine `REVIEW_MISSING` still permits review; `unreadable`/`unverifiable`/`REVIEW_CONFLICT`/
+    `REVIEW_TAMPERED` each show their own message and stay disabled.
+  - **POST read-back (`outreach/console.py`):** after a successful save, only a clean `resolved` tip is
+    shown as current; any other resolved status (unreadable, unverifiable, conflicted, tampered) is
+    acknowledged as recorded-but-status-unavailable rather than rendered as a decision. `review.py`
+    gains `RESOLVED`/`UNVERIFIABLE`/`UNREADABLE_STATE` constants for these display states.
+
+  **Regression tests through the real parser** (`Review.test.tsx`, driving `loadReview`/`recordReview`
+  with a scripted fetcher returning the actual server JSON, not a mocked exception alone): the full
+  flow — confirmed → rejection saved → status read fails → reload returns 200/`unreadable` → actions
+  remain disabled → later reload returns the resolved rejection → status and actions restored; plus
+  initial loads on `unverifiable`, `REVIEW_CONFLICT` and `REVIEW_TAMPERED` (blocked) and `REVIEW_MISSING`
+  (permitted). A Python test locks the POST behavior (a read-back that resolves to a conflict →
+  recorded/status-unavailable). **Containers, no network:** Python **832 passed**; frontend **59 passed**,
+  typecheck and build clean. The signing/gate implementation is unchanged. Nothing deployed or pushed;
+  no spreadsheet, key, credential, permission or verifier/signer config created or changed; review gate
+  and Gmail drafting stay off.
+
 - **2026-09-30 (reviewer identity wired through the real application paths) — the deployable paths
   now require one trusted identity configuration and block without it; no silent unsigned fallback.**
   Continues from `47c9b73`; scoped to the local integration of reviewer identity. The signing/

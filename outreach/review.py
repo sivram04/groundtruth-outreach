@@ -77,6 +77,13 @@ NOT_HUMAN = "REVIEW_NOT_HUMAN"    # the reviewer is not an authorized human (e.g
 STALE = "REVIEW_STALE"            # the candidate changed since it was reviewed
 REJECTED_REASON = "REVIEW_REJECTED"  # a human reviewed THIS candidate and rejected it
 
+# Display states returned by `resolved_status` for the console (distinct from the blocker codes
+# above). Only RESOLVED shows a trusted current decision; the rest, plus the resolve codes
+# (REVIEW_MISSING / REVIEW_CONFLICT / REVIEW_TAMPERED), block approval on the screen.
+RESOLVED = "resolved"              # a verified tip; `decision`/`current` are meaningful
+UNVERIFIABLE = "unverifiable"     # no trusted verifier configured
+UNREADABLE_STATE = "unreadable"   # the history could not be read
+
 # A blocker added to a preview when a would-be-approvable candidate has no valid review yet, so no
 # approval hash is issued. Distinct from writer.REVIEW_PREFIX (a claim the validator held): this one
 # still lets the words be read so a person can review them.
@@ -612,14 +619,14 @@ def resolved_status(store, review_id, fingerprint, verifier):
              "unverifiable" (no verifier configured), "unreadable" (history could not be read),
              or a resolve code (REVIEW_MISSING / REVIEW_CONFLICT / REVIEW_TAMPERED)."""
     if verifier is None:
-        return {"decision": None, "current": False, "state": "unverifiable"}
+        return {"decision": None, "current": False, "state": UNVERIFIABLE}
     try:
         records = store.history(review_id) if hasattr(store, "history") else []
     except Exception:
-        return {"decision": None, "current": False, "state": "unreadable"}
+        return {"decision": None, "current": False, "state": UNREADABLE_STATE}
     record, code = review_identity.resolve_current(records, verifier)
     if record is None:
         return {"decision": None, "current": False, "state": code}
     return {"decision": record.get("decision"), "reviewer": record.get("reviewer", ""),
             "reviewed_at": record.get("reviewed_at", ""),
-            "current": record.get("fingerprint") == fingerprint, "state": "resolved"}
+            "current": record.get("fingerprint") == fingerprint, "state": RESOLVED}

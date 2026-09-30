@@ -387,9 +387,12 @@ measurement honest and avoid overfitting**:
   worker-verifies), which stays an explicit blocker to enabling the gate. Nothing deployed; the
   `Reviews` tab is not created.
 - **Verified in the repository's containers, no network at run time.** Python
-  (`deploy/test.Dockerfile`): **831 passed (0 xfailed)** — includes the reviewer-identity crypto/chain
-  tests plus application-level tests through the real paths. Frontend (`deploy/console-test.Dockerfile`):
-  **54 tests, tsc clean, vite build** (re-run for the record; frontend source unchanged this pass).
+  (`deploy/test.Dockerfile`): **832 passed (0 xfailed)** — includes the reviewer-identity crypto/chain
+  tests, application-level tests through the real paths, and the review-status contract tests. Frontend
+  (`deploy/console-test.Dockerfile`): **59 tests, tsc clean, vite build**. The console GET's resolved
+  `review.state` is carried through the typed contract and rendered explicitly, so a failed or invalid
+  history (unreadable/unverifiable/conflict/tampered) keeps the review actions disabled even on an HTTP
+  200; a genuine REVIEW_MISSING still permits review (2026-09-30).
   Reviewer identity is implemented locally (activation disabled): Ed25519 console-only `Signer` /
   `Verifier` (public key as trusted config) and a signed per-review hash chain so concurrent/forked/
   replayed/tampered decisions block instead of an arbitrary pick. Two design errors were corrected — a

@@ -1,9 +1,37 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LoadError, ReviewStale, ReviewStatusUnavailable, type ReviewView } from "../api";
+import {
+  LoadError,
+  ReviewStale,
+  ReviewStatusUnavailable,
+  loadReview,
+  recordReview,
+  type ReviewView,
+} from "../api";
 import { Review } from "./Review";
 
 const FP = "f".repeat(64);
+
+// A minimal Response for the real API parser (reviewResponse): a JSON body with a status. This lets
+// the tests exercise the actual server response shape through loadReview/recordReview, not just a
+// resolved ReviewView or a thrown exception.
+function jsonResponse(body: unknown, status = 200): Response {
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    headers: { get: (h: string) => (h.toLowerCase() === "content-type" ? "application/json" : null) },
+    json: async () => body,
+  } as unknown as Response;
+}
+
+// Returns each scripted response in call order (GET, POST, GET, ... in these flows), holding the last.
+function fetchSequence(...responses: Response[]): typeof fetch {
+  let i = 0;
+  return vi.fn(async (): Promise<Response> => responses[Math.min(i++, responses.length - 1)]!) as unknown as typeof fetch;
+}
+
+const disabled = (name: RegExp) =>
+  (screen.getByRole("button", { name }) as HTMLButtonElement).disabled;
 
 function view(over: Partial<ReviewView> = {}): ReviewView {
   return {
@@ -125,5 +153,96 @@ describe("the review page", () => {
   it("says plainly when there is no candidate to review", async () => {
     render(<Review leadId="A-9999" from="admin@lakshyaa.ai" load={() => Promise.reject(new LoadError("There is no candidate to review for this lead."))} record={vi.fn()} />);
     await screen.findByText(/no candidate to review/);
+  });
+
+  // The API/UI mismatch this covers: a successful (HTTP 200) load whose resolved chain state is a
+  // failed/invalid history must keep the actions disabled. HTTP success does not establish a usable
+  // decision. These drive the real parser (loadReview/recordReview) with the actual server JSON.
+  it("keeps actions disabled after a save whose status can't be read back, through reload, until a clean decision returns", async () => {
+    const fetcher = fetchSequence(
+      // GET #1: a current confirmed review
+      jsonResponse(view({ review: { decision: "confirmed", reviewer: "admin@lakshyaa.ai", current: true, state: "resolved" } })),
+      // POST reject: saved, but the status could not be read back (HTTP 200 recorded/status_unavailable)
+      jsonResponse({ recorded: true, status_unavailable: true, message: "Your review was recorded, but its current status could not be loaded. Reload before continuing." }),
+      // GET #2 (reload): HTTP 200 but the history is unreadable — NOT a usable decision
+      jsonResponse(view({ review: { decision: null, current: false, state: "unreadable" } })),
+      // GET #3 (reload): the resolved rejection
+      jsonResponse(view({ review: { decision: "rejected", reviewer: "admin@lakshyaa.ai", current: true, state: "resolved" } })),
+    );
+    render(
+      <Review
+        leadId="A-0007"
+        from="admin@lakshyaa.ai"
+        load={(id) => loadReview(id, fetcher)}
+        record={(id, d, fp) => recordReview(id, d, fp, fetcher)}
+      />,
+    );
+    await screen.findAllByText(/Confirmed by admin/);
+
+    // save fails to read back → recorded-but-unavailable, actions disabled
+    fireEvent.click(screen.getByRole("button", { name: /Reject/ }));
+    await screen.findAllByText(/recorded, but its current status could not be loaded/);
+    expect(screen.queryByText(/Confirmed by/)).toBeNull();
+    expect(disabled(/Confirm/)).toBe(true);
+    expect(disabled(/Reject/)).toBe(true);
+
+    // reload returns HTTP 200 with an unreadable state → actions REMAIN disabled (the bug being fixed)
+    fireEvent.click(screen.getByRole("button", { name: /Reload/ }));
+    await screen.findByText(/review history could not be read/);
+    expect(screen.queryByText(/Awaiting your review/)).toBeNull();
+    expect(disabled(/Confirm/)).toBe(true);
+    expect(disabled(/Reject/)).toBe(true);
+    expect(screen.getAllByText(/pours slabs/).length).toBeGreaterThan(0);  // candidate/evidence preserved
+
+    // a later reload returns the resolved rejection → correct status and actions restored
+    fireEvent.click(screen.getByRole("button", { name: /Reload/ }));
+    await screen.findAllByText(/Rejected by admin/);
+    expect(disabled(/Confirm/)).toBe(false);
+    expect(disabled(/Reject/)).toBe(false);
+  });
+
+  it("blocks review on an unverifiable history on the initial load (verification not configured)", async () => {
+    const fetcher = fetchSequence(
+      jsonResponse(view({ review: { decision: null, current: false, state: "unverifiable" } })),
+    );
+    render(<Review leadId="A-0007" from="admin@lakshyaa.ai" load={(id) => loadReview(id, fetcher)} record={vi.fn()} />);
+    await screen.findByText(/verification is not configured/);
+    expect(screen.queryByText(/Awaiting your review/)).toBeNull();
+    expect(disabled(/Confirm/)).toBe(true);
+    expect(disabled(/Reject/)).toBe(true);
+    expect(screen.getByRole("button", { name: /Reload/ })).toBeTruthy();
+    expect(screen.getAllByText(/pours slabs/).length).toBeGreaterThan(0);
+  });
+
+  it("blocks review on a conflicting history on the initial load", async () => {
+    const fetcher = fetchSequence(
+      jsonResponse(view({ review: { decision: null, current: false, state: "REVIEW_CONFLICT" } })),
+    );
+    render(<Review leadId="A-0007" from="admin@lakshyaa.ai" load={(id) => loadReview(id, fetcher)} record={vi.fn()} />);
+    await screen.findAllByText(/decisions conflict/);
+    expect(screen.queryByText(/Awaiting your review/)).toBeNull();
+    expect(disabled(/Confirm/)).toBe(true);
+    expect(disabled(/Reject/)).toBe(true);
+  });
+
+  it("blocks review on a tampered history on the initial load", async () => {
+    const fetcher = fetchSequence(
+      jsonResponse(view({ review: { decision: null, current: false, state: "REVIEW_TAMPERED" } })),
+    );
+    render(<Review leadId="A-0007" from="admin@lakshyaa.ai" load={(id) => loadReview(id, fetcher)} record={vi.fn()} />);
+    await screen.findAllByText(/could not be verified/);
+    expect(screen.queryByText(/Awaiting your review/)).toBeNull();
+    expect(disabled(/Confirm/)).toBe(true);
+    expect(disabled(/Reject/)).toBe(true);
+  });
+
+  it("permits review on a genuine REVIEW_MISSING (no record yet), distinct from a failed history", async () => {
+    const fetcher = fetchSequence(
+      jsonResponse(view({ review: { decision: null, current: false, state: "REVIEW_MISSING" } })),
+    );
+    render(<Review leadId="A-0007" from="admin@lakshyaa.ai" load={(id) => loadReview(id, fetcher)} record={vi.fn()} />);
+    await screen.findAllByText(/Awaiting your review/);
+    expect(disabled(/Confirm/)).toBe(false);
+    expect(disabled(/Reject/)).toBe(false);
   });
 });

@@ -253,7 +253,11 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             # "nothing was changed" or show approval as current.
             status = review.resolved_status(reviews, lead_id, fingerprint,
                                             review.configured_verifier(chosen))
-            if status.get("state") in ("unverifiable", "unreadable"):
+            # A clean, readable tip ("resolved") is the only status we show as current. Anything else
+            # - unreadable, unverifiable, or a conflicted/tampered history - means the save landed but
+            # the current decision cannot be trusted, so we acknowledge the save and flag the status
+            # unavailable rather than render a failed history as a decision.
+            if status.get("state") != review.RESOLVED:
                 return jsonify(recorded=True, status_unavailable=True,
                                message="Your review was recorded, but its current status could not "
                                        "be loaded. Reload before continuing.")

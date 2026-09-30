@@ -6,6 +6,7 @@ import {
   ReviewStatusUnavailable,
   loadReview,
   recordReview,
+  reviewIsPermitted,
   type ReviewView,
 } from "../api";
 import { Card, Chip, ExternalLink, PageHead, Status, type Tone } from "../components";
@@ -18,13 +19,63 @@ type Recorder = (
   fingerprint: string,
 ) => Promise<ReviewView>;
 
-function stateOf(review: ReviewView["review"]): { tone: Tone; text: string } {
-  if (review.decision === null) return { tone: "amber", text: "Awaiting your review" };
+type ReviewStatus = { tone: Tone; text: string; canReview: boolean; blockedReason?: string };
+
+// A failed or invalid history the resolver returned (HTTP 200, but not a usable decision). Each keeps
+// the candidate/evidence visible, disables the actions, and offers a reload; only the message differs.
+const BLOCKING_STATES: Record<string, { tone: Tone; text: string; reason: string }> = {
+  unreadable: {
+    tone: "red",
+    text: "Current status unavailable",
+    reason:
+      "The review history could not be read, so the current decision is unknown. Reviewing is paused " +
+      "until a reload can read it.",
+  },
+  unverifiable: {
+    tone: "red",
+    text: "Verification not configured",
+    reason:
+      "Review verification is not configured (no trusted key), so no review can be trusted as current. " +
+      "Approval is blocked until it is configured.",
+  },
+  REVIEW_CONFLICT: {
+    tone: "red",
+    text: "Review decisions conflict",
+    reason:
+      "The recorded review decisions conflict, so no single current decision can be trusted. Approval " +
+      "is blocked; this must be resolved in the review history.",
+  },
+  REVIEW_TAMPERED: {
+    tone: "red",
+    text: "Review history could not be verified",
+    reason:
+      "The review history failed verification, so it cannot be trusted. Approval is blocked; this must " +
+      "be resolved in the review history.",
+  },
+};
+
+function stateOf(review: ReviewView["review"]): ReviewStatus {
+  // The resolved chain state is the ground truth: a failed/invalid history blocks review even on a
+  // successful (HTTP 200) load, and is never shown as "awaiting" or as approval.
+  if (!reviewIsPermitted(review)) {
+    const blocked = (review.state && BLOCKING_STATES[review.state]) || {
+      tone: "red" as Tone,
+      text: "Current status unavailable",
+      reason: "The current review status could not be established, so reviewing is paused.",
+    };
+    return { tone: blocked.tone, text: blocked.text, canReview: false, blockedReason: blocked.reason };
+  }
+  // A permitting state ("resolved" with a decision, "REVIEW_MISSING", or the legacy unsigned shape).
+  if (review.decision === null) return { tone: "amber", text: "Awaiting your review", canReview: true };
   if (!review.current)
-    return { tone: "amber", text: "A previous review no longer matches this candidate — review it again" };
+    return {
+      tone: "amber",
+      text: "A previous review no longer matches this candidate — review it again",
+      canReview: true,
+    };
   const who = review.reviewer ? ` by ${review.reviewer}` : "";
-  if (review.decision === "confirmed") return { tone: "green", text: `Confirmed${who}` };
-  return { tone: "red", text: `Rejected${who}` };
+  if (review.decision === "confirmed") return { tone: "green", text: `Confirmed${who}`, canReview: true };
+  return { tone: "red", text: `Rejected${who}`, canReview: true };
 }
 
 /** One candidate email beside its cited evidence, for the founder to confirm or reject. Confirming
@@ -65,7 +116,9 @@ export function Review({
 
   const act = useCallback(
     (decision: "confirm" | "reject") => {
-      if (!view || statusUnavailable) return;
+      // Guard against a click that races the disabled state: refuse if a save's status is unread or
+      // the loaded chain state does not permit review.
+      if (!view || statusUnavailable || !reviewIsPermitted(view.review)) return;
       setBusy(true);
       record(leadId, decision, view.fingerprint).then(
         (v) => {
@@ -102,9 +155,22 @@ export function Review({
     );
   }
 
-  const state = statusUnavailable
-    ? { tone: "amber" as Tone, text: "Current status unavailable" }
-    : stateOf(view.review);
+  // Two independent reasons review can be blocked: a save whose status could not be read back
+  // (`statusUnavailable`, held in state) and a loaded chain state that does not permit review
+  // (`stateOf`). Either keeps the actions disabled; a reload can clear the first and re-reads the
+  // second (which stays disabled until a clean, readable decision is returned).
+  const loaded = stateOf(view.review);
+  const state: ReviewStatus = statusUnavailable
+    ? {
+        tone: "amber",
+        text: "Current status unavailable",
+        canReview: false,
+        blockedReason:
+          "The review was saved, but its current status could not be loaded. Reviewing is paused " +
+          "until you reload and the current decision is known again.",
+      }
+    : loaded;
+  const blocked = !state.canReview;
   const quoteHref = safeHref(view.evidence?.url ?? "");
   return (
     <>
@@ -162,22 +228,21 @@ export function Review({
 
       <Card title="Your judgment">
         <p className="muted small">{view.note}</p>
-        {statusUnavailable && (
+        {blocked && state.blockedReason && (
           <p className="muted small" role="status">
-            The review was saved, but its current status could not be loaded. Reviewing is paused
-            until you reload and the current decision is known again.
+            {state.blockedReason}
           </p>
         )}
         <div className="email-actions">
-          <button type="button" className="primary" disabled={busy || statusUnavailable}
+          <button type="button" className="primary" disabled={busy || blocked}
                   onClick={() => act("confirm")}>
             <Check size={15} aria-hidden="true" /> Confirm: the evidence supports these claims
           </button>
-          <button type="button" className="secondary" disabled={busy || statusUnavailable}
+          <button type="button" className="secondary" disabled={busy || blocked}
                   onClick={() => act("reject")}>
             <X size={15} aria-hidden="true" /> Reject
           </button>
-          {statusUnavailable && (
+          {blocked && (
             <button type="button" className="secondary" onClick={fetch}>
               <RotateCw size={15} aria-hidden="true" /> Reload
             </button>

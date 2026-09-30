@@ -612,3 +612,39 @@ def test_a_rejection_between_the_confirm_write_and_the_read_is_not_shown_as_appr
     view = resp.get_json()
     # the confirm was written, but the later rejection is what the read returns: not approval
     assert view["review"]["decision"] == "rejected"
+
+
+class _ConflictAfterConfirm:
+    """A concurrent, genuinely-signed SECOND ROOT (a fork) lands after the confirmation is appended,
+    so the read-back resolves to a CONFLICT rather than a single trusted tip."""
+
+    def __init__(self):
+        self._m = review.MemoryReviewStore()
+
+    def get(self, lead_id):
+        return self._m.get(lead_id)
+
+    def history(self, lead_id):
+        return self._m.history(lead_id)
+
+    def put(self, record):
+        self._m.put(record)
+        if record["decision"] == "confirmed":
+            fork = {**record, "reviewed_at": "2026-01-01T00:00:00Z", "prev": ""}
+            fork["signature"] = rf.SIGNER.sign(
+                review_id=fork["lead_id"], prev="", fingerprint=fork["fingerprint"],
+                reviewer=fork["reviewer"], decision="confirmed", reviewed_at=fork["reviewed_at"])
+            self._m.put(fork)
+
+
+def test_a_conflict_after_the_save_is_acknowledged_as_recorded_but_unavailable(built):
+    # The save SUCCEEDS, but the current status resolves to a conflict: never shown as approval, and
+    # the save is acknowledged rather than the failed history rendered as a decision.
+    client = review_app(built, reviews=_ConflictAfterConfirm())
+    fingerprint = client.get("/api/review/A-0014", headers=signed()).get_json()["fingerprint"]
+    resp = client.post("/api/review/A-0014", headers=signed(),
+                       json={"decision": "confirm", "fingerprint": fingerprint})
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body.get("recorded") is True and body.get("status_unavailable") is True
+    assert "review" not in body and "nothing was changed" not in body["message"].lower()
