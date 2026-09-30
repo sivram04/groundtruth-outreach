@@ -179,6 +179,7 @@ def call_task_view(task):
     if not task:
         return None
     return {
+        "id": task.get("id", ""),
         "status": task["status"], "outcome": task["outcome"],
         "why": CALL_OUTCOME_LABELS.get(task["outcome"], task["outcome"]),
         "note": task.get("note", ""), "due": task.get("due", ""),
@@ -270,7 +271,7 @@ def _lead(lead_id, row, events, entries, today, now=None, call_events=()):
     # display only - it is not the "Next action" the sync writes to the Sheet (that stays about email).
     if view["channel"] != channels.EMAIL and view["status"] == "" and not view["hold"]:
         view["action"] = channels.next_action(view["channel"], view["company"])
-    blockers = drafts_tab.first_draft_blockers(row, events, entries)
+    blockers = drafts_tab.first_draft_blockers(row, events, entries, call_events)
     view["blockers"] = blockers
     view["ready"] = not blockers
     return view, upcoming
@@ -382,6 +383,9 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", dr
     by_lead = defaultdict(list)
     for event in events:
         by_lead[event.get("Lead ID", "")].append(event)
+    # call_events is None when the Call log could not be read: fail closed so unreadable call history
+    # never means unrestricted outreach (a lead is then blocked from a first draft).
+    calls_unreadable = call_events is None
     by_call = defaultdict(list)
     for event in call_events or ():
         by_call[event.get("Lead ID", "")].append(event)
@@ -390,7 +394,7 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", dr
     horizon = add_business_days(today, COMING_UP_BUSINESS_DAYS)
     for lead_id, row in sorted(leads.items(), key=lambda item: _lead_order(item[0])):
         view, upcoming = _lead(lead_id, row, by_lead.get(lead_id, []), entries, today, now,
-                               call_events=by_call.get(lead_id, []))
+                               call_events=None if calls_unreadable else by_call.get(lead_id, []))
         views.append(view)
         need = _needs_you(view, upcoming, today)
         if need:
@@ -488,8 +492,10 @@ def snapshot(store, *, settings, now, handbook_doc_id="", calls_enabled=False):
         entries, suppression_error = None, exc.reason
     try:
         call_events = store.call_events()
-    except (RuntimeError, AttributeError):
-        call_events = ()
+    except RuntimeError:
+        call_events = None  # the Call log exists but could not be read: fail closed (block outreach)
+    except AttributeError:
+        call_events = ()  # this store has no Call log at all (an older store): calls simply absent
     return build(store.leads(), store.events(), entries, store.run_rows(),
                  settings=settings, now=now, handbook_doc_id=handbook_doc_id,
                  draft_rows=draft_rows, drafts_error=drafts_error,

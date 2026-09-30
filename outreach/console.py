@@ -444,10 +444,12 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                 rule = calls.DEFAULT_NO_ANSWER_BUSINESS_DAYS
             now = clock()
             called_at = str(body.get("called_at", "")).strip() or now.isoformat()
+            submission_id = str(body.get("submission_id", "")).strip() or None
             try:
                 event = calls.outcome_event(lead_id, outcome, body.get("note", ""), called_at,
                                             no_answer_business_days=rule,
-                                            callback_at=body.get("callback_at"), now=now)
+                                            callback_at=body.get("callback_at"), now=now,
+                                            submission_id=submission_id)
             except ValueError as exc:
                 return refuse(400, str(exc))  # e.g. a callback with no explicit time
             with reading:
@@ -465,6 +467,11 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                     log.exception("a call outcome could not be recorded")
                     return refuse(502, "The call could not be recorded just now. Try again; recording "
                                        "the same outcome twice does not create a duplicate task.")
+                # The recorded outcome is what the drafting and follow-up eligibility paths read, so a
+                # STOP is enforced by the Call log itself. The Suppression entry is a redundant hard stop
+                # on the email path; if it cannot be written the stop is still enforced, and we report the
+                # partial rather than claiming a clean success.
+                suppression_written = None
                 if calls.email_effect(outcome) == calls.STOP:
                     email = channels.email_of(leads.get(lead_id, {}))
                     if email:
@@ -474,11 +481,16 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                                 "Reason": f"call: {outcome.lower().replace('_', ' ')}",
                                 "Added at": now.astimezone(timezone.utc).isoformat(),
                                 "Source": f"call: {lead_id}"}])
-                        except Exception:  # the call is recorded; suppression is best-effort here
+                            suppression_written = True
+                        except Exception:
                             log.exception("the call's suppression entry could not be written")
+                            suppression_written = False
                 state = _call_state_for(st, lead_id, now)
             log.info("call %s for %s by %s", outcome, lead_id, g.email)
-            return jsonify(recorded=True, **state)
+            partial = {} if suppression_written is not False else {
+                "warning": "The stop was recorded and is enforced, but its Suppression entry could not "
+                           "be written. The email suppression list may be incomplete until you retry."}
+            return jsonify(recorded=True, suppression_written=suppression_written, **partial, **state)
 
         @app.post("/api/calls/<lead_id>/task")
         def call_task_action(lead_id):
@@ -487,6 +499,7 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             action = str(body.get("action", "")).strip().upper()
             if action not in calls.ACTIONS:
                 return refuse(400, "That is not a task action I recognise.")
+            client_task_id = str(body.get("task_id", "")).strip()
             now = clock()
             with reading:
                 try:
@@ -498,8 +511,13 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                 task = calls.call_state(events, now=now)["task"]
                 if not task or task["status"] != "scheduled":
                     return refuse(409, "There is no open call task for this lead. Reload and try again.")
+                # Act only on the exact task the founder was shown. If it has been superseded (a newer
+                # outcome opened a different task since the page loaded), refuse rather than silently
+                # closing the newer one. The action carries its target so replay stays correct too.
+                if client_task_id and client_task_id != task["id"]:
+                    return refuse(409, "This call task changed since you loaded it. Reload and try again.")
                 try:
-                    event = calls.action_event(lead_id, action, task["id"],
+                    event = calls.action_event(lead_id, action, client_task_id or task["id"],
                                                snooze_to=body.get("snooze_to"), now=now)
                 except ValueError as exc:
                     return refuse(400, str(exc))

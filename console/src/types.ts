@@ -43,6 +43,9 @@ export interface Draft {
 
 /** A lead's current call task (outreach/calls.py), or null when there is none. */
 export interface CallTask {
+  /** The scheduling outcome's Event ID: the identity a task action must name, so a stale action can
+   *  never close a newer task. */
+  id: string;
   status: string;
   outcome: string;
   why: string;
@@ -67,6 +70,10 @@ export interface CallResult {
   task: CallTask | null;
   history: CallHistoryItem[];
   effect: string;
+  /** null when no stop applied; true/false whether the redundant Suppression entry was written. */
+  suppression_written?: boolean | null;
+  /** present only on a partial success (e.g. the stop was recorded but its suppression entry was not). */
+  warning?: string;
 }
 
 export interface Lead {

@@ -169,3 +169,70 @@ def test_an_unknown_lead_or_outcome_is_refused(built):
     client = make(built, store)
     assert outcome(client, "Z-9999", outcome="NO_ANSWER").status_code == 404
     assert outcome(client, "A-0001", outcome="MAYBE").status_code == 400
+
+
+def test_do_not_contact_stays_effective_through_a_later_no_answer(built):
+    # Finding 2: a phone-only lead marked do-not-contact must not be rescheduled by a routine no-answer.
+    store = a_store()
+    client = make(built, store)
+    first = outcome(client, "A-0001", outcome="DO_NOT_CONTACT", note="asked to be removed").get_json()
+    assert first["task"] is None and first["effect"] == calls.STOP
+    second = outcome(client, "A-0001", outcome="NO_ANSWER",
+                     called_at="2026-09-29T13:00:00+00:00").get_json()
+    assert second["task"] is None and second["effect"] == calls.STOP  # not reopened, not lifted
+    data = snapshot(client)
+    assert data["call_tasks"] == [] and data["calls_overdue"] == 0
+    lead = next(v for v in data["leads"] if v["id"] == "A-0001")
+    assert lead["call_effect"] == calls.STOP and lead["call_task"] is None
+
+
+def test_a_stale_task_action_is_refused_and_the_newer_task_is_untouched(built):
+    # Finding 3: an action carrying the old task's id must be refused, not applied to the newer task.
+    store = a_store()
+    client = make(built, store)
+    old = outcome(client, "A-0001", outcome="NO_ANSWER",
+                  called_at="2026-09-28T13:00:00+00:00").get_json()["task"]
+    new = outcome(client, "A-0001", outcome="CALLBACK", note="call me",
+                  callback_at="2026-10-02T14:00:00+00:00").get_json()["task"]
+    assert old["id"] != new["id"]
+    stale = act(client, "A-0001", action="COMPLETE", task_id=old["id"])
+    assert stale.status_code == 409  # refused: the task changed since it was shown
+    lead = next(v for v in snapshot(client)["leads"] if v["id"] == "A-0001")
+    assert lead["call_task"]["id"] == new["id"] and lead["call_task"]["status"] == "scheduled"
+    # naming the current task still works
+    assert act(client, "A-0001", action="COMPLETE",
+               task_id=new["id"]).get_json()["task"]["status"] == "done"
+
+
+def test_a_ui_shaped_retry_with_an_advancing_clock_makes_one_event(built):
+    # Finding 4: the UI omits called_at, so each retry gets a fresh server time. A submission id keeps it
+    # one logical call even as the clock advances (a lost response after a successful write, retried).
+    store = a_store()
+    now = {"t": MON}
+    client = make(built, store, now=lambda: now["t"])
+    body = {"outcome": "NO_ANSWER", "note": "rang out", "submission_id": "sub-42"}  # no called_at, as the UI sends
+    first = outcome(client, "A-0001", **body).get_json()
+    now["t"] = at("2026-09-28 09:05")  # the clock has advanced between the retry, as in the review's probe
+    second = outcome(client, "A-0001", **body).get_json()
+    assert first["task"]["due"] == second["task"]["due"]
+    assert len(store.call_events()) == 1  # one event, one history row - not two
+    assert len(snapshot(client)["call_tasks"]) == 1
+
+
+def test_a_suppression_write_failure_still_enforces_the_stop_and_reports_it(built):
+    # Finding 1: if the redundant Suppression entry cannot be written, the stop is still recorded (the
+    # Call log is what the eligibility paths read) and the response says so rather than claiming success.
+    store = a_store()
+
+    def boom(_entries):
+        raise RuntimeError("the Suppression tab could not be written")
+
+    store.append_suppression = boom
+    client = make(built, store)
+    result = outcome(client, "A-0002", outcome="DO_NOT_CONTACT", note="remove me")
+    assert result.status_code == 200
+    body = result.get_json()
+    assert body["recorded"] is True and body["effect"] == calls.STOP
+    assert body["suppression_written"] is False and "Suppression" in body.get("warning", "")
+    # the stop is enforced by the recorded call event, independent of the Suppression tab
+    assert calls.outreach_effect([e for e in store.call_events() if e["Lead ID"] == "A-0002"]) == calls.STOP

@@ -22,7 +22,7 @@ never the live Sheet.
 | 5 | Review drafts; manual approval or configured automation; daily limits, scheduling, follow-up timing | **Partial** | Review + signed decision done (`review.py`, `Review.tsx`). Manual approval only; automation/sending is out of scope by rule. Daily cap/scheduling/follow-up timing exist as settings + `followup.py`/`business_days.py`. |
 | 6 | Handle replies: stop bad follow-ups; draft responses; booking link | **Partial** | Reply/opt-out/bounce stop the sequence (`sequence.py`, `sync.py`). Drafting a reply and a booking link are not built. |
 | 7 | Record a call outcome (dashboard or chat); save to the lead; draft email if address exists; schedule next call per playbook; phone-only leads usable | **Partial** | From the lead page a founder records an outcome (no answer / interested / not interested / callback / wrong number / do not contact); it is saved durably (`outreach/calls.py`, the Call log tab) and schedules the next call — no-answer by a configurable business-day rule, a callback by the explicit time. Phone-only and email+phone leads are both callable. **Not built:** a post-call email candidate when an address exists, and chat-based call logging (next steps). |
-| 8 | Keep overdue call tasks visible; no notification spam; coordinate calls with email | **Partial** | Tasks are due/overdue with complete / snooze / cancel and survive reload; they persist in the Sheet, not a notification queue (no spam). The email effect is persisted per outcome: STOP (do not contact / not interested) also writes a Suppression entry the offline scheduler already honours; HOLD (interested / callback) is persisted and shown. **Not built:** offline-scheduler enforcement of HOLD, and an overdue-task list on the dashboard/needs-you. |
+| 8 | Keep overdue call tasks visible; no notification spam; coordinate calls with email | **Partial** | Tasks are due/overdue with complete / snooze / cancel and survive reload; they persist in the Sheet, not a notification queue (no spam). The email effect is persisted per outcome and **now enforced in the offline eligibility paths**: a STOP (do not contact / not interested) or HOLD (interested / callback) skips a lead in `drafts.first_draft_blockers` and `followup.due_now`, and unreadable call history fails closed. Do-not-contact is a sticky per-lead block. Task actions are bound to the exact task shown (a stale action is refused, not applied to a newer task), and a call submission is retry-stable through the UI. See `docs/testing/calls-review-2026-09-30.md` (remediation). **Not built:** an overdue-task list on the dashboard/needs-you. |
 | 9 | A/B tests and reporting (delivery, replies, positive, meetings, opt-outs, calls, follow-ups); honest open/click labels | **Partial** | Reporting on emails/replies/opens/clicks exists in `console_model`/`dashboard.py`, opens labelled "(est.)". A/B assignment, meetings, calls and follow-up-completion reporting not built. |
 
 **Email and phone are independent contact capabilities.** A lead may have an email, a phone, both, or
@@ -121,10 +121,16 @@ each needs a founder decision before the conflicting capability ships.
   respected. The email effect of each outcome is persisted (STOP / HOLD / CONTINUE). Verified in
   containers (`test_calls.py`, `test_console_calls.py`, `CallPanel.test.tsx`) and browser-verified
   through the actual local API (no-answer → dated task → reload → complete). **Write routes are flag-gated
-  (`enable_calls`), off by default and in deploy. Remaining in the call milestone:** a post-call email
-  candidate when an address exists; chat-based call logging; offline-scheduler enforcement of a HOLD
-  effect; an overdue-task list on the dashboard. **Live verification is separate and NOT done** (a real
-  Sheet write / signed-in browser / real API latency), `enable_calls` off in deploy.
+  (`enable_calls`), off by default and in deploy.** A follow-up review (`docs/testing/calls-review-2026-09-30.md`)
+  found four correctness defects, all now fixed and regression-tested through the real routes and the pure state
+  machine (Python 920, frontend 76): (1) STOP/HOLD is enforced in the initial-email and follow-up eligibility paths,
+  unreadable call history fails closed, and a failed suppression write is reported (the STOP is still enforced by the
+  recorded call event); (2) do-not-contact is a sticky per-lead block a later routine outcome cannot undo; (3) a task
+  action is bound to the exact task shown (a stale action is refused, replay honours the target); (4) a call submission
+  is retry-stable through the UI (a stable submission id, not the server clock, is the identity). **Remaining in the
+  call milestone:** a post-call email candidate when an address exists; chat-based call logging; an overdue-task list
+  on the dashboard. **Live verification is separate and NOT done** (a real Sheet write / signed-in browser / real API
+  latency), `enable_calls` off in deploy.
 - Later milestones: criteria defined when reached.
 
 ## Local completion vs production / live verification

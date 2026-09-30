@@ -7,7 +7,7 @@ a recipient must fail closed.
 import pytest
 
 import review_fixtures as rf
-from outreach import drafting, followup, gmail_drafts, review, sequence, sync
+from outreach import calls, drafting, followup, gmail_drafts, review, sequence, sync
 from stage4_fakes import FakeGmail, MemoryStore, at, lead, message, parsed, sent
 
 SAM = "sam@example-electric.test"
@@ -486,6 +486,70 @@ def _due(store, now=NOW):
     due, _later = followup.due_now(store.leads(), sync.unique(store.events()), entries,
                                    followup.new_york_date(now))
     return due
+
+
+# --- a recorded call decision is enforced in the follow-up worker (finding 1) -----------------
+# A lead whose call outcome stops or holds email is never scheduled for a follow-up, and an unreadable
+# Call log fails closed (no follow-up), so unreadable call history never means unrestricted outreach.
+
+def _call_stop(store, lead_id="A-0001", outcome=calls.DO_NOT_CONTACT):
+    store.append_call_events([calls.outcome_event(lead_id, outcome, "", NOW.isoformat(),
+                                                  no_answer_business_days=3, now=NOW)])
+
+
+def _due_with_calls(store, now=NOW):
+    entries = store.suppression()
+    due, _later = followup.due_now(store.leads(), sync.unique(store.events()), entries,
+                                   followup.new_york_date(now), store.call_events())
+    return due
+
+
+def test_a_recorded_call_stop_skips_the_follow_up(enabled):
+    store = system_store()
+    assert [i["lead_id"] for i, _ in _due_with_calls(store)] == ["A-0001"]  # due before any call
+    _call_stop(store)  # do-not-contact recorded
+    assert _due_with_calls(store) == []  # no follow-up is scheduled over the stop
+
+
+def test_a_recorded_call_hold_skips_the_follow_up(enabled):
+    store = system_store()
+    _call_stop(store, outcome=calls.INTERESTED)  # HOLD: the founder is handling this lead by hand
+    assert _due_with_calls(store) == []
+
+
+def test_an_unreadable_call_log_skips_every_follow_up(enabled):
+    store = system_store()
+    # None stands for a Call log that exists but could not be read: fail closed.
+    assert followup.due_now(store.leads(), sync.unique(store.events()), store.suppression(),
+                            followup.new_york_date(NOW), None) == ([], [])
+
+
+def test_the_run_and_reviews_fail_closed_when_the_call_log_is_unreadable(enabled):
+    store, gmail = system_store(), gmail_with()
+
+    def boom():
+        raise RuntimeError("the Call log tab's columns were changed")
+
+    store.call_events = boom
+    assert followup.pending_reviews(store, gmail, settings(), BOOK, NOW) == []  # nothing to draft
+    report = followup.run(dry_run=False, store=store, gmail=gmail, settings=settings(),
+                          handbook=BOOK, now=NOW)
+    assert report["created"] == [] and gmail.created == []
+    assert any("Call log" in gate for gate in report["gates"])  # said, not silent
+
+
+def test_a_recorded_call_stop_blocks_a_first_draft(enabled):
+    from outreach import drafts
+    row = lead("B-0002")  # a fresh, qualified, never-emailed lead
+    events = [calls.outcome_event("B-0002", calls.NOT_INTERESTED, "", NOW.isoformat(),
+                                  no_answer_business_days=3, now=NOW)]
+    assert "a recorded call outcome stops email (do not contact / not interested)" in \
+        drafts.first_draft_blockers(row, [], (), events)
+    # an unreadable call log (None) blocks it too
+    assert "its call history could not be read" in drafts.first_draft_blockers(row, [], (), None)
+    # with no call decision the call check adds nothing (other, unrelated blockers may still exist)
+    base = " ".join(drafts.first_draft_blockers(row, [], (), []))
+    assert "recorded call outcome" not in base and "call history could not be read" not in base
 
 
 def test_the_scheduled_run_does_not_draft_a_follow_up_without_a_review(enabled):

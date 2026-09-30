@@ -1,11 +1,18 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CallError } from "../api";
 import type { CallTask } from "../types";
 import { CallPanel } from "./CallPanel";
 
 afterEach(cleanup);
 
 const DONE = { recorded: true, task: null, history: [], effect: "CONTINUE" };
+
+const SCHEDULED: CallTask = {
+  id: "T1", status: "scheduled", outcome: "NO_ANSWER", why: "No answer", note: "rang out",
+  due: "2026-10-01", due_kind: "DATE", due_text: "Thu 2026-10-01", overdue: true, snoozed: false,
+  called_at: "2026-09-28 09:00 ET",
+};
 
 function panel(over: Partial<Parameters<typeof CallPanel>[0]> = {}) {
   const record = vi.fn().mockResolvedValue(DONE);
@@ -22,7 +29,41 @@ describe("the call panel", () => {
     fireEvent.change(screen.getByLabelText("Note"), { target: { value: "rang out" } });
     fireEvent.click(screen.getByRole("button", { name: /Save call/ }));
     await vi.waitFor(() => expect(onChanged).toHaveBeenCalled());
-    expect(record).toHaveBeenCalledWith("A-0001", { outcome: "NO_ANSWER", note: "rang out", callback_at: undefined });
+    const [, body] = record.mock.calls[0]!;
+    expect(body.outcome).toBe("NO_ANSWER");
+    expect(body.note).toBe("rang out");
+    expect(body.callback_at).toBeUndefined();
+    expect(typeof body.submission_id).toBe("string");  // one logical submission's identity
+  });
+
+  it("keeps one submission identity across a retry, and a new call gets a new one", async () => {
+    // The UI omits the call time, so without a stable identity each retry would be a new server-stamped
+    // event (finding 4). A retry of the same call must reuse the identity; a genuinely new call must not.
+    const record = vi
+      .fn()
+      .mockRejectedValueOnce(new CallError("The call could not be recorded."))
+      .mockResolvedValue(DONE);
+    const onChanged = vi.fn();
+    render(<CallPanel leadId="A-0001" phone="" task={null} onChanged={onChanged} record={record} act={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Note"), { target: { value: "rang out" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save call/ }));
+    await vi.waitFor(() => expect(screen.getByText("The call could not be recorded.")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /Save call/ }));  // retry, unchanged
+    await vi.waitFor(() => expect(onChanged).toHaveBeenCalled());
+    const first = record.mock.calls[0]![1].submission_id;
+    expect(record.mock.calls[1]![1].submission_id).toBe(first);  // a retry is one submission
+
+    fireEvent.change(screen.getByLabelText("Note"), { target: { value: "left a message" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save call/ }));
+    await vi.waitFor(() => expect(record).toHaveBeenCalledTimes(3));
+    expect(record.mock.calls[2]![1].submission_id).not.toBe(first);  // a new call, a new identity
+  });
+
+  it("names the exact task in a task action, so a stale action cannot close a newer one", async () => {
+    const { act, onChanged } = panel({ task: { ...SCHEDULED, id: "T2" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Complete/ }));
+    await vi.waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(act.mock.calls[0]![1].task_id).toBe("T2");
   });
 
   it("requires an explicit time for a callback, then sends it", async () => {
@@ -40,12 +81,7 @@ describe("the call panel", () => {
   });
 
   it("shows an overdue task and completes / snoozes / cancels it", async () => {
-    const task: CallTask = {
-      status: "scheduled", outcome: "NO_ANSWER", why: "No answer", note: "rang out",
-      due: "2026-10-01", due_kind: "DATE", due_text: "Thu 2026-10-01", overdue: true, snoozed: false,
-      called_at: "2026-09-28 09:00 ET",
-    };
-    const { act, onChanged } = panel({ task });
+    const { act, onChanged } = panel({ task: SCHEDULED });
     expect(screen.getByText("Overdue")).toBeTruthy();
     expect(screen.getByText(/Thu 2026-10-01/)).toBeTruthy();
 
@@ -58,7 +94,7 @@ describe("the call panel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^Complete/ }));
     await vi.waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2));
-    expect(act.mock.calls[1]![1]).toEqual({ action: "COMPLETE", snooze_to: undefined });
+    expect(act.mock.calls[1]![1]).toEqual({ action: "COMPLETE", snooze_to: undefined, task_id: "T1" });
   });
 
   it("shows the email effect and call history", () => {

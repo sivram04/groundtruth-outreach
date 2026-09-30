@@ -1,8 +1,15 @@
 import { Check, Phone, RotateCw, X } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CallError, actOnCallTask, recordCallOutcome } from "../api";
 import { Card, Status } from "../components";
 import type { CallHistoryItem, CallTask } from "../types";
+
+/** A fresh identity for one logical call submission. */
+function newSubmissionId(): string {
+  const c = globalThis.crypto as Crypto | undefined;
+  if (c?.randomUUID) return c.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 const OUTCOMES: [string, string][] = [
   ["NO_ANSWER", "No answer"],
@@ -49,6 +56,17 @@ export function CallPanel({
   const [showSnooze, setShowSnooze] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // One logical submission's identity. It survives a retry (so a lost response after a successful write
+  // makes no duplicate) and is cleared on success or whenever the form is edited (so a genuinely new
+  // call is recorded). The UI omits the call time, so this - not a server timestamp - is the identity.
+  const submissionId = useRef("");
+
+  function editField<T>(set: (v: T) => void) {
+    return (v: T) => {
+      submissionId.current = "";
+      set(v);
+    };
+  }
 
   function save() {
     if (busy) return;
@@ -56,17 +74,22 @@ export function CallPanel({
       setError("A callback needs an explicit date and time.");
       return;
     }
+    if (!submissionId.current) submissionId.current = newSubmissionId();
     setBusy(true);
     setError("");
-    record(leadId, { outcome, note, callback_at: outcome === "CALLBACK" ? toIso(callbackAt) : undefined }).then(
+    record(leadId, {
+      outcome, note, submission_id: submissionId.current,
+      callback_at: outcome === "CALLBACK" ? toIso(callbackAt) : undefined,
+    }).then(
       () => {
         setBusy(false);
+        submissionId.current = "";
         setNote("");
         setCallbackAt("");
         onChanged();
       },
       (e: unknown) => {
-        setBusy(false);
+        setBusy(false);  // keep submissionId so the next click retries the same submission
         setError(e instanceof CallError ? e.message : "The call could not be recorded.");
       },
     );
@@ -76,7 +99,7 @@ export function CallPanel({
     if (busy) return;
     setBusy(true);
     setError("");
-    act(leadId, { action, snooze_to }).then(
+    act(leadId, { action, snooze_to, task_id: task?.id }).then(
       () => {
         setBusy(false);
         setShowSnooze(false);
@@ -137,7 +160,7 @@ export function CallPanel({
       <div className="import-controls">
         <label className="small">
           Outcome{" "}
-          <select value={outcome} onChange={(e) => setOutcome(e.target.value)}>
+          <select value={outcome} onChange={(e) => editField(setOutcome)(e.target.value)}>
             {OUTCOMES.map(([value, label]) => (
               <option key={value} value={value}>{label}</option>
             ))}
@@ -146,13 +169,13 @@ export function CallPanel({
         {outcome === "CALLBACK" && (
           <label className="small">
             Callback at{" "}
-            <input type="datetime-local" value={callbackAt} onChange={(e) => setCallbackAt(e.target.value)} />
+            <input type="datetime-local" value={callbackAt} onChange={(e) => editField(setCallbackAt)(e.target.value)} />
           </label>
         )}
       </div>
       <label className="block small muted" htmlFor="call-note">Note</label>
       <textarea id="call-note" className="import-text" rows={2} value={note}
-                placeholder="e.g. Called today — no answer" onChange={(e) => setNote(e.target.value)} />
+                placeholder="e.g. Called today — no answer" onChange={(e) => editField(setNote)(e.target.value)} />
       <div className="email-actions">
         <button type="button" className="primary" disabled={busy} onClick={save}>
           <Phone size={15} aria-hidden="true" /> {busy ? "Saving…" : "Save call"}

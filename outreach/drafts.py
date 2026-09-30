@@ -22,7 +22,7 @@ import argparse
 import json
 from datetime import datetime, timezone
 
-from outreach import drafting, gemini, job_draft, review, sequence, suppression, sync
+from outreach import calls, drafting, gemini, job_draft, review, sequence, suppression, sync
 from outreach.sheet import Store
 
 READY, WAITING, HELD = "READY", "WAITING", "HELD"
@@ -37,13 +37,23 @@ class DraftsBlocked(RuntimeError):
     """Drafts cannot be prepared safely; nothing was written."""
 
 
-def first_draft_blockers(row, events, entries):
-    """Why a lead may not have a first draft: the drafting step's own lead checks, and never
-    emailed (by hand or by this system). `entries` None (Suppression unreadable) blocks it."""
+def first_draft_blockers(row, events, entries, call_events=()):
+    """Why a lead may not have a first draft: the drafting step's own lead checks, never emailed (by hand
+    or by this system), and any recorded call decision that stops or holds email. `entries` None
+    (Suppression unreadable) blocks it; `call_events` None (the Call log could not be read) blocks it too,
+    so unreadable call history never means unrestricted outreach."""
     address = row.get("BEST EMAIL", "").strip()
     blockers = drafting.lead_blockers(row, None if entries is None else sync.on_list(entries, address))
     if any(e.get("Event") == sequence.SENT for e in events):
         blockers.append("already emailed")
+    if call_events is None:
+        blockers.append("its call history could not be read")
+    else:
+        effect = calls.outreach_effect(call_events)
+        if effect == calls.STOP:
+            blockers.append("a recorded call outcome stops email (do not contact / not interested)")
+        elif effect == calls.HOLD:
+            blockers.append("a recorded call outcome holds email (interested / callback — by hand)")
     return blockers
 
 
@@ -102,11 +112,21 @@ def plan(store):
         entries = store.suppression()
     except suppression.Unreadable as exc:
         raise DraftsBlocked("no lead can be called ready: " + exc.reason) from exc
-    by_lead = {}
+    # Unreadable call history must not silently mean unrestricted outreach: fail closed, as suppression
+    # does. A recorded call stop/hold blocks a first draft (via first_draft_blockers).
+    try:
+        call_rows = store.call_events()
+    except (RuntimeError, AttributeError) as exc:
+        raise DraftsBlocked("no lead can be called ready: the Call log could not be read "
+                            f"({exc})") from exc
+    by_lead, by_call = {}, {}
     for event in sync.unique(store.events()):
         by_lead.setdefault(event.get("Lead ID", ""), []).append(event)
+    for event in call_rows or ():
+        by_call.setdefault(event.get("Lead ID", ""), []).append(event)
     ready = [row for lead_id, row in sorted(leads.items())
-             if not first_draft_blockers(row, by_lead.get(lead_id, []), entries)]
+             if not first_draft_blockers(row, by_lead.get(lead_id, []), entries,
+                                         by_call.get(lead_id, []))]
     existing = {}
     for number, row in store.drafts():
         if row.get("Email", FIRST_EMAIL) == FIRST_EMAIL:

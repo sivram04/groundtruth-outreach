@@ -59,7 +59,7 @@ CLAIMS_HEADER = ["Lead ID", "Op key", "Attempt", "Claimed at (UTC)"]
 # row is an OUTCOME or an ACTION; the Event ID makes a repeated submission a no-op.
 CALLS_TAB = "Call log"
 CALLS_HEADER = ["Event ID", "Lead ID", "Recorded at (UTC)", "Kind", "Outcome", "Note",
-                "Called at (UTC)", "Due", "Due kind", "Email effect", "Detail"]
+                "Called at (UTC)", "Due", "Due kind", "Email effect", "Detail", "Task ID"]
 
 
 _SHEETS = None

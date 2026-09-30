@@ -1402,6 +1402,41 @@ Sheet — and how often the checks refuse it — is unknown.
   next step). **Remaining in the call milestone:** post-call email candidate when an address exists,
   chat-based call logging, offline HOLD enforcement, a dashboard overdue list. **Live verification is a
   separate milestone and NOT done** (`enable_calls` off in deploy). The full MVP is not complete.
+  (Offline HOLD enforcement and the STOP/identity/retry defects were fixed in the next entry.)
+
+- **2026-09-30 (calls: correctness fixes from the independent review)** — `docs/testing/calls-review-2026-09-30.md`
+  reproduced four defects against `52bebbd`; all four are now fixed and regression-tested through the real
+  routes and the pure state machine, not component mocks alone. Still flag-gated (`enable_calls`, off by
+  default and in deploy), Sheets persistence, synthetic-verified.
+
+  - **A recorded call STOP/HOLD is now enforced in the email eligibility paths (was not).** `calls.outreach_effect`
+    / `blocks_outreach` give a lead's effect from its call events alone (no clock). `drafts.first_draft_blockers`
+    and `followup.due_now` take the lead's call events and refuse a first draft / a follow-up when the effect is
+    STOP (do-not-contact / not-interested) or HOLD (interested / callback) — so offline HOLD enforcement now exists.
+    **Unreadable call history fails closed:** `drafts.plan`, `followup.pending_reviews`/`run` and
+    `console_model.snapshot`/`build` treat an unreadable Call log as a block, never as unrestricted outreach. The
+    outcome route no longer claims a clean success when the redundant Suppression entry cannot be written — it returns
+    `suppression_written: false` and a `warning`, and the STOP is still enforced by the recorded call event.
+  - **Do-not-contact is sticky (was undone by a later routine outcome).** `call_state` carries a `do_not_contact`
+    flag: once recorded, the email effect stays STOP and no later no-answer reopens a task or lifts it; history is
+    still logged (recording history is separate from permission to schedule). Not-interested stays a distinct outcome.
+  - **A task action is bound to the exact task shown.** A new **Task ID** column persists an action's target
+    (`sheet.py CALLS_HEADER`, `calls.action_event`); `call_state` applies an action only to the task it named, so a
+    stale/interleaved action cannot close a newer task. `call_task_view` exposes the task `id`; the CallPanel sends
+    `task_id`; the route refuses a mismatched id (409) without touching the newer task.
+  - **A call submission is retry-stable through the UI (the UI omits the call time).** The CallPanel keeps one
+    `submission_id` across retries (cleared on success or when the form is edited); `calls.outcome_event` uses it as
+    the Event ID, so a retry after a lost response makes no duplicate, while a genuinely new call is still recorded.
+    A programmatic caller supplying a fixed `called_at` keeps the old content-hash idempotency.
+
+  **Verified in containers, no network.** Python **920 passed** (+14: sticky DNC, stale-action rejection through the
+  route, UI-shaped retry with an advancing clock → one event, suppression-write failure still enforced and reported,
+  worker skip on STOP/HOLD, unreadable-log fail-closed, first-draft blocked by a call stop). Frontend **76 passed**
+  (+2: retry keeps one identity / a new call gets a new one; a task action names its task), typecheck and build clean.
+  **Browser-verified through the actual local API and the real built pages** (`tools/local_import_console.py`, port
+  8139): phone-only do-not-contact then no-answer stays "No call scheduled" with the STOP effect and the first-draft
+  blocker shown; a stale task_id is refused 409 while the newer task stays scheduled; two UI-shaped submits one clock
+  second apart add one history row. **Synthetic only; live verification remains a separate, not-done milestone.**
 
 - **2026-09-30 (import: write-taking Resume removed; exclusive write ownership)** — a review
   (`docs/testing/import-review-2026-09-30.md`) reproduced an overlap: an original owner and a resume

@@ -70,6 +70,28 @@
 
 ## [DISCOVERIES]
 
+- 2026-09-30 [FIX] Call-task correctness, the four findings in docs/testing/calls-review-2026-09-30.md
+  (against 52bebbd), all fixed + regressed through the REAL routes and the pure state machine (not mocks
+  alone). (1) STOP/HOLD now enforced in eligibility: `calls.outreach_effect`/`blocks_outreach` (no clock);
+  `drafts.first_draft_blockers` + `followup.due_now` take call events and skip STOP/HOLD leads (offline HOLD
+  enforcement now exists); unreadable call log fails closed in drafts.plan / followup.pending_reviews+run /
+  console_model.snapshot+build; the outcome route reports `suppression_written:false` + `warning` and the
+  STOP is still enforced via the recorded call event. (2) do-not-contact is STICKY (call_state
+  `do_not_contact` flag): a later no-answer never reopens a task or lifts STOP; history still logged;
+  not-interested stays distinct. (3) task action bound to the exact task: new "Task ID" column
+  (sheet.CALLS_HEADER, calls.action_event) persists the target, call_state applies an action only to the
+  named task (stale/interleaved can't close a newer one); call_task_view exposes `id`; CallPanel sends
+  task_id; route 409 on mismatch without touching the newer task. (4) retry-stable UI submission: CallPanel
+  keeps one submission_id across retries (cleared on success/edit), calls.outcome_event uses it as the Event
+  ID (UI omits called_at), so a retry after a lost response makes no duplicate; a fixed-called_at
+  programmatic caller keeps content-hash idempotency. Containers: Python 920 (+14), frontend 76 (+2),
+  tsc+build clean. Browser (tools/local_import_console.py:8139, real built pages): phone-only DNC then
+  no-answer stays "No call scheduled" + STOP + first-draft blocker; stale task_id -> 409, newer task stays
+  scheduled; two UI-shaped submits 1s apart -> one history row. Synthetic only; live NOT done; enable_calls
+  off in deploy. Gotcha: local host python lacks googleapiclient/flask -> run pytest AND the harness inside
+  the outreach-tests image (repo mounted ro); build console/dist via outreach-console-tests with src mounted
+  ro + dist mounted rw; the harness needs a network for -p (never --network none), it never calls Google.
+
 - 2026-09-30 [BUILD] First call-task workflow (local, flag-gated `enable_calls`, off by default+deploy).
   `outreach/calls.py` (pure): outcomes (no answer/interested/not interested/callback/wrong number/do not
   contact) + actions (complete/snooze/cancel) as an append-only event log; `call_state` replays to the
@@ -194,6 +216,14 @@
   review handbook stays in `docs/`.
 
 ## [OUTCOMES]
+
+- 2026-09-30T22:45:34Z [TOOL] Independent local review of call milestone 52bebbd:
+  23 targeted tests pass in a network-disabled container. Additional real-route
+  synthetic probes show STOP reported despite failed suppression write, phone-only
+  DNC replaced by NO_ANSWER, stale Complete closing a newer callback, and actual UI
+  retry payload recording two call events. Worker HOLD enforcement is still absent.
+  Evidence: docs/testing/calls-review-2026-09-30.md. No product-code/live changes;
+  finish these call behaviors before expanding the milestone.
 
 - 2026-09-30T22:18Z [TOOL] Independently verified 0b6ed5c with 43 targeted import
   tests in a network-disabled container. Specific original-write/resume overlap now

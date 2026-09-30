@@ -330,19 +330,22 @@ async function callPost(path: string, payload: Record<string, unknown>, fetcher:
   return callBody(response);
 }
 
-/** Record a call outcome for a lead; the server schedules the next call and returns the call state. */
+/** Record a call outcome for a lead; the server schedules the next call and returns the call state.
+ *  `submission_id` is one logical submission's identity: retries of the same call carry it so the
+ *  server records one row even when the UI omits the call time and a response is lost. */
 export function recordCallOutcome(
   leadId: string,
-  outcome: { outcome: string; note?: string; callback_at?: string },
+  outcome: { outcome: string; note?: string; callback_at?: string; submission_id?: string },
   fetcher: typeof fetch = fetch,
 ): Promise<CallResult> {
   return callPost(`/api/calls/${encodeURIComponent(leadId)}/outcome`, outcome, fetcher);
 }
 
-/** Complete, snooze or cancel a lead's current call task. */
+/** Complete, snooze or cancel a lead's current call task. `task_id` names the exact task the founder
+ *  was shown, so a stale action is refused rather than closing a newer task. */
 export function actOnCallTask(
   leadId: string,
-  action: { action: string; snooze_to?: string },
+  action: { action: string; snooze_to?: string; task_id?: string },
   fetcher: typeof fetch = fetch,
 ): Promise<CallResult> {
   return callPost(`/api/calls/${encodeURIComponent(leadId)}/task`, action, fetcher);

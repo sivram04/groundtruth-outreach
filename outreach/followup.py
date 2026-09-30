@@ -30,8 +30,8 @@ import re
 from collections import defaultdict
 from datetime import datetime, timezone
 
-from outreach import (drafting, gmail_drafts, job_draft, mailbox, review, sequence, suppression,
-                      sync, tracking)
+from outreach import (calls, drafting, gmail_drafts, job_draft, mailbox, review, sequence,
+                      suppression, sync, tracking)
 from outreach.business_days import new_york_date
 from outreach.sheet import FOLLOWUP_COLUMNS, Store
 
@@ -203,15 +203,27 @@ def actions_today(rows, today):
     return count
 
 
-def due_now(leads, events, entries, today):
+def due_now(leads, events, entries, today, call_events=()):
     """[(item, state)] for sequences this system started whose next follow-up is due by today,
-    and the same for those due later."""
+    and the same for those due later.
+
+    A recorded call decision is enforced here: a lead whose call effect stops or holds email is skipped,
+    so a follow-up is never scheduled over a do-not-contact / not-interested / interested / callback. When
+    `call_events` is None the Call log could not be read, so every lead is skipped (fail closed) - an
+    unreadable log never becomes unrestricted follow-up."""
+    if call_events is None:
+        return [], []
     by_lead = defaultdict(list)
     for event in events:
         by_lead[event["Lead ID"]].append(event)
+    by_call = defaultdict(list)
+    for event in call_events or ():
+        by_call[event.get("Lead ID", "")].append(event)
     due, later = [], []
     for lead_id, row in sorted(leads.items()):
         mine = by_lead.get(lead_id, [])
+        if calls.blocks_outreach(calls.outreach_effect(by_call.get(lead_id, []))):
+            continue
         state = sequence.lead_state(row, mine, suppressed=sync.lead_suppressed(entries, row, mine),
                                     today=today)
         if not state["due"] or state["sequence"]["origin"] != sequence.SYSTEM:
@@ -268,6 +280,17 @@ def _prepare_followup(gmail, item, state, row, book, settings):
             "last_id": last["id"], "review_id": review_id, "candidate": candidate}
 
 
+def _call_events_or_none(store):
+    """The store's call events, or None when the Call log exists but could not be read (fail closed).
+    A store with no Call log at all returns () - calls are simply absent, not unreadable."""
+    try:
+        return store.call_events()
+    except RuntimeError:
+        return None
+    except AttributeError:
+        return ()
+
+
 def pending_reviews(store, gmail, settings, book, now):
     """[(review_id, candidate)] for each follow-up due now that would otherwise be drafted, so a
     person - or a test - can review its actual content. Items blocked before drafting are skipped.
@@ -279,7 +302,7 @@ def pending_reviews(store, gmail, settings, book, now):
         entries = store.suppression()
     except suppression.Unreadable:
         return []
-    due, _later = due_now(leads, events, entries, today)
+    due, _later = due_now(leads, events, entries, today, _call_events_or_none(store))
     reviews = []
     for item, state in due:
         try:
@@ -304,7 +327,11 @@ def run(where="local", *, dry_run=True, store=None, gmail=None, settings=None, h
     except suppression.Unreadable as exc:
         report["gates"] = [exc.reason]
         return report
-    due, later = due_now(leads, events, entries, today)
+    call_events = _call_events_or_none(store)
+    if call_events is None:
+        report["gates"] = ["the Call log could not be read; no follow-up is scheduled"]
+        return report
+    due, later = due_now(leads, events, entries, today, call_events)
     report["due"], report["later"] = [i for i, _ in due], [i for i, _ in later]
     book, why = job_draft._handbook(settings, handbook, drive)
     report["gates"] = gates(settings, book, why)

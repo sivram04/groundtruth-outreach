@@ -90,26 +90,39 @@ def next_due(outcome, called_at, *, no_answer_business_days, callback_at=None):
 
 
 def outcome_event(lead_id, outcome, note, called_at, *, no_answer_business_days,
-                  callback_at=None, now):
-    """A Call log OUTCOME row. Raises ValueError for an unknown outcome or a callback with no time."""
+                  callback_at=None, now, submission_id=None):
+    """A Call log OUTCOME row. Raises ValueError for an unknown outcome or a callback with no time.
+
+    When `submission_id` is given the Event ID is that identity alone, so a retry through the UI - which
+    omits `called_at`, letting the server stamp a fresh time each attempt - is still one logical
+    submission (one row), even if a successful write's response was lost. A genuinely new call carries a
+    new submission_id, so it is recorded. Without a submission_id the Event ID is a content hash
+    (including the call time), which keeps a programmatic caller that supplies a fixed `called_at`
+    idempotent."""
     if outcome not in OUTCOMES:
         raise ValueError(f"unknown call outcome {outcome!r}")
     called = _parse(called_at) or now
     called_iso = called.astimezone(timezone.utc).isoformat()
     due, kind = next_due(outcome, called_iso, no_answer_business_days=no_answer_business_days,
                          callback_at=callback_at)
+    submission = str(submission_id or "").strip()
+    event_id = (_event_id("OUTCOME", lead_id, submission) if submission
+                else _event_id("OUTCOME", lead_id, outcome, called_iso, str(note or ""),
+                               str(callback_at or "")))
     return {
-        "Event ID": _event_id("OUTCOME", lead_id, outcome, called_iso, str(note or ""),
-                              str(callback_at or "")),
+        "Event ID": event_id,
         "Lead ID": lead_id, "Recorded at (UTC)": now.astimezone(timezone.utc).isoformat(),
         "Kind": "OUTCOME", "Outcome": outcome, "Note": str(note or ""), "Called at (UTC)": called_iso,
         "Due": due or "", "Due kind": kind or "", "Email effect": email_effect(outcome), "Detail": "",
+        "Task ID": "",
     }
 
 
 def action_event(lead_id, action, task_id, *, snooze_to=None, now):
-    """A Call log ACTION row acting on the task identified by `task_id`. The Event ID folds in the task,
-    so repeating the same action on the same task is a no-op, while acting on a later task is not."""
+    """A Call log ACTION row acting on the task identified by `task_id`. The target is both folded into
+    the Event ID (so repeating the same action on the same task is a no-op) and persisted in the Task ID
+    column, so replay applies the action only to the task it was aimed at - a stale action can never
+    close a newer task, even for delayed or interleaved events."""
     if action not in ACTIONS:
         raise ValueError(f"unknown task action {action!r}")
     due, kind = "", ""
@@ -123,6 +136,7 @@ def action_event(lead_id, action, task_id, *, snooze_to=None, now):
         "Lead ID": lead_id, "Recorded at (UTC)": now.astimezone(timezone.utc).isoformat(),
         "Kind": "ACTION", "Outcome": "", "Note": "", "Called at (UTC)": "",
         "Due": due, "Due kind": kind, "Email effect": "", "Detail": action,
+        "Task ID": task_id or "",
     }
 
 
@@ -143,32 +157,46 @@ def _overdue(due, kind, now):
 
 
 def call_state(events, *, now):
-    """The lead's current call task, its call history, and the latest email effect.
+    """The lead's current call task, its call history, the latest email effect, and whether the lead is
+    do-not-contact.
 
-    Returns {"task": task or None, "history": [...], "email_effect": STOP/HOLD/CONTINUE}. `task` is the
-    single current task worked out by replaying the events in order: a scheduling outcome opens it, a
-    later scheduling outcome replaces it, COMPLETE/CANCEL close it and SNOOZE moves its due. `overdue`
-    is set from `now` (a DATE is overdue only after its New York day; a TIME once it has passed)."""
-    task, history, effect = None, [], CONTINUE
+    Returns {"task": task or None, "history": [...], "email_effect": STOP/HOLD/CONTINUE,
+    "do_not_contact": bool}. `task` is the single current task worked out by replaying the events in
+    order: a scheduling outcome opens it, a later scheduling outcome replaces it, COMPLETE/CANCEL close
+    it and SNOOZE moves its due. An ACTION applies only to the task it named (its Task ID), so a stale
+    action never closes a newer task.
+
+    Do-not-contact is a sticky, per-lead block: once recorded it forces the email effect to STOP and no
+    later ordinary outcome (a routine no-answer, say) can reopen a call task or lift the STOP - logging
+    later history stays possible, but scheduling new outreach does not. `overdue` is set from `now`."""
+    task, history, effect, dnc = None, [], CONTINUE, False
     for event in sorted(events, key=_order):
         kind = event.get("Kind")
         if kind == "OUTCOME":
             outcome = event.get("Outcome", "")
-            effect = event.get("Email effect") or email_effect(outcome)
             history.append({"when": event.get("Recorded at (UTC)", ""), "outcome": outcome,
                             "note": event.get("Note", ""), "detail": ""})
+            if outcome == DO_NOT_CONTACT:
+                dnc = True
+            if dnc:
+                effect, task = STOP, None  # a recorded stop is permanent; no new task, no lift
+                continue
+            effect = event.get("Email effect") or email_effect(outcome)
             if outcome in SCHEDULES and event.get("Due"):
                 task = {"id": event.get("Event ID", ""), "outcome": outcome,
                         "note": event.get("Note", ""), "called_at": event.get("Called at (UTC)", ""),
                         "due": event["Due"], "due_kind": event.get("Due kind", "DATE"),
                         "status": "scheduled", "snoozed": False}
             else:
-                task = None  # a non-scheduling outcome (e.g. not interested, do not contact) closes it
+                task = None  # a non-scheduling outcome (e.g. not interested) closes the task
         elif kind == "ACTION":
             action = event.get("Detail", "")
             history.append({"when": event.get("Recorded at (UTC)", ""), "outcome": "",
                             "note": "", "detail": action})
-            if task and task["status"] == "scheduled":
+            target = event.get("Task ID", "")
+            # Apply only to the task this action named. An empty target is a legacy action (before Task
+            # ID was persisted) and applies to the current task, as it used to.
+            if task and task["status"] == "scheduled" and (not target or target == task["id"]):
                 if action == COMPLETE:
                     task["status"] = "done"
                 elif action == CANCEL:
@@ -181,4 +209,27 @@ def call_state(events, *, now):
         task["overdue"] = _overdue(task["due"], task["due_kind"], now)
     elif task:
         task["overdue"] = False
-    return {"task": task, "history": history, "email_effect": effect}
+    return {"task": task, "history": history, "email_effect": effect, "do_not_contact": dnc}
+
+
+def outreach_effect(events):
+    """The lead's email effect (STOP / HOLD / CONTINUE) from its call events alone, without a clock.
+
+    This is what the email-drafting and follow-up eligibility paths read so a recorded call decision is
+    enforced: STOP (do-not-contact / not-interested) or HOLD (interested / callback - the founder is
+    handling this lead by hand) both block automated email. Do-not-contact is sticky (see `call_state`),
+    so a later routine outcome cannot lift it."""
+    dnc, effect = False, CONTINUE
+    for event in sorted(events, key=_order):
+        if event.get("Kind") != "OUTCOME":
+            continue
+        outcome = event.get("Outcome", "")
+        if outcome == DO_NOT_CONTACT:
+            dnc = True
+        effect = STOP if dnc else (event.get("Email effect") or email_effect(outcome))
+    return STOP if dnc else effect
+
+
+def blocks_outreach(effect):
+    """True when a call effect should stop automated email (a STOP or a HOLD)."""
+    return effect in (STOP, HOLD)
