@@ -95,6 +95,14 @@
 
 ## [OUTCOMES]
 
+- 2026-09-30T16:24Z [CODE] Continued the narrow review-status task from existing local
+  `4c8f896` (descends from requested `f939d4a`). Removed the missing-state permission
+  exception; API type, demo and fixtures require explicit state. [TOOL] 63 frontend
+  tests, typecheck, production/demo builds and unchanged backend's 832 tests passed
+  in network-disabled containers. Original component and missing-state exception each
+  failed the relevant regression. Evidence: docs/testing/review-status-2026-09-30.md.
+  Signing/gate unchanged; no deployment, activation, permission change or Google writes.
+
 - 2026-09-22T20:24:00-04:00 [ASSUMPTION] Real pilot remains UNVERIFIED until the
   founder supplies the offer, sender details, and postal address and approves
   actual preview hashes. See `docs/AS_BUILT.md` for current verification.

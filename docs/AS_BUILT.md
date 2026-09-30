@@ -1372,6 +1372,20 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-30 (explicit review state required; local verification)** — follow-up to
+  `4c8f896`, superseding its missing-state compatibility exception below. `state` is now
+  required in `ReviewView`; only explicit `resolved` or `REVIEW_MISSING` permits review.
+  Missing/null/unknown states block like unreadable histories, with candidate/evidence
+  retained and Reload available. The demo and old test fixtures now provide explicit states.
+  Tests pass actual JSON Responses through the API parser and component. The full requested
+  saved-rejection/unreadable-reload/recovery regression passes and fails when the original
+  `f939d4a` component is substituted inside a disposable container. The new absent-state
+  regression also failed against `4c8f896` before the exception was removed.
+  **Verification:** 63 frontend tests, typecheck, production and demo builds; unchanged
+  backend 832 Python tests, all in containers with network disabled at run time.
+  [Dated results, commands and limits](testing/review-status-2026-09-30.md).
+  Signing/gate code untouched; no live operations or deployment.
+
 - **2026-09-30 (review-status API/UI mismatch fixed) — the backend `review.state` is carried through
   the typed contract and rendered explicitly; a failed or invalid history keeps the actions disabled
   even on an HTTP 200.** Continues from `f939d4a`; scoped to the review-status contract, no broader

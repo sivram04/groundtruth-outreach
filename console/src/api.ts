@@ -114,26 +114,25 @@ export interface ReviewView {
    *  `state` is the ground truth for whether review is permitted: "resolved" (a verified tip;
    *  `decision`/`current` are meaningful) or "REVIEW_MISSING" (no record yet) PERMIT review; any
    *  other value ("unreadable", "unverifiable", "REVIEW_CONFLICT", "REVIEW_TAMPERED") is a failed or
-   *  invalid history and BLOCKS it. HTTP 200 alone does not establish a usable decision. `state` is
-   *  optional only for the legacy unsigned path and the demo, which are treated as permitting. */
+   *  invalid history and BLOCKS it. HTTP 200 alone does not establish a usable decision.
+   *  Missing or unknown states at runtime also block; the demo uses this same contract. */
   review: {
     decision: string | null;
     reviewer?: string;
     reviewed_at?: string;
     current: boolean;
-    state?: string;
+    state: string;
   };
   note: string;
 }
 
 /** Review is permitted only when the resolved chain state is a clean, readable result: a verified
  *  tip ("resolved") or a genuine absence of any record ("REVIEW_MISSING"). Every other state is a
- *  failed or invalid history and must keep the actions disabled. A missing `state` is the legacy
- *  unsigned / demo shape, treated as permitting. */
+ *  failed or invalid history and must keep the actions disabled, including a missing `state`. */
 const REVIEW_STATE_PERMITS = new Set(["resolved", "REVIEW_MISSING"]);
 
 export function reviewIsPermitted(review: ReviewView["review"]): boolean {
-  return review.state === undefined || REVIEW_STATE_PERMITS.has(review.state);
+  return REVIEW_STATE_PERMITS.has(review.state);
 }
 
 /** The candidate changed between being shown and a confirm/reject: the review must be redone. */

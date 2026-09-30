@@ -65,7 +65,7 @@ function stateOf(review: ReviewView["review"]): ReviewStatus {
     };
     return { tone: blocked.tone, text: blocked.text, canReview: false, blockedReason: blocked.reason };
   }
-  // A permitting state ("resolved" with a decision, "REVIEW_MISSING", or the legacy unsigned shape).
+  // A permitting state ("resolved" with a decision, or "REVIEW_MISSING").
   if (review.decision === null) return { tone: "amber", text: "Awaiting your review", canReview: true };
   if (!review.current)
     return {
@@ -104,7 +104,7 @@ export function Review({
       (v) => {
         setView(v);
         setError("");
-        setStatusUnavailable(false);  // a successful read re-establishes the current decision
+        setStatusUnavailable(false);  // the returned state now determines whether review is permitted
       },
       (e: unknown) => setError(e instanceof LoadError ? e.message : "The candidate could not be loaded."),
     );

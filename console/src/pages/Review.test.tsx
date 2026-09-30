@@ -12,16 +12,13 @@ import { Review } from "./Review";
 
 const FP = "f".repeat(64);
 
-// A minimal Response for the real API parser (reviewResponse): a JSON body with a status. This lets
+// A JSON Response for the real API parser (reviewResponse). This lets
 // the tests exercise the actual server response shape through loadReview/recordReview, not just a
 // resolved ReviewView or a thrown exception.
 function jsonResponse(body: unknown, status = 200): Response {
-  return {
-    status,
-    ok: status >= 200 && status < 300,
-    headers: { get: (h: string) => (h.toLowerCase() === "content-type" ? "application/json" : null) },
-    json: async () => body,
-  } as unknown as Response;
+  return new Response(JSON.stringify(body), {
+    status, headers: { "Content-Type": "application/json" },
+  });
 }
 
 // Returns each scripted response in call order (GET, POST, GET, ... in these flows), holding the last.
@@ -44,7 +41,7 @@ function view(over: Partial<ReviewView> = {}): ReviewView {
     handbook_hash: "h",
     handbook_version: "1",
     fingerprint: FP,
-    review: { decision: null, current: false },
+    review: { decision: null, current: false, state: "REVIEW_MISSING" },
     note: "Confirming records your judgment... It is not automated proof that they are true.",
     ...over,
   };
@@ -68,7 +65,7 @@ describe("the review page", () => {
   it("confirms with the candidate's fingerprint and shows who confirmed it", async () => {
     const record = vi
       .fn()
-      .mockResolvedValue(view({ review: { decision: "confirmed", reviewer: "admin@lakshyaa.ai", current: true } }));
+      .mockResolvedValue(view({ review: { decision: "confirmed", reviewer: "admin@lakshyaa.ai", current: true, state: "resolved" } }));
     render(<Review leadId="A-0007" from="admin@lakshyaa.ai" load={() => Promise.resolve(view())} record={record} />);
     await screen.findAllByText(/pours slabs/);
     fireEvent.click(screen.getByRole("button", { name: /Confirm/ }));
@@ -79,7 +76,7 @@ describe("the review page", () => {
   it("records a rejection", async () => {
     const record = vi
       .fn()
-      .mockResolvedValue(view({ review: { decision: "rejected", reviewer: "admin@lakshyaa.ai", current: true } }));
+      .mockResolvedValue(view({ review: { decision: "rejected", reviewer: "admin@lakshyaa.ai", current: true, state: "resolved" } }));
     render(<Review leadId="A-0007" from="admin@lakshyaa.ai" load={() => Promise.resolve(view())} record={record} />);
     await screen.findAllByText(/pours slabs/);
     fireEvent.click(screen.getByRole("button", { name: /Reject/ }));
@@ -88,7 +85,7 @@ describe("the review page", () => {
   });
 
   it("shows a stale state when a review no longer matches the candidate", async () => {
-    const stale = view({ review: { decision: "confirmed", reviewer: "admin@lakshyaa.ai", current: false } });
+    const stale = view({ review: { decision: "confirmed", reviewer: "admin@lakshyaa.ai", current: false, state: "resolved" } });
     render(<Review leadId="A-0007" from="admin@lakshyaa.ai" load={() => Promise.resolve(stale)} record={vi.fn()} />);
     await screen.findAllByText(/no longer matches this candidate/);
   });
@@ -123,8 +120,8 @@ describe("the review page", () => {
   });
 
   it("clears a stale confirmation when the status can't be read back, then a reload restores it", async () => {
-    const confirmed = view({ review: { decision: "confirmed", reviewer: "admin@lakshyaa.ai", current: true } });
-    const rejected = view({ review: { decision: "rejected", reviewer: "admin@lakshyaa.ai", current: true } });
+    const confirmed = view({ review: { decision: "confirmed", reviewer: "admin@lakshyaa.ai", current: true, state: "resolved" } });
+    const rejected = view({ review: { decision: "rejected", reviewer: "admin@lakshyaa.ai", current: true, state: "resolved" } });
     const load = vi.fn().mockResolvedValueOnce(confirmed).mockResolvedValueOnce(rejected);
     const record = vi
       .fn()
@@ -245,4 +242,25 @@ describe("the review page", () => {
     expect(disabled(/Confirm/)).toBe(false);
     expect(disabled(/Reject/)).toBe(false);
   });
+
+  it.each([undefined, null, "UNKNOWN_STATE", "unreadable"])(
+    "blocks an initial HTTP 200 with unusable state %s, preserving candidate and evidence",
+    async (state) => {
+      const fetcher = fetchSequence(jsonResponse({
+        ...view(), review: { decision: null, current: false, state },
+      }));
+      const record = vi.fn();
+      render(<Review leadId="A-0007" from="admin@lakshyaa.ai" load={(id) => loadReview(id, fetcher)} record={record} />);
+      await screen.findByText(/reviewing is paused/i);
+      expect(screen.queryByText(/Awaiting your review/)).toBeNull();
+      expect(disabled(/Confirm/)).toBe(true);
+      expect(disabled(/Reject/)).toBe(true);
+      expect(screen.getByRole("button", { name: /Reload/ })).toBeTruthy();
+      expect(screen.getByText("A conversation next week")).toBeTruthy();
+      expect(screen.getByText(/We pour foundations and slabs/)).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: /Confirm/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Reject/ }));
+      expect(record).not.toHaveBeenCalled();
+    },
+  );
 });

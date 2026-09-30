@@ -33,7 +33,7 @@ const CANDIDATE = {
     "sending and drafting stay disabled.",
 } satisfies Omit<ReviewView, "review">;
 
-let decision: ReviewView["review"] = { decision: null, current: false };
+let decision: ReviewView["review"] = { decision: null, current: false, state: "REVIEW_MISSING" };
 
 export async function demoReview(_leadId: string): Promise<ReviewView> {
   return { ...structuredClone(CANDIDATE), review: { ...decision } };
@@ -52,6 +52,7 @@ export async function demoRecord(
     reviewer: "demo@lakshyaa.ai",
     reviewed_at: new Date().toISOString(),
     current: true,
+    state: "resolved",
   };
   return { ...structuredClone(CANDIDATE), review: { ...decision } };
 }
