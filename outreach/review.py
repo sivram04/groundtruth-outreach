@@ -48,6 +48,7 @@ the reservation write plus the create call, and drafting is disabled anyway.
 import json
 import os
 import re
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -97,16 +98,28 @@ class NotMigrated(RuntimeError):
 
 class ReviewsUnavailable(RuntimeError):
     """A review store's backing storage cannot be read or written safely (a missing tab, a changed
-    header, or an I/O error), so review and approval are blocked. `enforce` turns this into
-    UNREADABLE and `is_reviewed` into False - fail-closed."""
+    header, or an I/O error), or a write is known to have failed, so review and approval are
+    blocked. `enforce` turns this into UNREADABLE and `is_reviewed` into False - fail-closed."""
 
 
-# The append-only Reviews tab schema. The key column holds the review id (the lead id for an initial
-# email, `followup:<lead>:<step>` for a follow-up), NOT only a lead id, so an initial's review and a
-# follow-up's are separate rows.
+class ReviewsUncertain(ReviewsUnavailable):
+    """A write MAY have landed but could not be confirmed (the append response failed and the
+    reconciliation read failed, or the response reported success but the row is not visible). The
+    outcome is unknown: do not assume it was or was not recorded, and never auto-retry. Still blocks
+    approval (it is a ReviewsUnavailable), but a caller must not say 'nothing was changed'."""
+
+
+# The append-only Reviews tab schema (EXACT: the header must equal this, no extra columns). The key
+# column holds the review id (the lead id for an initial email, `followup:<lead>:<step>` for a
+# follow-up), so an initial's review and a follow-up's are separate rows. "Attempt ID" is a unique
+# id per append, so a specific write can be reconciled without an older identical row masking it.
 REVIEWS_TAB = "Reviews"
-REVIEWS_HEADER = ["Review ID", "Fingerprint", "Reviewer", "Decision", "Reviewed at (UTC)"]
-_RECORD_FIELDS = ("lead_id", "fingerprint", "reviewer", "decision", "reviewed_at")
+REVIEWS_HEADER = ["Review ID", "Attempt ID", "Fingerprint", "Reviewer", "Decision",
+                  "Reviewed at (UTC)"]
+# Row column index -> review-record field (the Attempt ID column is storage-internal, not a record
+# field).
+_ROW_TO_RECORD = {0: "lead_id", 2: "fingerprint", 3: "reviewer", 4: "decision", 5: "reviewed_at"}
+_ATTEMPT_COL = 1
 
 
 def _canonical(material):
@@ -377,12 +390,18 @@ class SheetReviewStore:
       - `get(review_id)` returns the LATEST row for that id as a record, or None when there is none.
         "Latest" is by row position (append order) - never a client timestamp, which is stored for
         the audit but never trusted for ordering. A later rejection therefore supersedes an earlier
-        confirmation of the same fingerprint because it is the later row.
-      - `put(record)` appends one row, then re-reads and confirms the exact row is present; it never
-        assumes the append succeeded and never auto-retries (a blind retry could double-write). An
-        unconfirmed or ambiguous append raises, so the caller treats it as a failure and approval
-        stays blocked.
-      - A missing tab, a header that is not exactly `REVIEWS_HEADER`, or any read/write error blocks
+        confirmation of the same fingerprint because it is the later row, so a superseded
+        confirmation is never returned as the current decision.
+      - `put(record)` writes each attempt with a unique Attempt ID, appends one row, then reconciles
+        THAT specific append by its id (an older identical row cannot mask a dropped write). It never
+        assumes the append succeeded and never auto-retries (a blind retry could double-write):
+          * the attempt id is found  -> recorded (even if the append response failed but the write
+            landed);
+          * the attempt id is absent and the append response reported success, or the reconciliation
+            read failed -> `ReviewsUncertain` (the write may or may not be there; do not assume);
+          * the attempt id is absent and the append response failed -> `ReviewsUnavailable` (nothing
+            was recorded).
+      - A missing tab, a header that is not EXACTLY `REVIEWS_HEADER`, or any read error blocks
         (raises `ReviewsUnavailable`). A malformed latest row is returned as-is and the gate rejects
         it (MALFORMED). This store never creates the tab.
 
@@ -424,14 +443,20 @@ class SheetReviewStore:
         except Exception as exc:
             raise ReviewsUnavailable(
                 f"the {self.TAB} tab could not be read ({type(exc).__name__})") from exc
-        if not values or values[0][:len(self.HEADER)] != self.HEADER:
-            raise ReviewsUnavailable(f"the {self.TAB} tab's header is missing or changed")
+        # Exact header: the Reviews tab is system-owned; an extra or changed column is drift, and it
+        # blocks (fail-closed) rather than being read past.
+        if not values or list(values[0]) != self.HEADER:
+            raise ReviewsUnavailable(f"the {self.TAB} tab's header is missing or not exactly the schema")
         return values
 
     @staticmethod
     def _record(row):
         cell = lambda i: row[i] if i < len(row) else ""  # noqa: E731
-        return dict(zip(_RECORD_FIELDS, (cell(0), cell(1), cell(2), cell(3), cell(4))))
+        return {field: cell(i) for i, field in _ROW_TO_RECORD.items()}
+
+    def _attempt_present(self, attempt_id):
+        return any((row[_ATTEMPT_COL] if len(row) > _ATTEMPT_COL else "") == attempt_id
+                   for row in self._values()[1:])
 
     def get(self, review_id):
         matches = [row for row in self._values()[1:] if (row[0] if row else "") == review_id]
@@ -442,20 +467,30 @@ class SheetReviewStore:
     def put(self, record):
         self._values()  # a missing tab / changed header blocks the write; never create the tab
         api, sid = self._service(), self._sid()
-        row = [record.get(field, "") for field in _RECORD_FIELDS]
+        attempt_id = uuid.uuid4().hex
+        row = [record.get("lead_id", ""), attempt_id, record.get("fingerprint", ""),
+               record.get("reviewer", ""), record.get("decision", ""), record.get("reviewed_at", "")]
+        response_ok = True
         try:
             api.values().append(
                 spreadsheetId=sid, range=f"'{self.TAB}'!A1", valueInputOption="RAW",
                 insertDataOption="INSERT_ROWS", body={"values": [row]}).execute()
-        except Exception as exc:
-            raise ReviewsUnavailable(
-                f"the review could not be appended ({type(exc).__name__})") from exc
-        # Do not assume the append landed: re-read and confirm this exact row is present. A
-        # concurrent later row may supersede it on read (correct); an absent row means the append
-        # did not take, so raise rather than report success or silently retry.
-        if not any(list(r) == row for r in self._values()[1:]):
-            raise ReviewsUnavailable("the review append could not be confirmed; nothing was recorded")
-        return record
+        except Exception:
+            response_ok = False  # the response failed; the write may or may not have landed
+        # Reconcile THIS attempt by its unique id (never a mere identical row). Never retry.
+        try:
+            landed = self._attempt_present(attempt_id)
+        except ReviewsUnavailable as exc:
+            raise ReviewsUncertain(
+                "the review was sent but the reconciliation read failed, so whether it was recorded "
+                "is unknown; do not assume either way and do not retry") from exc
+        if landed:
+            return record  # recorded, even if the append response itself errored
+        if response_ok:
+            raise ReviewsUncertain(
+                "the append reported success but the row is not present, so the outcome is uncertain; "
+                "do not retry")
+        raise ReviewsUnavailable("the append failed and no row was recorded; nothing was written")
 
 
 def store_from_env(environ=None):

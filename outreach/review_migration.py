@@ -37,14 +37,18 @@ def dry_run(api=None, spreadsheet_id=None):
                               range=f"'{review.REVIEWS_TAB}'").execute().get("values", [])
     header = values[0] if values else []
     data_rows = [r for r in values[1:] if any(str(c).strip() for c in r)]
-    if header[:len(review.REVIEWS_HEADER)] != review.REVIEWS_HEADER:
+    # The header must be EXACTLY the schema (no extra columns): the store enforces the same.
+    if list(header) != list(review.REVIEWS_HEADER):
         report.update(
-            status="HEADER_MISMATCH", found_header=header, existing_rows=len(data_rows),
-            plan=[f"the {review.REVIEWS_TAB} tab exists with a different header; a person must "
-                  f"reconcile it. This dry run changes nothing."],
+            status="HEADER_MISMATCH", found_header=list(header), existing_rows=len(data_rows),
+            plan=[f"the {review.REVIEWS_TAB} tab exists with a header that is not exactly the schema; "
+                  f"a person must reconcile it by hand to {review.REVIEWS_HEADER} (for example, an "
+                  f"older tab without the 'Attempt ID' column needs that column inserted at position "
+                  f"2 and every existing row given a unique Attempt ID). This dry run changes nothing."],
             existing_data=f"{len(data_rows)} row(s) present under a non-matching header; not read",
             rollback="none needed (nothing changes)",
-            older_revisions="a mismatched header already blocks the store (fail-closed)")
+            older_revisions="a header that is not exactly the schema already blocks the store "
+                            "(fail-closed)")
         return report
 
     report.update(

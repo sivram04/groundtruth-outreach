@@ -234,30 +234,44 @@ class _Values:
 
     def get(self, spreadsheetId, range):
         name = range.split("!")[0].strip("'")
-        rows = self.api.tabs.get(name)
-        if self.api.read_error:
+        if self.api.read_error or (self.api.fail_read_after_write and self.api._wrote):
             return _Exec(RuntimeError("boom"))
-        return _Exec({"values": [list(r) for r in (rows or [])]})
+        return _Exec({"values": [list(r) for r in (self.api.tabs.get(name) or [])]})
 
     def append(self, spreadsheetId, range, valueInputOption, insertDataOption, body):
         name = range.split("!")[0].strip("'")
-        if self.api.write_error:
+        rows = [list(r) for r in body["values"]]
+        if self.api.write_error:  # the request errored and nothing was written
             return _Exec(RuntimeError("boom"))
-        if self.api.drop_write:  # simulate an ambiguous append that did not land
+        if self.api.commit_then_error:  # the row WAS written, but the response errored
+            self.api.tabs.setdefault(name, []).extend(rows)
+            self.api._wrote = True
             self.api.appends += 1
+            return _Exec(RuntimeError("boom"))
+        if self.api.drop_write:  # the response says ok, but the row did NOT persist
+            self.api.appends += 1
+            self.api._wrote = True
             return _Exec({})
-        self.api.tabs.setdefault(name, []).extend([list(r) for r in body["values"]])
+        self.api.tabs.setdefault(name, []).extend(rows)
+        self.api._wrote = True
         self.api.appends += 1
         return _Exec({})
 
 
 class Sheets:
-    """A fake Sheets service for the review store: get() lists tabs, values() reads/appends."""
+    """A fake Sheets service for the review store: get() lists tabs, values() reads/appends.
 
-    def __init__(self, tabs, *, read_error=False, write_error=False, drop_write=False):
+    Failure modes: read_error (reads fail), write_error (append request fails, nothing written),
+    commit_then_error (row written but append response fails), drop_write (append response ok but
+    nothing persisted), fail_read_after_write (reads fail once anything has been appended)."""
+
+    def __init__(self, tabs, *, read_error=False, write_error=False, drop_write=False,
+                 commit_then_error=False, fail_read_after_write=False):
         self.tabs = {n: (None if rows is None else [list(r) for r in rows]) for n, rows in tabs.items()}
         self.read_error, self.write_error, self.drop_write = read_error, write_error, drop_write
+        self.commit_then_error, self.fail_read_after_write = commit_then_error, fail_read_after_write
         self.appends = 0
+        self._wrote = False
 
     def get(self, spreadsheetId):
         return _Exec({"sheets": [{"properties": {"title": n}} for n, r in self.tabs.items() if r is not None]})
@@ -269,15 +283,20 @@ class Sheets:
 HDR = review.REVIEWS_HEADER
 
 
+def srow(review_id, fingerprint, decision, at, *, attempt="att", reviewer="founder@lakshyaa.ai"):
+    """A 6-column Reviews row: Review ID | Attempt ID | Fingerprint | Reviewer | Decision | at."""
+    return [review_id, attempt, fingerprint, reviewer, decision, at]
+
+
 def sheet_store(tabs, **kw):
     return review.SheetReviewStore(api=Sheets(tabs, **kw), spreadsheet_id="sid")
 
 
 def test_the_sheet_store_reads_the_latest_row_for_a_review_id():
     store = sheet_store({"Reviews": [HDR,
-                                     ["A-0001", "b" * 64, "founder@lakshyaa.ai", "confirmed", "t1"],
-                                     ["A-0002", "c" * 64, "founder@lakshyaa.ai", "rejected", "t2"],
-                                     ["A-0001", "d" * 64, "founder@lakshyaa.ai", "rejected", "t3"]]})
+                                     srow("A-0001", "b" * 64, "confirmed", "t1", attempt="a1"),
+                                     srow("A-0002", "c" * 64, "rejected", "t2", attempt="a2"),
+                                     srow("A-0001", "d" * 64, "rejected", "t3", attempt="a3")]})
     got = store.get("A-0001")
     assert got["decision"] == "rejected" and got["fingerprint"] == "d" * 64  # the later row wins
     assert store.get("A-9999") is None  # no row -> MISSING
@@ -285,8 +304,8 @@ def test_the_sheet_store_reads_the_latest_row_for_a_review_id():
 
 def test_a_later_rejection_row_supersedes_an_earlier_confirmation_by_position():
     store = sheet_store({"Reviews": [HDR,
-                                     ["A-0001", "b" * 64, "founder@lakshyaa.ai", "confirmed", "z-later"],
-                                     ["A-0001", "b" * 64, "founder@lakshyaa.ai", "rejected", "a-earlier"]]})
+                                     srow("A-0001", "b" * 64, "confirmed", "z-later", attempt="a1"),
+                                     srow("A-0001", "b" * 64, "rejected", "a-earlier", attempt="a2")]})
     # ordering is by ROW POSITION, not the (here misleading) client timestamps
     assert store.get("A-0001")["decision"] == "rejected"
 
@@ -300,8 +319,17 @@ def test_the_sheet_store_blocks_on_a_missing_tab_a_changed_header_and_read_error
         sheet_store({"Reviews": [HDR]}, read_error=True).get("A-0001")  # read error
 
 
+def test_an_extra_header_column_is_rejected_by_the_exact_schema():
+    with pytest.raises(review.ReviewsUnavailable):
+        sheet_store({"Reviews": [HDR + ["Extra"], srow("A-0001", "b" * 64, "confirmed", "t") + ["x"]]}).get("A-0001")
+    # an older 5-column header (before Attempt ID) is also rejected
+    with pytest.raises(review.ReviewsUnavailable):
+        sheet_store({"Reviews": [["Review ID", "Fingerprint", "Reviewer", "Decision",
+                                  "Reviewed at (UTC)"]]}).get("A-0001")
+
+
 def test_a_malformed_latest_row_is_rejected_by_the_gate():
-    store = sheet_store({"Reviews": [HDR, ["A-0001", "not-hex", "founder@lakshyaa.ai", "confirmed", "t"]]})
+    store = sheet_store({"Reviews": [HDR, srow("A-0001", "not-hex", "confirmed", "t")]})
     record = store.get("A-0001")
     with pytest.raises(review.ReviewInvalid) as exc:
         review._evaluate(record, "a" * 64, frozenset({"founder@lakshyaa.ai"}))
@@ -325,19 +353,52 @@ def test_the_sheet_store_blocks_a_write_when_the_tab_is_missing_and_never_create
     assert api.tabs["Reviews"] is None and api.appends == 0  # nothing written, tab not created
 
 
-def test_an_ambiguous_append_that_did_not_land_is_reported_not_assumed_successful():
-    api = Sheets({"Reviews": [HDR]}, drop_write=True)  # append "returns" but does not persist
+def test_a_definite_write_failure_reports_nothing_recorded():
+    api = Sheets({"Reviews": [HDR]}, write_error=True)  # request errored; the row is absent
     store = review.SheetReviewStore(api=api, spreadsheet_id="sid")
-    with pytest.raises(review.ReviewsUnavailable):
+    with pytest.raises(review.ReviewsUnavailable) as exc:
         review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", "b" * 64)
-    assert store.get("A-0001") is None  # the review was not recorded, so approval stays blocked
+    assert not isinstance(exc.value, review.ReviewsUncertain)  # definitely failed, not uncertain
+    assert store.get("A-0001") is None
 
 
-def test_a_write_error_blocks():
-    api = Sheets({"Reviews": [HDR]}, write_error=True)
+# --- the four failure modes the founder called out (each would be mis-handled before this fix) ---
+
+def test_a_pre_existing_identical_row_does_not_mask_a_dropped_append():
+    """An older row with the same review id/fingerprint/reviewer/decision must not confirm THIS
+    append when it did not land. The unique Attempt ID distinguishes the specific write."""
+    api = Sheets({"Reviews": [HDR, srow("A-0001", "b" * 64, "confirmed", "old", attempt="old")]},
+                 drop_write=True)  # this append does not persist
     store = review.SheetReviewStore(api=api, spreadsheet_id="sid")
-    with pytest.raises(review.ReviewsUnavailable):
+    with pytest.raises(review.ReviewsUncertain):
         review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", "b" * 64)
+    # the pre-existing row is still all there is; nothing new was confirmed
+    assert store.get("A-0001")["reviewed_at"] == "old"
+
+
+def test_a_committed_append_whose_response_failed_is_recorded_not_lost():
+    api = Sheets({"Reviews": [HDR]}, commit_then_error=True)  # row written, response errored
+    store = review.SheetReviewStore(api=api, spreadsheet_id="sid")
+    record = review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", "b" * 64)
+    assert record["decision"] == "confirmed"  # reconciled by attempt id, reported accurately
+    assert store.get("A-0001")["fingerprint"] == "b" * 64
+
+
+def test_an_unreadable_reconciliation_is_reported_as_uncertain():
+    api = Sheets({"Reviews": [HDR]}, fail_read_after_write=True)  # append lands, re-read fails
+    store = review.SheetReviewStore(api=api, spreadsheet_id="sid")
+    with pytest.raises(review.ReviewsUncertain):
+        review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", "b" * 64)
+
+
+def test_a_concurrent_later_rejection_is_not_reported_as_approval():
+    api = Sheets({"Reviews": [HDR]})
+    store = review.SheetReviewStore(api=api, spreadsheet_id="sid")
+    reviewers = frozenset({"founder@lakshyaa.ai"})
+    review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", fingerprint())  # succeeds
+    review.record_rejection(store, "A-0001", "founder@lakshyaa.ai", fingerprint())  # later row wins
+    assert store.get("A-0001")["decision"] == "rejected"
+    assert review.is_reviewed(store, "A-0001", fingerprint(), reviewers=reviewers) is False
 
 
 def test_the_sheet_store_enforces_end_to_end_through_the_gate():

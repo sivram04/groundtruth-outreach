@@ -377,8 +377,12 @@ measurement honest and avoid overfitting**:
   `SheetReviewStore` (append-only, latest-row-by-position, confirm-on-write, fail-closed; tested
   against a fake, never the live Sheet), one `store_from_env` contract for worker + console (review
   off by default), a read-only migration dry-run, and an honest permissions limitation with a
-  proposed (not applied) fix. Nothing deployed; the `Reviews` tab is not created.
-- Whole suite: **803 Python passed (0 xfailed)**, **52 React passed**, **22 deliberate breaks caught**.
+  proposed (not applied) fix. A follow-up review then fixed the append confirmation (a unique
+  `Attempt ID` reconciled per write so an older identical row cannot mask a dropped one; committed-
+  but-response-errored → recorded; undeterminable → uncertain, never retried; exact six-column
+  schema). The reviewer-identity limitation stays an explicit blocker to enabling the gate. Nothing
+  deployed; the `Reviews` tab is not created.
+- Whole suite: **809 Python passed (0 xfailed)**, **52 React passed**, **24 deliberate breaks caught**.
 
 ## What this does not establish (limits of the evidence itself)
 

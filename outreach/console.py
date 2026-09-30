@@ -235,6 +235,12 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                           else review.record_rejection)(reviews, lead_id, g.email, fingerprint,
                                                         now=clock())
                 existing = reviews.get(lead_id)
+            except review.ReviewsUncertain:
+                # The write MAY have landed; never claim nothing changed.
+                log.exception("the review outcome is uncertain")
+                return refuse(502, "The review may or may not have been recorded - the outcome is "
+                                   "uncertain. Reload to check before acting; do not assume it was "
+                                   "or was not saved, and do not retry blindly.")
             except Exception:
                 # A store that cannot be written records nothing and reports no success.
                 log.exception("the review could not be recorded")

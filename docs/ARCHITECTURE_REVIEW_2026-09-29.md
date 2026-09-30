@@ -245,8 +245,14 @@ a read-only migration dry-run. **A permissions limitation is recorded honestly:*
 shared OAuth credential for the worker, the console and any script, so a reviewer email in a row is
 not proof of an authenticated decision and any credential-holder could forge one; the smallest fix
 (a console-only signing key the worker verifies, or a separate write identity) is proposed, not
-applied, and needs a secrets/IAM or ACL decision. Exact coverage: Python **803 passed**, React **52
-passed**, **22 deliberate breaks all caught**. **Not deployed**: `outreach/writer.py` and the review
+applied, and needs a secrets/IAM or ACL decision — **this remains an explicit blocker to enabling
+the review gate.** A follow-up review then corrected the store's append confirmation: each write now
+carries a unique `Attempt ID` and is reconciled by that id (an older identical row can no longer
+mask a dropped write), a committed-but-response-errored write is reported as recorded, an
+undeterminable write is reported as uncertain (never retried, and the console never says "nothing
+changed"), and the `Reviews` schema is now exact (six columns incl. Attempt ID; the migration dry-run
+describes the manual change for an older tab). Exact coverage: Python **809 passed**, React **52
+passed**, **24 deliberate breaks all caught**. **Not deployed**: `outreach/writer.py` and the review
 gate run inside `outreach-worker`/`outreach-console`, neither rebuilt; the `Reviews` tab is not
 created and its permissions posture is undecided, so nothing touches the live Sheet.
 

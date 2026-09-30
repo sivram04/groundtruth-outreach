@@ -1372,6 +1372,51 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-30 (review-store confirmation fixed; schema made exact) — corrects the append
+  confirmation in `afec60c`.** A review found that `SheetReviewStore.put` confirmed an append by
+  finding *any* identical row, so a pre-existing identical row could mask a dropped write; that the
+  "exact schema" was not actually enforced (an extra column was accepted); and that a write which
+  lands but whose response fails needs an accurate, non-retrying outcome. Fixed, scoped to review
+  persistence (the grounding checker is untouched):
+
+  1. **Unique attempt id + specific reconciliation.** Each `put` writes a fresh `Attempt ID`
+     (uuid4) and reconciles **that** append by its id, so an older identical row can no longer
+     confirm a dropped write. Outcomes are reported honestly: the attempt id is found → recorded
+     (even if the append response itself errored but the write landed); the id is absent and the
+     response reported success, or the reconciliation read failed → **`ReviewsUncertain`** (may or
+     may not be there — do not assume, do not auto-retry); the id is absent and the response failed
+     → `ReviewsUnavailable` (nothing recorded). **It never auto-retries.** A later rejection still
+     supersedes a confirmation (latest row by position), so a superseded confirmation is never
+     returned as the current decision.
+  2. **Schema made EXACT, and it changed.** The `Reviews` header is now
+     `Review ID | Attempt ID | Fingerprint | Reviewer | Decision | Reviewed at (UTC)` (six columns;
+     "Attempt ID" is new). The store and the migration dry-run both require the header to equal this
+     **exactly** — an extra or missing column blocks (fail-closed) rather than being read past. This
+     **supersedes** the five-column schema in the entry below. Migration stays read-only: the dry-run
+     reports `HEADER_MISMATCH` for an older five-column tab and **describes the manual change** (insert
+     the `Attempt ID` column at position 2 and give each existing row a unique id); it creates and
+     writes nothing.
+  3. **Console wording.** An uncertain write no longer says "nothing was changed"; it says the
+     outcome is uncertain, tells the reviewer to reload and check before acting, and not to retry
+     blindly. A definite failure still says nothing was changed.
+  4. **The reviewer-identity blocker stands.** This fix is about persistence integrity, NOT identity.
+     The shared OAuth credential still cannot prove a review was an authenticated human decision (see
+     the entry below, item 4). **That is an explicit blocker to ENABLING the review gate** — the gate
+     must not be turned on until a console-only signing key (or a separate write identity) is in
+     place. This fix does not resolve it and does not claim to.
+
+  Tested (fake Sheets API only; never the live Sheet): a pre-existing identical row plus a dropped
+  append → `ReviewsUncertain` (the old row does not mask it); a committed append whose response
+  errored → recorded, not lost; an unreadable reconciliation → `ReviewsUncertain`; a definite write
+  failure → nothing recorded; a concurrent later rejection → not reported as approval; an extra or
+  older five-column header → blocked; the migration dry-run for an older header names the manual
+  step; the console reports an uncertain write without "nothing was changed". Python **809 passed**,
+  React 52 passed (unchanged), **24 deliberate breaks of the gates and the adapter all caught**
+  (adds: confirm by any row not the attempt id; report an uncertain write as recorded; lose a
+  committed write when the response errors; accept an inexact header). Nothing deployed or pushed;
+  the live Sheet and permissions are untouched; review and Gmail drafting stay disabled; follow-up
+  creation stays blocked.
+
 - **2026-09-30 (production review storage, prepared locally — no migration, no deployment).** The
   option-B contract is the milestone at `27dc079`; this prepares the production store and its
   wiring **without** creating the live tab, writing remotely, or changing permissions.

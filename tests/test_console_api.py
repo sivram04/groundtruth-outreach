@@ -485,3 +485,23 @@ def test_an_unconfigured_console_opens_for_nobody_even_with_review_enabled(monke
     monkeypatch.delenv("CONSOLE_ALLOWED_EMAILS", raising=False)
     monkeypatch.setenv("ENABLE_REVIEW", "true")
     assert console._deployed().test_client().get("/api/snapshot").status_code == 503
+
+
+# --- an uncertain write must not be reported as "nothing was changed" ------------------------
+
+class _Uncertain:
+    def get(self, lead_id):
+        return None
+
+    def put(self, record):
+        raise review.ReviewsUncertain("the outcome is uncertain")
+
+
+def test_an_uncertain_write_is_not_reported_as_nothing_changed(built):
+    client = review_app(built, reviews=_Uncertain())
+    fingerprint = client.get("/api/review/A-0014", headers=signed()).get_json()["fingerprint"]
+    resp = client.post("/api/review/A-0014", headers=signed(),
+                       json={"decision": "confirm", "fingerprint": fingerprint})
+    assert resp.status_code == 502
+    said = resp.get_json()["error"].lower()
+    assert "uncertain" in said and "nothing was changed" not in said
