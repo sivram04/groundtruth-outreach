@@ -191,13 +191,22 @@ export interface ImportPreview {
   fingerprint: string;
 }
 
-/** POST /api/import/commit: what was written. */
+/** POST /api/import/commit: what happened. `outcome` is the ground truth:
+ *  - "done": the writable leads were written (or already present);
+ *  - "pending": an earlier attempt of THIS import owns some leads and has not finished - resume to
+ *    complete it (never a completed import);
+ *  - "blocked": some leads are owned by a DIFFERENT submission (claimed_elsewhere) - not imported here;
+ *  - "uncertain": a write could not be confirmed - it may or may not have saved; reload to check. */
 export interface ImportResult {
-  written: number;
+  outcome?: "done" | "pending" | "blocked" | "uncertain";
+  written: number | null;
   already_present: number;
   lead_ids: string[];
-  /** Leads a concurrent submission claimed and is writing (so this commit did not). */
+  /** Leads a different submission claimed and is writing (so this commit did not). */
   claimed_elsewhere?: number;
+  /** Leads an earlier attempt of this same import owns and has not finished. */
+  pending?: number;
   /** True when an uncertain append was reconciled to "the rows had in fact landed". */
   reconciled?: boolean;
+  message?: string;
 }

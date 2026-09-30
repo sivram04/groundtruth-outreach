@@ -70,6 +70,26 @@
 
 ## [DISCOVERIES]
 
+- 2026-09-30 [FIX] Import coordination/recovery (the review below). Claims ledger now carries
+  Op key + Attempt; `claim_leads` classifies won/mine_prior/other and a request writes only "won",
+  so two attempts sharing an idempotency key resolve to ONE writer (fix 1). An append exception whose
+  reconciliation READ also fails is an explicit `outcome:"uncertain"` (never "nothing written"; only a
+  successful read showing absence is nothing-written) (fix 2). Commit returns done/pending/blocked/
+  uncertain; the client keeps the op key per preview fingerprint in localStorage so a reload resumes the
+  SAME operation; `resume` takes over its own op's mine_prior leads; `append_leads` rechecks presence
+  before writing so a late straggler adds no dup; the Import page shows pending/blocked/uncertain +
+  Resume/Check (fix 3). Constraint documented: no atomic CAS on Sheets => exactly-once NOT claimed;
+  single writer per concurrent round + bounded late completion; abandoned claim recovered by same-op
+  resume (no TTL takeover). Containers: Python 882, frontend 70, tsc+build; browser happy-path sanity.
+  LOCAL import acceptance criteria pass; live verification separate + NOT done; enable_import off in deploy.
+
+- 2026-09-30T21:35Z [TOOL] Reviewed b49226c: 37 targeted container tests pass;
+  old two-write allocator removed. Real-route/adapter probes still reproduce same-key
+  concurrent duplicate rows, false Nothing was written after a landed append plus
+  failed reconciliation read, and abandoned claim blocking a fresh-key re-import.
+  Supersedes duplicate-prevention/re-import recovery claims below. Evidence appended
+  to docs/testing/import-review-2026-09-30.md. No product edits or live writes.
+
 - 2026-09-30 [FIX] Replaced the import Lead ID allocation + retry mechanism (the follow-up
   below). IDs are now a stable, immutable content hash (`importer.stable_lead_id`, `{prefix}-{12hex}`,
   disjoint from legacy `{prefix}-NNNN`) assigned before the write and written in ONE append, so

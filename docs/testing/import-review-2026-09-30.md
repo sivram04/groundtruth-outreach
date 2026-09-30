@@ -163,3 +163,98 @@ constraint, so a few narrow cases persist:
   is absent. Not built; import is off in deployment and, in practice, the console is a single service.
 - **No live verification.** All of the above is proven against synthetic data and the simulated Sheets
   API; **no live Sheet write** has been performed, and `enable_import` is off in deploy.
+
+## Independent retry/claim review of b49226c
+
+2026-09-30T21:35Z [TOOL] Codex ran the current source read-only with network disabled
+in test image `sha256:2157221df8accddedd740aa0cee79e57f6a7fe2b089027020ba86c03fbed038c`.
+The importer, console-import and sheet-append test files passed: **37 passed in 3.90s**.
+No full-suite or browser rerun. Single-append identities remove the old blank-ID and
+second-position-write defects. The stronger retry/claim guarantees remain incomplete:
+
+1. **Same-key overlapping retry:** two independent Flask apps share FakeSheets; their
+   real Store subclasses wait at a barrier after reading existing leads. Both submit
+   the same rows/fingerprint AND the same idempotency key. Both HTTP 200 responses
+   report written=1, same Lead ID; the simulated Sheet contains **two physical copies**.
+   The existing test uses distinct keys and therefore misses this case. A shared
+   operation key currently authorizes both concurrent execution attempts.
+2. **Lost response plus unreadable reconciliation:** real Store.append_leads writes
+   the row; an injected exception loses its response, and the subsequent store read
+   is made unavailable. HTTP 502 says **Nothing was written; confirming again is safe**,
+   but the simulated Sheet contains **one copy**. The handler turns a failed read into
+   an empty dict and cannot distinguish absence from unknown outcome.
+3. **Abandoned claim cannot be recovered by re-import:** an initial request wins the
+   claim but fails before appending. A subsequent healthy app submits the same lead
+   with a new preview key. HTTP 200 returns written=0, claimed_elsewhere=1 and zero
+   physical copies. Earliest claim persists; re-import does not reclaim it. Frontend
+   source inspection shows claimed_elsewhere is not displayed in the result.
+
+These probes used the real Flask routes and Store adapter, simulated Sheets, stub
+authentication and synthetic contacts only. They supersede the claims above that
+the ledger prevents every concurrent duplicate and that re-import recovers a failed
+claim owner. A timeout alone would not prove an old writer stopped; any recovery design
+must address late completion before allowing another writer. No live operations or
+product-code changes were made during this review.
+
+## Remediation of the retry/claim review (2026-09-30)
+
+The coordination model now separates the **operation** from each **attempt**, preserves an explicit
+**unknown** outcome, and provides durable **resume** with honest states.
+
+- **Operation vs attempt (failure 1).** The claims ledger records `[Lead ID, Op key, Attempt, Claimed
+  at]`. `Op key` is the durable idempotency key of the logical import; `Attempt` is a fresh token the
+  server mints per request. `Store.claim_leads(lead_ids, op_key, attempt)` returns, per lead, `won`
+  (this attempt is the earliest claim), `mine_prior` (an earlier attempt of the SAME op is earliest),
+  or `other` (a different op is earliest). A request writes only `won` leads, so two attempts sharing
+  one op key resolve to a single writer - the other gets `mine_prior` and does not write. Regressions:
+  `test_console_import.test_same_key_concurrent_attempts_write_each_lead_once` (two apps, one shared
+  Sheet, SAME key -> one physical copy per lead), `test_sheet_append.test_two_attempts_of_the_same_
+  operation_resolve_to_a_single_writer`.
+- **Unknown is not "nothing written" (failure 2).** On an append exception the handler re-reads to
+  reconcile; only a **successful** read showing absence is reported as "nothing written (safe to
+  retry)". If the reconciliation read itself fails, the outcome is an explicit `uncertain` (HTTP 200,
+  `outcome: "uncertain"`, `written: null`) that says it may or may not have saved and to reload -
+  never "nothing written". Regression:
+  `test_console_import.test_a_lost_response_with_an_unreadable_reconciliation_is_uncertain_not_nothing`
+  (the write landed; one physical copy; outcome uncertain).
+- **Durable resume + honest states + bounded late completion (failure 3).** The commit returns
+  `outcome`: `done` / `pending` (an earlier attempt of THIS op owns leads and has not finished) /
+  `blocked` (another op owns them) / `uncertain`. The client keeps the op key per preview fingerprint
+  in `localStorage`, so a reload resumes the SAME operation. A resume (`resume: true`, same op key)
+  deliberately takes over its own operation's `mine_prior` leads. `append_leads` **rechecks presence
+  from a fresh read immediately before writing and skips ids already present**, so a late-completing
+  earlier attempt of the same op adds no second copy. Regressions:
+  `test_an_abandoned_claim_is_recovered_by_a_same_key_resume`,
+  `test_a_late_completion_after_a_resume_adds_no_duplicate`, and the frontend exercises `done`,
+  `pending`, `blocked` and `uncertain` with the resume/check actions
+  (`console/src/pages/Import.test.tsx`). The UI now shows `claimed_elsewhere`/pending/uncertain and
+  never presents them as a completed import.
+
+Verified in containers (`--network none`): Python **882 passed**, frontend **70 passed**, typecheck and
+build clean. Browser sanity-checked through the actual local API (happy path: preview -> "Imported 1
+lead").
+
+**Precise coordination constraint (bounded, documented).** Google Sheets has no atomic
+compare-and-swap or unique constraint, so **exactly-once is not claimed**. What holds:
+- **Single writer per concurrent round.** Among claims present when a commit reads the ledger, the
+  earliest attempt wins, so simultaneous attempts (same or different op key) do not both write.
+- **Bounded late completion.** The pre-append presence recheck means a straggler that appends after a
+  resume/another writer skips the already-present id. The only unbounded-in-theory window is two writers
+  whose *fresh reads and appends fully interleave in the microseconds between recheck and append*; this
+  is not reachable through the console (its per-process lock serializes its own requests, and import is
+  off in deployment / single service). It is documented rather than claimed away.
+- **Abandoned pre-write claim.** Recovered by resuming the SAME operation (the durable op key). A
+  *different-key* re-import is deliberately told `blocked` (not silently duplicated, not falsely
+  "done"); the operator resumes the original operation to finish it. We do **not** use a TTL to let a
+  different writer take over, because expiry does not prove the original stopped.
+- **No live verification.** All of the above is against synthetic data and the simulated Sheets API;
+  **no live Sheet write** has been performed, and `enable_import` is off in deploy.
+
+### Local import milestone — acceptance
+
+The local acceptance criteria (destination binding; invalid-contact feedback; single-append immutable
+identity with no existing-id collision, no invisible row, no sort overwrite; same-key and distinct-key
+concurrency writing each lead once; unknown-not-nothing reconciliation; durable resume/recovery with
+honest states) **pass in containers**. **Live verification remains separate and NOT done**: a real
+Google Sheet write, a real signed-in browser, and behaviour under real Google API latency/errors are
+unverified, and `enable_import` stays off in deployment.

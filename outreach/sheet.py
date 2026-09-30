@@ -49,10 +49,12 @@ DRAFTS_TAB = "Drafts"
 DRAFTS_HEADER = ["Lead ID", "Email", "To", "Company", "Subject", "Body", "Opening quote",
                  "Quote page", "Status", "Why", "Approval hash", "Handbook hash", "Written",
                  "Prepared at (UTC)"]
-# Lead import's claim ledger: one append per lead a commit intends to write, so two independent
-# instances importing the same lead can be resolved to a single writer (the earliest claim wins).
+# Lead import's claim ledger: one append per lead a commit attempt intends to write, so concurrent
+# writers are resolved to one (the earliest claim ATTEMPT wins). "Op key" is the durable idempotency
+# key of the logical import; "Attempt" is unique per execution, so two attempts of the SAME operation
+# (a shared key submitted twice at once) still resolve to a single writer.
 CLAIMS_TAB = "Import claims"
-CLAIMS_HEADER = ["Lead ID", "Claim key", "Claimed at (UTC)"]
+CLAIMS_HEADER = ["Lead ID", "Op key", "Attempt", "Claimed at (UTC)"]
 
 
 _SHEETS = None
@@ -381,27 +383,38 @@ class Store:
                 raise DestinationMismatch(
                     f"{name} has no column for {', '.join(lost)}; nothing was written. "
                     f"Preview the list again against the current columns.")
+        # Recheck presence immediately before writing, from a FRESH read, and skip any Lead ID that is
+        # already there. This bounds a late-completing earlier attempt: whichever append runs second
+        # sees the row and does not add a second copy. Returns only the ids actually written now.
+        present = {row.get("Lead ID", "") for _, row in Tab(self.api, name, SYSTEM_COLUMNS).rows}
+        fresh = [row for row in rows if row["Lead ID"] not in present]
+        if not fresh:
+            return []
         self.api.values().append(
             spreadsheetId=SHEET_ID, range=f"'{name}'!A{HEADER_ROW}", valueInputOption="RAW",
             insertDataOption="INSERT_ROWS",
-            body={"values": [[row.get(h, "") for h in header] for row in rows]}).execute()
-        return [row["Lead ID"] for row in rows]
+            body={"values": [[row.get(h, "") for h in header] for row in fresh]}).execute()
+        return [row["Lead ID"] for row in fresh]
 
-    def claim_leads(self, lead_ids, claim_key):
-        """Claim the right to write each of `lead_ids` for this commit, and return the subset won.
+    def claim_leads(self, lead_ids, op_key, attempt):
+        """Resolve who may write each of `lead_ids`, and return a per-lead classification.
 
-        Cross-instance duplicate prevention without a database: each intended Lead ID is appended to the
-        append-only claims ledger with the commit's own `claim_key`, then the whole ledger is read and,
-        for each lead, the **earliest** claim (lowest row) wins. Two independent instances importing the
-        same lead append claims in serialized, contiguous blocks, so exactly one of them is earliest and
-        writes it; the other is not won and does not. A retry of the SAME commit reuses its `claim_key`,
-        so its own earlier claim is the earliest and it wins again (and reconciles by Lead ID). Raises if
-        the ledger cannot be read (fail-closed: better to refuse than risk a duplicate)."""
+        Duplicate prevention without a database. Each intended Lead ID is appended to the append-only
+        claims ledger with this commit's `op_key` (the durable identity of the logical import) and
+        `attempt` (unique to THIS execution). The ledger is read back and, for each lead, the EARLIEST
+        claim (lowest row) is the owner:
+          - "won": the earliest claim is this very attempt -> this commit writes the lead;
+          - "mine_prior": the earliest claim is an EARLIER attempt of the SAME operation (a retry or a
+            resume of my own import) -> I do not write it now; a resume may take it over deliberately;
+          - "other": the earliest claim belongs to a DIFFERENT operation -> another submission owns it.
+        Two attempts of the same operation submitted at once get different `attempt`s, so exactly one is
+        earliest and writes; the other is "mine_prior" and does not (this is what a shared key alone
+        could not do). Raises if the ledger cannot be read (fail-closed)."""
         wanted = [lid for lid in dict.fromkeys(lead_ids) if lid]
         if not wanted:
-            return set()
+            return {}
         now = now_utc()
-        self._append(CLAIMS_TAB, CLAIMS_HEADER, [[lid, claim_key, now] for lid in wanted])
+        self._append(CLAIMS_TAB, CLAIMS_HEADER, [[lid, op_key, attempt, now] for lid in wanted])
         table = self.table(CLAIMS_TAB)
         if table is None:
             raise RuntimeError("the import claims ledger could not be read; nothing was written")
@@ -410,8 +423,17 @@ class Store:
         for row in rows:
             lid = row.get("Lead ID", "")
             if lid and lid not in earliest:
-                earliest[lid] = row.get("Claim key", "")
-        return {lid for lid in wanted if earliest.get(lid) == claim_key}
+                earliest[lid] = (row.get("Op key", ""), row.get("Attempt", ""))
+        result = {}
+        for lid in wanted:
+            owner_op, owner_attempt = earliest.get(lid, ("", ""))
+            if owner_attempt == attempt:
+                result[lid] = "won"
+            elif owner_op == op_key:
+                result[lid] = "mine_prior"
+            else:
+                result[lid] = "other"
+        return result
 
     def write_leads(self, updates, columns):
         """updates: {Lead ID: {system column: value}}. Returns (written, skipped reasons)."""

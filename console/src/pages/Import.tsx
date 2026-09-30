@@ -1,8 +1,8 @@
-import { Check, FileUp, Upload } from "lucide-react";
+import { Check, FileUp, RotateCw, Upload } from "lucide-react";
 import { useState } from "react";
 import { ImportError, importCommit, importPreview } from "../api";
 import { Card, Chip, PageHead, Status, type Tone } from "../components";
-import type { ImportPreview } from "../types";
+import type { ImportPreview, ImportResult } from "../types";
 
 type Previewer = typeof importPreview;
 type Committer = typeof importCommit;
@@ -12,9 +12,33 @@ const CHANNEL_LABEL: Record<string, string> = {
   EMAIL: "Email", CALL: "Call", COMPANY_ONLY: "No contact",
 };
 
+function newKey() {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `k-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
+// A durable operation key per previewed list (by its fingerprint), kept in this browser so a reload of
+// the same list resumes the SAME import operation rather than starting a fresh competing one.
+function keyFor(fingerprint: string): string {
+  const at = `outreach.import.${fingerprint}`;
+  try {
+    const existing = window.localStorage.getItem(at);
+    if (existing) return existing;
+    const fresh = newKey();
+    window.localStorage.setItem(at, fresh);
+    return fresh;
+  } catch {
+    return newKey();
+  }
+}
+
 /** Import a small list of leads: paste or upload it, see exactly what would be stored (and what
  *  cannot be), confirm once, and the leads then appear on reload. Only new rows are written; the
- *  founder's existing rows are never touched. Preview and commit are injectable for tests. */
+ *  founder's existing rows are never touched. Pending, blocked and uncertain outcomes are shown
+ *  honestly - never as a completed import. Preview and commit are injectable for tests. */
 export function Import({
   onImported,
   preview: doPreview = importPreview,
@@ -28,10 +52,8 @@ export function Import({
   const [file, setFile] = useState<File | null>(null);
   const [prefix, setPrefix] = useState("A");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
-  // One idempotency key per previewed list, reused if the confirm is retried, so a retry is safe and
-  // two independent submissions of the same list are resolved to a single writer per lead.
   const [key, setKey] = useState("");
-  const [result, setResult] = useState<{ written: number; already: number; ids: string[] } | null>(null);
+  const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -41,14 +63,6 @@ export function Import({
     setError("");
   }
 
-  function newKey() {
-    try {
-      return crypto.randomUUID();
-    } catch {
-      return `k-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    }
-  }
-
   function onPreview() {
     if (busy) return;
     setBusy(true);
@@ -56,7 +70,7 @@ export function Import({
     doPreview(file ? { file, prefix } : { text, prefix }).then(
       (p) => {
         setPreview(p);
-        setKey(newKey());  // a fresh idempotency key for this previewed list
+        setKey(keyFor(p.fingerprint));  // durable op key for this list; reused on resume/reload
         setBusy(false);
       },
       (e: unknown) => {
@@ -66,22 +80,22 @@ export function Import({
     );
   }
 
-  function onConfirm() {
-    if (busy || !preview || result) return;  // one confirm only
+  function submit(resume: boolean) {
+    if (busy || !preview) return;
     setBusy(true);
     setError("");
     const rows = preview.accepted.map((item) => item.row);
-    doCommit(preview.prefix, rows, preview.fingerprint, key).then(
+    doCommit(preview.prefix, rows, preview.fingerprint, key, { resume }).then(
       (r) => {
-        setResult({ written: r.written, already: r.already_present, ids: r.lead_ids });
+        setResult(r);
         setBusy(false);
-        onImported();  // reload the snapshot so the new leads show
+        onImported();  // reload the snapshot so any written leads show
       },
       (e: unknown) => {
         setBusy(false);
         if (e instanceof ImportError && e.stale) {
-          // the preview no longer matches; it must be redone before anything is written
-          setPreview(null);
+          setPreview(null);  // the preview no longer matches; it must be redone before any write
+          setResult(null);
         }
         setError(e instanceof Error ? e.message : "The import could not be confirmed.");
       },
@@ -94,20 +108,8 @@ export function Import({
       <PageHead title="Import leads" sub="Paste or upload a small list. You will see exactly what would be stored before anything is saved." />
 
       {result ? (
-        <Card title="Imported">
-          <p>
-            {result.written > 0
-              ? `Imported ${result.written} lead${result.written === 1 ? "" : "s"}${result.ids.length ? ` (${result.ids.join(", ")})` : ""}.`
-              : "No new leads were added."}
-            {result.already > 0 && ` ${result.already} were already present.`}
-          </p>
-          <div className="email-actions">
-            <a className="primary" href="#/leads">View the leads</a>
-            <button type="button" className="secondary" onClick={() => { setText(""); setFile(null); reset(); }}>
-              Import another list
-            </button>
-          </div>
-        </Card>
+        <Result result={result} busy={busy} onResume={() => submit(true)} onCheck={() => submit(false)}
+                onAnother={() => { setText(""); setFile(null); reset(); }} />
       ) : (
         <Card title="The list">
           <label className="block small muted" htmlFor="import-text">Paste rows (CSV or tab-separated), with a header line</label>
@@ -240,7 +242,7 @@ export function Import({
               Only new rows are added to tab {preview.prefix}; your existing rows are never changed.
             </p>
             <div className="email-actions">
-              <button type="button" className="primary" disabled={busy || preview.accepted.length === 0} onClick={onConfirm}>
+              <button type="button" className="primary" disabled={busy || preview.accepted.length === 0} onClick={() => submit(false)}>
                 <Check size={15} aria-hidden="true" /> {busy ? "Importing…" : `Import ${preview.accepted.length} lead${preview.accepted.length === 1 ? "" : "s"}`}
               </button>
               <button type="button" className="secondary" disabled={busy} onClick={reset}>Cancel</button>
@@ -249,5 +251,86 @@ export function Import({
         </>
       )}
     </>
+  );
+}
+
+/** The commit result, shown by its outcome. A pending, blocked or uncertain import is never presented
+ *  as completed; each says what it means and offers the right next step. */
+function Result({
+  result,
+  busy,
+  onResume,
+  onCheck,
+  onAnother,
+}: {
+  result: ImportResult;
+  busy: boolean;
+  onResume: () => void;
+  onCheck: () => void;
+  onAnother: () => void;
+}) {
+  const written = result.written ?? 0;
+  const wrote = written > 0 ? `Imported ${written} lead${written === 1 ? "" : "s"}${result.lead_ids?.length ? ` (${result.lead_ids.join(", ")})` : ""}.` : "";
+  const already = result.already_present ? ` ${result.already_present} were already present.` : "";
+  const viewLeads = <a className="primary" href="#/leads">View the leads</a>;
+  const another = (
+    <button type="button" className="secondary" onClick={onAnother}>Import another list</button>
+  );
+
+  if (result.outcome === "pending") {
+    return (
+      <Card title="Not finished yet">
+        <p>
+          {wrote || "Nothing was written yet."} An earlier attempt of this import owns {result.pending ?? 0}{" "}
+          lead{(result.pending ?? 0) === 1 ? "" : "s"} and has not finished — it may still be running or it
+          may have stopped. This is <strong>not</strong> a completed import.
+        </p>
+        <div className="email-actions">
+          <button type="button" className="primary" disabled={busy} onClick={onResume}>
+            <RotateCw size={15} aria-hidden="true" /> {busy ? "Resuming…" : "Resume this import"}
+          </button>
+          {another}
+        </div>
+      </Card>
+    );
+  }
+  if (result.outcome === "uncertain") {
+    return (
+      <Card title="Outcome uncertain">
+        <p>
+          {result.message || "The import could not be confirmed — it may or may not have saved."} Reload the
+          leads to check. Confirming again is safe: rows already saved are not added twice.
+        </p>
+        <div className="email-actions">
+          {viewLeads}
+          <button type="button" className="secondary" disabled={busy} onClick={onCheck}>
+            <RotateCw size={15} aria-hidden="true" /> {busy ? "Checking…" : "Check again"}
+          </button>
+        </div>
+      </Card>
+    );
+  }
+  if (result.outcome === "blocked") {
+    return (
+      <Card title="Being imported elsewhere">
+        <p>
+          {result.claimed_elsewhere ?? 0} lead{(result.claimed_elsewhere ?? 0) === 1 ? "" : "s"} on this list
+          {(result.claimed_elsewhere ?? 0) === 1 ? " is" : " are"} being imported by another submission, so
+          {(result.claimed_elsewhere ?? 0) === 1 ? " it was" : " they were"} not imported here.
+        </p>
+        <div className="email-actions">{viewLeads}{another}</div>
+      </Card>
+    );
+  }
+  // done
+  return (
+    <Card title="Imported">
+      <p>
+        {wrote || "No new leads were added."}
+        {already}
+        {result.claimed_elsewhere ? ` ${result.claimed_elsewhere} were being imported by another submission.` : ""}
+      </p>
+      <div className="email-actions">{viewLeads}{another}</div>
+    </Card>
   );
 }

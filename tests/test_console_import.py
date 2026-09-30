@@ -55,10 +55,11 @@ def preview(client, text):
     return client.post("/api/import/preview", json={"text": text, "prefix": "A"}, headers=signed())
 
 
-def commit(client, body, key="key-1"):
+def commit(client, body, key="key-1", resume=False):
     return client.post("/api/import/commit", headers=signed(),
                        json={"prefix": body["prefix"], "rows": [i["row"] for i in body["accepted"]],
-                             "fingerprint": body["fingerprint"], "idempotency_key": key})
+                             "fingerprint": body["fingerprint"], "idempotency_key": key,
+                             "resume": resume})
 
 
 def test_import_is_off_unless_switched_on(built):
@@ -96,7 +97,7 @@ def test_confirm_persists_only_new_rows_and_a_reload_shows_them(built):
     done = commit(client, body)
     assert done.status_code == 200
     result = done.get_json()
-    assert result["written"] == 3 and len(result["lead_ids"]) == 3
+    assert result["outcome"] == "done" and result["written"] == 3 and len(result["lead_ids"]) == 3
     assert all(not lid.split("-", 1)[1].isdigit() for lid in result["lead_ids"])  # stable hex ids
 
     snap = client.get("/api/snapshot", headers=signed()).get_json()
@@ -162,8 +163,8 @@ def test_an_append_whose_response_is_lost_is_reconciled_not_double_written(built
     client = make(built, store)
     body = preview(client, "Company,Email\nBluebird,dana@bluebird.test").get_json()
     result = commit(client, body, key="k").get_json()
-    # reconciled by id: the write had landed, so it is reported written, not failed
-    assert result["written"] == 1 and result.get("reconciled") is True
+    # reconciled by id: the write had landed, so it is reported done, not failed
+    assert result["outcome"] == "done" and result["written"] == 1 and result.get("reconciled") is True
     lead_id = result["lead_ids"][0]
     # the row already landed, so a retry (same key) finds it present and adds nothing - one copy only
     retry = commit(client, body, key="k").get_json()
@@ -185,20 +186,23 @@ def test_a_failed_append_that_wrote_nothing_says_so_and_is_safe_to_retry(built):
     assert response.status_code == 502 and "Nothing was written" in response.get_json()["error"]
 
 
-def test_two_independent_applications_importing_the_same_list_write_each_lead_once(built):
+def _two_apps(built, keys):
+    """Run two independent Flask apps over one shared simulated Sheet, each committing the same list
+    with the given idempotency `keys`, synchronised at a barrier after reading existing leads. Returns
+    (api, lead ids, list of the two JSON results)."""
     from outreach.sheet import Store
     from test_sheet_append import A_HEADER, FakeSheets
 
-    api = FakeSheets()  # one shared, thread-safe simulated Sheet; existing A-0001 at row 3
-    barrier = threading.Barrier(2, timeout=10)
+    api = FakeSheets()
+    barrier = threading.Barrier(len(keys), timeout=10)
 
     class BarrierStore(Store):
         def leads(self):
             snapshot = super().leads()
-            barrier.wait()  # both commits read the same existing leads, then race
+            barrier.wait()  # both read the same existing leads, then race to claim/append
             return snapshot
 
-    def make_app():
+    def app():
         return console.create_app(
             verifier=console_auth.Verifier(AUDIENCE, ALLOWED, fetch=Keys()),
             store=lambda: BarrierStore(api=api), settings=lambda: {}, clock=lambda: fx.NOW,
@@ -210,24 +214,121 @@ def test_two_independent_applications_importing_the_same_list_write_each_lead_on
     payload = {"prefix": "A", "rows": [i["row"] for i in body["accepted"]],
                "fingerprint": body["fingerprint"]}
     ids = [i["row"]["Lead ID"] for i in body["accepted"]]
-    results = {}
+    results, lock = [], threading.Lock()
 
     def submit(key):
-        results[key] = make_app().post("/api/import/commit",
-                                       json={**payload, "idempotency_key": key},
-                                       headers=signed()).get_json()
+        got = app().post("/api/import/commit", json={**payload, "idempotency_key": key},
+                         headers=signed()).get_json()
+        with lock:
+            results.append(got)
 
-    threads = [threading.Thread(target=submit, args=("app-one",)),
-               threading.Thread(target=submit, args=("app-two",))]
+    threads = [threading.Thread(target=submit, args=(key,)) for key in keys]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
+    return api, ids, results
 
-    # Two independent submissions (distinct keys) of the same list: each lead is written exactly once.
+
+def test_two_independent_applications_distinct_keys_write_each_lead_once(built):
+    api, ids, results = _two_apps(built, ["op-one", "op-two"])
     for lead_id in ids:
-        assert api.count("A_Contact_Now", lead_id) == 1
-    assert results["app-one"]["written"] + results["app-two"]["written"] == 2  # 2 leads, once total
+        assert api.count("A_Contact_Now", lead_id) == 1  # exactly one physical copy
+    assert sum(r["written"] for r in results) == 2  # two leads, written once in total
+
+
+def test_same_key_concurrent_attempts_write_each_lead_once(built):
+    # The reviewer's failure 1: a shared operation key must NOT authorize two simultaneous writers.
+    api, ids, results = _two_apps(built, ["shared-key", "shared-key"])
+    for lead_id in ids:
+        assert api.count("A_Contact_Now", lead_id) == 1  # not two physical copies
+    assert sum(r["written"] for r in results) == 2
+    # the attempt that did not win reports pending (its own operation's other attempt owns the leads)
+    assert any(r.get("outcome") == "pending" for r in results)
+
+
+class _WriteThenUnreadable(MemoryStore):
+    """The append writes, its response is lost, and the reconciliation read then fails too."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._appended = False
+
+    def leads(self):
+        if self._appended:
+            raise RuntimeError("the store could not be read")
+        return super().leads()
+
+    def append_leads(self, prefix, rows):
+        super().append_leads(prefix, rows)  # the write lands
+        self._appended = True
+        raise RuntimeError("the response was lost")
+
+
+def test_a_lost_response_with_an_unreadable_reconciliation_is_uncertain_not_nothing(built):
+    # The reviewer's failure 2: an unreadable reconciliation must not be reported as "Nothing written".
+    store = _WriteThenUnreadable([{"Lead ID": "A-0001", "Company": "Example Electric",
+                                   "BEST EMAIL": "sam@example-electric.test"}], lead_columns=COLUMNS)
+    client = make(built, store)
+    body = preview(client, "Company,Email\nBluebird,dana@bluebird.test").get_json()
+    response = commit(client, body, key="k")
+    assert response.status_code == 200
+    result = response.get_json()
+    assert result["outcome"] == "uncertain"  # explicit unknown, never a false "nothing written"
+    assert "Nothing was written" not in (result.get("message") or "")
+    # the write actually landed: exactly one physical copy exists (not lost, not doubled)
+    assert sum(1 for r in store.rows.values() if r["Company"] == "Bluebird") == 1
+
+
+class _FailFirstAppend(MemoryStore):
+    """Fails the first append (an owner that claims then dies before writing); later appends succeed."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._failed_once = False
+
+    def append_leads(self, prefix, rows):
+        if not self._failed_once:
+            self._failed_once = True
+            raise RuntimeError("the owner failed before writing")
+        return super().append_leads(prefix, rows)
+
+
+def test_an_abandoned_claim_is_recovered_by_a_same_key_resume(built):
+    # The reviewer's failure 3: an owner wins the claim, dies before appending, and a re-import is
+    # permanently blocked. A resume of the SAME operation reconciles and completes it.
+    store = _FailFirstAppend([{"Lead ID": "A-0001", "Company": "Example Electric",
+                               "BEST EMAIL": "sam@example-electric.test"}], lead_columns=COLUMNS)
+    client = make(built, store)
+    body = preview(client, "Company,Email\nBluebird,dana@bluebird.test").get_json()
+
+    first = commit(client, body, key="op-1")  # claims, then the append fails before writing
+    assert first.status_code == 502 and "Nothing was written" in first.get_json()["error"]
+
+    # a fresh-key re-import (a different operation) is correctly told the lead is claimed elsewhere,
+    # and this is NOT presented as a completed import
+    other = commit(client, body, key="op-2").get_json()
+    assert other["written"] == 0 and other["claimed_elsewhere"] == 1 and other["outcome"] == "blocked"
+
+    # resuming the SAME operation recovers it (its own earlier attempt's claim, now taken over)
+    resumed = commit(client, body, key="op-1", resume=True).get_json()
+    assert resumed["outcome"] == "done" and resumed["written"] == 1
+    assert sum(1 for r in store.rows.values() if r["Company"] == "Bluebird") == 1
+
+
+def test_a_late_completion_after_a_resume_adds_no_duplicate(built):
+    # After a resume writes the lead, the original (late) owner's append must not add a second copy.
+    store = _FailFirstAppend([{"Lead ID": "A-0001", "Company": "Example Electric",
+                               "BEST EMAIL": "sam@example-electric.test"}], lead_columns=COLUMNS)
+    client = make(built, store)
+    body = preview(client, "Company,Email\nBluebird,dana@bluebird.test").get_json()
+    commit(client, body, key="op-1")                     # owner claims, fails before writing
+    resumed = commit(client, body, key="op-1", resume=True).get_json()
+    assert resumed["written"] == 1
+    lead_row = next(r for r in body["accepted"])["row"]
+    # the original owner "wakes up" and appends late: the pre-append recheck skips it
+    assert store.append_leads("A", [lead_row]) == []
+    assert sum(1 for r in store.rows.values() if r["Company"] == "Bluebird") == 1
 
 
 def test_import_still_needs_a_signed_in_session(built):

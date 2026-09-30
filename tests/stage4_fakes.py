@@ -245,8 +245,8 @@ class MemoryStore:
         return list(self.lead_header)
 
     def append_leads(self, prefix, rows):
-        """Mirror of Store.append_leads: each row already carries its Lead ID; write it in one step,
-        refuse a field the tab has no column for, never rewrite an existing row, return the Lead IDs."""
+        """Mirror of Store.append_leads: each row carries its Lead ID; recheck presence and write only
+        ids not already there (so a late second writer adds no copy); return the ids actually written."""
         for row in rows:
             if not str(row.get("Lead ID", "")).strip():
                 raise RuntimeError("a lead row has no Lead ID")
@@ -255,20 +255,28 @@ class MemoryStore:
             if lost:
                 from outreach.sheet import DestinationMismatch
                 raise DestinationMismatch(f"no column for {', '.join(lost)}; nothing was written")
-        self.lead_appends.append((prefix, [dict(r) for r in rows]))
-        for row in rows:
+        fresh = [row for row in rows if row["Lead ID"] not in self.rows]
+        if not fresh:
+            return []
+        self.lead_appends.append((prefix, [dict(r) for r in fresh]))
+        for row in fresh:
             self.rows[row["Lead ID"]] = {h: row.get(h, "") for h in self.lead_header}
-        return [row["Lead ID"] for row in rows]
+        return [row["Lead ID"] for row in fresh]
 
-    def claim_leads(self, lead_ids, claim_key):
-        """Mirror of Store.claim_leads: append each claim, then the earliest claim per lead wins."""
+    def claim_leads(self, lead_ids, op_key, attempt):
+        """Mirror of Store.claim_leads: earliest claim wins; classify won / mine_prior / other."""
         wanted = [lid for lid in dict.fromkeys(lead_ids) if lid]
         for lid in wanted:
-            self._claims.append((lid, claim_key))
+            self._claims.append((lid, op_key, attempt))
         earliest = {}
-        for lid, key in self._claims:
-            earliest.setdefault(lid, key)
-        return {lid for lid in wanted if earliest.get(lid) == claim_key}
+        for lid, op, att in self._claims:
+            earliest.setdefault(lid, (op, att))
+        result = {}
+        for lid in wanted:
+            owner_op, owner_attempt = earliest.get(lid, ("", ""))
+            result[lid] = ("won" if owner_attempt == attempt
+                           else "mine_prior" if owner_op == op_key else "other")
+        return result
 
     def events(self):
         return [dict(e) for e in self.event_rows]

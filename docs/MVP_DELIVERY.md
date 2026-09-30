@@ -94,14 +94,20 @@ each needs a founder decision before the conflicting capability ships.
   with the adapter refusing field loss rather than dropping; (2) each lead gets a **stable, immutable
   content-hash Lead ID** assigned before the write and written in a single append (a hex namespace, so
   no collision with an existing numeric id; no second position-based write, so a sort cannot move an
-  id), retries reconcile by id, and a **claim ledger** (an append-only Sheet tab, earliest claim wins,
-  gated by a required client idempotency key) makes two independent instances write **each lead exactly
-  once**; (3) invalid contact values are preserved as validation feedback, never discarded. The
-  production `Store.append_leads` / `claim_leads` adapters are tested against a **simulated Sheets API**,
-  and the `MemoryStore` tests are kept. Browser sanity-checked through the actual local API with
-  synthetic storage. **Remaining bounded limits:** a claim winner that fails and never retries leaves a
-  lead unwritten until re-imported (bounded fix: a claim TTL + sweep; not built); **no live Sheet
-  write** is verified and `enable_import` is off in deploy.
+  id); (3) invalid contact values are preserved as validation feedback, never discarded. **Coordination
+  and recovery:** the claim ledger separates the **operation** (a durable idempotency key) from each
+  **attempt** (per request), so two attempts of one operation resolve to a single writer; an append
+  whose response is lost and cannot be reconciled is an explicit **uncertain** outcome, never "nothing
+  written"; the commit reports **done / pending / blocked / uncertain** and the UI shows each honestly;
+  a reload resumes the same operation (op key kept per preview), and a pre-append recheck bounds a late
+  straggler. The production `Store.append_leads` / `claim_leads` adapters are tested against a
+  **simulated Sheets API**; the `MemoryStore` tests are kept; browser sanity-checked through the actual
+  local API. **Precise constraint:** Sheets has no atomic compare-and-swap, so **exactly-once is not
+  claimed** — the design gives a single writer per concurrent round and bounds late completion; an
+  abandoned pre-write claim is recovered by resuming the same operation (no TTL takeover, since expiry
+  does not prove the original stopped). **Local acceptance criteria pass; live verification is separate
+  and NOT done** (a real Sheet write / signed-in browser / real API latency), `enable_import` off in
+  deploy.
 - **M3 Call tasks:** a call outcome recorded through a real route saves to the correct lead (incl.
   phone-only), drafts an email only when an address exists, schedules the next call per the playbook,
   and the task stays visible until done/snoozed/cancelled without repeat notifications.

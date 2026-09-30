@@ -235,7 +235,9 @@ async function importBody(response: Response, whatFailed: string): Promise<unkno
   const body: unknown = isJson ? await response.json().catch(() => null) : null;
   const said = typeof body === "object" && body !== null && "error" in body ? String(body.error) : "";
   if (response.status === 409) throw new ImportError(said || "The preview is out of date. Preview again.", { stale: true });
-  if (response.status === 502) throw new ImportError(said || "The outcome is uncertain. Reload the leads to check.", { uncertain: true });
+  // 502 here is a DEFINITE "nothing was written; safe to retry" (an unconfirmed write is reported as a
+  // 200 with outcome "uncertain", handled by the caller - never conflated with "nothing written").
+  if (response.status === 502) throw new ImportError(said || `${whatFailed} could not be saved. Nothing was written.`);
   if (!response.ok || !body || typeof body !== "object") {
     throw new ImportError(said || (isJson ? `${whatFailed} could not be done.` : SIGN_IN_ENDED));
   }
@@ -279,6 +281,7 @@ export async function importCommit(
   rows: Record<string, string>[],
   fingerprint: string,
   idempotencyKey: string,
+  options: { resume?: boolean } = {},
   fetcher: typeof fetch = fetch,
 ): Promise<ImportResult> {
   let response: Response;
@@ -287,7 +290,8 @@ export async function importCommit(
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
       credentials: "same-origin",
-      body: JSON.stringify({ prefix, rows, fingerprint, idempotency_key: idempotencyKey }),
+      body: JSON.stringify({ prefix, rows, fingerprint, idempotency_key: idempotencyKey,
+                             resume: options.resume === true }),
     });
   } catch {
     throw new ImportError("The console could not be reached. Check the connection and try again.");

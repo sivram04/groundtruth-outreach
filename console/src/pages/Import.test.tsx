@@ -51,15 +51,14 @@ describe("the import page", () => {
     expect(screen.getByText(/3 to add · 1 already present · 1 skipped/)).toBeTruthy();
   });
 
-  it("confirms once, sends the fingerprint, and shows what was imported", async () => {
-    const commit = vi.fn().mockResolvedValue({ written: 3, already_present: 0, lead_ids: ["A-0002", "A-0003", "A-0004"] });
+  it("confirms once, sends the fingerprint and idempotency key, and shows what was imported", async () => {
+    const commit = vi.fn().mockResolvedValue({ outcome: "done", written: 3, already_present: 0, lead_ids: ["A-0002", "A-0003", "A-0004"] });
     const { onImported } = await previewed(commit);
     fireEvent.click(screen.getByRole("button", { name: /Import 3 leads/ }));
     await screen.findByText(/Imported 3 leads \(A-0002, A-0003, A-0004\)/);
-    expect(commit).toHaveBeenCalledWith("A", PREVIEW.accepted.map((a) => a.row), "fp123", expect.any(String));
+    expect(commit).toHaveBeenCalledWith("A", PREVIEW.accepted.map((a) => a.row), "fp123", expect.any(String), { resume: false });
     expect(onImported).toHaveBeenCalledTimes(1);
-    // the confirm control is gone: it cannot be pressed twice
-    expect(screen.queryByRole("button", { name: /Import 3 leads/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Import 3 leads/ })).toBeNull();  // cannot press twice
     expect(screen.getByRole("link", { name: /View the leads/ }).getAttribute("href")).toBe("#/leads");
   });
 
@@ -68,17 +67,46 @@ describe("the import page", () => {
     await previewed(commit);
     fireEvent.click(screen.getByRole("button", { name: /Import 3 leads/ }));
     await screen.findByText(/out of date/);
-    // the preview is cleared, so nothing can be committed from it
     expect(screen.queryByText("A-0003")).toBeNull();
     expect(screen.queryByRole("button", { name: /Import 3 leads/ })).toBeNull();
   });
 
-  it("an uncertain commit is reported without claiming nothing was written", async () => {
-    const commit = vi.fn().mockRejectedValue(new ImportError("The outcome is uncertain. Reload the leads to check.", { uncertain: true }));
+  it("shows an uncertain outcome without claiming nothing was written, and can check again", async () => {
+    const commit = vi.fn()
+      .mockResolvedValueOnce({ outcome: "uncertain", written: null, message: "The import could not be confirmed - it may or may not have saved." })
+      .mockResolvedValueOnce({ outcome: "done", written: 1, already_present: 0, lead_ids: ["A-0002"] });
     await previewed(commit);
     fireEvent.click(screen.getByRole("button", { name: /Import 3 leads/ }));
-    await screen.findByText(/uncertain/);
-    // the preview stays so the founder can reload and see, not a false success
-    expect(screen.getByText("A-0003")).toBeTruthy();
+    await screen.findByText(/Outcome uncertain/);
+    expect(screen.getByText(/may or may not have saved/)).toBeTruthy();
+    expect(screen.queryByText(/Nothing was written/)).toBeNull();  // never a false "nothing written"
+    // "Check again" re-commits with the same key and reconciles
+    fireEvent.click(screen.getByRole("button", { name: /Check again/ }));
+    await screen.findByText(/Imported 1 lead/);
+    expect(commit.mock.calls[1]![3]).toBe(commit.mock.calls[0]![3]);  // same idempotency key
+  });
+
+  it("shows a pending outcome as not completed, and resumes with the same key and resume=true", async () => {
+    const commit = vi.fn()
+      .mockResolvedValueOnce({ outcome: "pending", written: 0, already_present: 0, pending: 3, lead_ids: [] })
+      .mockResolvedValueOnce({ outcome: "done", written: 3, already_present: 0, lead_ids: ["A-0002", "A-0003", "A-0004"] });
+    await previewed(commit);
+    fireEvent.click(screen.getByRole("button", { name: /Import 3 leads/ }));
+    await screen.findByText(/Not finished yet/);
+    expect(screen.getByText(/earlier attempt of this import/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Resume this import/ }));
+    await screen.findByText(/Imported 3 leads/);
+    expect(commit.mock.calls[0]![4]).toEqual({ resume: false });
+    expect(commit.mock.calls[1]![4]).toEqual({ resume: true });
+    expect(commit.mock.calls[1]![3]).toBe(commit.mock.calls[0]![3]);  // same key
+  });
+
+  it("shows a blocked outcome (claimed by another submission), never as completed", async () => {
+    const commit = vi.fn().mockResolvedValue({ outcome: "blocked", written: 0, already_present: 0, claimed_elsewhere: 3, lead_ids: [] });
+    await previewed(commit);
+    fireEvent.click(screen.getByRole("button", { name: /Import 3 leads/ }));
+    await screen.findByText(/Being imported elsewhere/);
+    expect(screen.getByText(/being imported by another submission/)).toBeTruthy();
+    expect(screen.queryByText(/^Imported/)).toBeNull();
   });
 });

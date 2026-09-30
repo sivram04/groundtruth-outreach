@@ -186,18 +186,30 @@ def test_append_leads_writes_nothing_for_an_empty_list():
     assert api.appends == []
 
 
-def test_claim_leads_earliest_claim_wins():
+def test_append_leads_skips_an_id_already_present():
     api = FakeSheets()
-    first = Store(api=api).claim_leads(["A-1", "A-2"], "key-one")
-    second = Store(api=api).claim_leads(["A-2", "A-3"], "key-two")
-    assert first == {"A-1", "A-2"}          # key-one claimed A-2 first
-    assert second == {"A-3"}                # A-2 was already claimed by key-one; A-3 is new
-    # the ledger is a real tab in the Sheet
+    store = Store(api=api)
+    assert store.append_leads("A", [{"Lead ID": "A-abc", "Company": "Acme"}]) == ["A-abc"]
+    # a late second writer of the same id writes nothing (the pre-append recheck skips it)
+    assert store.append_leads("A", [{"Lead ID": "A-abc", "Company": "Acme"}]) == []
+    assert api.count("A_Contact_Now", "A-abc") == 1
+
+
+def test_claim_leads_classifies_won_mine_prior_and_other():
+    api = FakeSheets()
+    first = Store(api=api).claim_leads(["A-1", "A-2"], op_key="op-1", attempt="att-1")
+    assert first == {"A-1": "won", "A-2": "won"}
+    # a DIFFERENT operation: A-2 is owned by op-1 -> other; A-3 is new -> won
+    second = Store(api=api).claim_leads(["A-2", "A-3"], op_key="op-2", attempt="att-2")
+    assert second == {"A-2": "other", "A-3": "won"}
+    # a LATER attempt of op-1 (a resume): its own earlier attempt owns A-1 -> mine_prior
+    resume = Store(api=api).claim_leads(["A-1"], op_key="op-1", attempt="att-3")
+    assert resume == {"A-1": "mine_prior"}
     assert CLAIMS_TAB in api.tabs
 
 
-def test_claim_leads_is_idempotent_for_the_same_key():
+def test_two_attempts_of_the_same_operation_resolve_to_a_single_writer():
     api = FakeSheets()
-    store = Store(api=api)
-    assert store.claim_leads(["A-1"], "key-one") == {"A-1"}
-    assert Store(api=api).claim_leads(["A-1"], "key-one") == {"A-1"}  # same key still wins its own claim
+    a = Store(api=api).claim_leads(["A-9"], op_key="op", attempt="att-a")  # first -> won
+    b = Store(api=api).claim_leads(["A-9"], op_key="op", attempt="att-b")  # same op, later -> mine_prior
+    assert a == {"A-9": "won"} and b == {"A-9": "mine_prior"}  # a shared key does not authorize both

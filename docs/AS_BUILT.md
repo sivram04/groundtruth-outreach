@@ -1372,6 +1372,35 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-30 (import: coordination + recovery fixed; local milestone accepted)** — a review
+  (`docs/testing/import-review-2026-09-30.md`) reproduced three remaining failures: two same-key
+  concurrent attempts both wrote; a lost response followed by an unreadable reconciliation was reported
+  as "nothing written"; an abandoned claim permanently blocked re-import and the UI ignored
+  `claimed_elsewhere`. Fixed.
+
+  - **Operation vs attempt.** The claims ledger is now `[Lead ID, Op key, Attempt, Claimed at]`;
+    `claim_leads(lead_ids, op_key, attempt)` classifies each lead `won` / `mine_prior` (an earlier
+    attempt of the same op) / `other` (a different op). A request writes only `won` leads, and the
+    server mints a fresh `attempt` per request, so two attempts sharing one idempotency key resolve to
+    a single writer.
+  - **Unknown ≠ nothing written.** On an append exception, a successful reconciliation read showing
+    absence is "nothing written (safe retry, 502)"; a **failed** read yields an explicit
+    `outcome: "uncertain"` (200, `written: null`) that says it may or may not have saved — never
+    "nothing written".
+  - **Durable resume + honest states.** The commit returns `outcome` = done / pending / blocked /
+    uncertain; the client keeps the op key per preview fingerprint in `localStorage` so a reload
+    resumes the SAME operation; a `resume` takes over its own operation's `mine_prior` leads, and
+    `append_leads` rechecks presence immediately before writing so a late straggler adds no duplicate.
+    The Import page shows pending/blocked/uncertain and never presents them as completed.
+
+  **Verified in containers, no network.** Python **882 passed**, frontend **70 passed** (component
+  exercises done/pending/blocked/uncertain + resume/check), typecheck and build clean. Browser
+  sanity-checked through the actual local API. **Precise constraint (documented, not claimed away):**
+  Sheets has no atomic CAS, so exactly-once is not claimed — the design guarantees a single writer per
+  concurrent round and bounds late completion via a pre-append recheck; an abandoned pre-write claim is
+  recovered by resuming the same operation (no TTL takeover). **Local import acceptance criteria pass;
+  live verification stays separate and NOT done** (`enable_import` off in deploy). No call-task work.
+
 - **2026-09-30 (import: Lead ID allocation + retry mechanism replaced)** — a follow-up review
   (`docs/testing/import-review-2026-09-30.md`) reproduced three failures of the append-with-blank-id →
   write-id-by-row allocator: a row-derived id colliding with an existing id; a partial write leaving an
