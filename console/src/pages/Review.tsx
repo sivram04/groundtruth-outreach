@@ -1,6 +1,13 @@
-import { Check, Lock, TextQuote, X } from "lucide-react";
+import { Check, Lock, RotateCw, TextQuote, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { LoadError, ReviewStale, loadReview, recordReview, type ReviewView } from "../api";
+import {
+  LoadError,
+  ReviewStale,
+  ReviewStatusUnavailable,
+  loadReview,
+  recordReview,
+  type ReviewView,
+} from "../api";
 import { Card, Chip, ExternalLink, PageHead, Status, type Tone } from "../components";
 import { safeHref } from "../format";
 
@@ -37,12 +44,16 @@ export function Review({
   const [view, setView] = useState<ReviewView | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // The save succeeded but its resulting status could not be read: the shown decision is no longer
+  // known, so no stale decision may be displayed and no further action is allowed until a reload.
+  const [statusUnavailable, setStatusUnavailable] = useState(false);
 
   const fetch = useCallback(() => {
     load(leadId).then(
       (v) => {
         setView(v);
         setError("");
+        setStatusUnavailable(false);  // a successful read re-establishes the current decision
       },
       (e: unknown) => setError(e instanceof LoadError ? e.message : "The candidate could not be loaded."),
     );
@@ -54,7 +65,7 @@ export function Review({
 
   const act = useCallback(
     (decision: "confirm" | "reject") => {
-      if (!view) return;
+      if (!view || statusUnavailable) return;
       setBusy(true);
       record(leadId, decision, view.fingerprint).then(
         (v) => {
@@ -65,13 +76,18 @@ export function Review({
         (e: unknown) => {
           setBusy(false);
           setError(e instanceof Error ? e.message : "The review could not be recorded.");
-          // On a stale candidate, reload it so it can be reviewed afresh, but keep the message
-          // visible so the founder knows their confirmation did not take.
-          if (e instanceof ReviewStale) load(leadId).then((v) => setView(v), () => {});
+          if (e instanceof ReviewStatusUnavailable) {
+            // Saved, but the current status is unknown. Do NOT keep showing the old decision, and
+            // block further actions until a successful reload establishes the current one.
+            setStatusUnavailable(true);
+          } else if (e instanceof ReviewStale) {
+            // The candidate changed; reload it so it can be reviewed afresh, message kept.
+            load(leadId).then((v) => setView(v), () => {});
+          }
         },
       );
     },
-    [view, leadId, record, fetch],
+    [view, statusUnavailable, leadId, record, load],
   );
 
   if (!view) {
@@ -86,7 +102,9 @@ export function Review({
     );
   }
 
-  const state = stateOf(view.review);
+  const state = statusUnavailable
+    ? { tone: "amber" as Tone, text: "Current status unavailable" }
+    : stateOf(view.review);
   const quoteHref = safeHref(view.evidence?.url ?? "");
   return (
     <>
@@ -144,13 +162,26 @@ export function Review({
 
       <Card title="Your judgment">
         <p className="muted small">{view.note}</p>
+        {statusUnavailable && (
+          <p className="muted small" role="status">
+            The review was saved, but its current status could not be loaded. Reviewing is paused
+            until you reload and the current decision is known again.
+          </p>
+        )}
         <div className="email-actions">
-          <button type="button" className="primary" disabled={busy} onClick={() => act("confirm")}>
+          <button type="button" className="primary" disabled={busy || statusUnavailable}
+                  onClick={() => act("confirm")}>
             <Check size={15} aria-hidden="true" /> Confirm: the evidence supports these claims
           </button>
-          <button type="button" className="secondary" disabled={busy} onClick={() => act("reject")}>
+          <button type="button" className="secondary" disabled={busy || statusUnavailable}
+                  onClick={() => act("reject")}>
             <X size={15} aria-hidden="true" /> Reject
           </button>
+          {statusUnavailable && (
+            <button type="button" className="secondary" onClick={fetch}>
+              <RotateCw size={15} aria-hidden="true" /> Reload
+            </button>
+          )}
           <p className="muted small">
             <Lock size={13} aria-hidden="true" /> Confirming is your judgment, not proof the claims are true. It does
             not send or draft anything; sending and drafting stay disabled.

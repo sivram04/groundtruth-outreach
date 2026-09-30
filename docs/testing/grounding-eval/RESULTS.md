@@ -386,10 +386,15 @@ measurement honest and avoid overfitting**:
   is written as a recommendation (`docs/REVIEW_IDENTITY_RECOMMENDATION.md`, Ed25519 console-signs /
   worker-verifies), which stays an explicit blocker to enabling the gate. Nothing deployed; the
   `Reviews` tab is not created.
-- **Verified in the repository's container** (`docker build -f deploy/test.Dockerfile`; `docker run
-  --network none`): **811 Python passed (0 xfailed)**. React **53 passed** + build on the host (the
-  container workflow is Python-only). **24 deliberate breaks caught** (from the prior commit,
-  unchanged).
+- **Verified in the repository's containers, no network at run time.** Python
+  (`deploy/test.Dockerfile`): **811 passed (0 xfailed)**. Frontend (`deploy/console-test.Dockerfile`,
+  added): **54 tests passed, `tsc --noEmit` clean, `vite build` succeeded** — no npm/tsc/vite on the
+  host. **24 deliberate breaks caught** (prior commit, unchanged). Then the review page's stale-status
+  handling was fixed (on a save whose status can't be read back it shows "Current status
+  unavailable", disables actions, and offers a working reload) and the reviewer-identity
+  recommendation was corrected (per-row signatures do not protect the latest decision; the fix is a
+  separate console-owned review spreadsheet with write-exclusivity — the founder account viewer, not
+  editor — plus a signed monotonic per-review `seq`). See `docs/REVIEW_IDENTITY_RECOMMENDATION.md`.
 
 ## What this does not establish (limits of the evidence itself)
 

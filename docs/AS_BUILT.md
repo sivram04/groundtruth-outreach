@@ -1372,6 +1372,44 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-30 (UI/persistence closed) — stale review status fixed; identity recommendation
+  corrected; frontend checks run in a container.** Continues from `4cb427f`; two scoped items.
+
+  1. **No stale decision after a save whose status can't be read back** (`console/src/pages/Review.tsx`).
+     Reproduced: a current "Confirmed" review is shown, the founder clicks Reject, the save succeeds,
+     the read-back fails. The page previously kept the old view, so "Confirmed" stayed visible beside
+     the warning. Now on `ReviewStatusUnavailable` the page shows **"Current status unavailable"**,
+     keeps the candidate and evidence, **disables Confirm/Reject**, and offers a working **Reload**;
+     a successful reload re-establishes the current decision and re-enables the actions. Regression
+     test starts from an already-confirmed review, clicks Reject, and asserts the stale confirmation
+     disappears, the saved-but-status-unavailable message appears, actions are disabled, and a
+     successful reload restores the correct decision (rejected) and the actions.
+  2. **`docs/REVIEW_IDENTITY_RECOMMENDATION.md` corrected.** The prior claim that deletion "can only
+     block approval" was wrong: deleting a later rejection exposes an older *genuinely signed*
+     confirmation (approval shown as current, no forgery), and an old signed confirmation can be
+     replayed or rows reordered. The revised design protects the **latest** decision: a **separate
+     review spreadsheet owned by the console service account**, console-exclusive write, worker
+     read-only — **and the founder's account (whose token the worker holds as `google-signin-token`)
+     must be viewer, not editor**, so no credential the worker holds can write the review store; plus
+     a **monotonic per-review `seq` inside an Ed25519-signed payload**, with the worker selecting the
+     **highest signed `seq`** (not row position) and verifying with a public key delivered as trusted
+     config (never from the writable store). The doc explains how this handles replay, deletion,
+     reordering and key substitution, and lists the required credential/permission changes — none
+     applied. Enabling the review gate stays blocked until this is in place.
+
+  **Frontend checks in a container (host untouched).** Added `deploy/console-test.Dockerfile`
+  (Node 20; `npm ci` at build with network, checks with none). `docker build -f
+  deploy/console-test.Dockerfile -t outreach-console-tests .` then `docker run --rm --network none
+  outreach-console-tests` runs `npm run test && npm run typecheck && npm run build` →
+  **54 tests passed, tsc --noEmit clean, vite build succeeded.** No npm/tsc/vite was run on the host
+  this pass. Python was unchanged this pass (no `outreach/*.py` or `tests/*.py` change), so the
+  Python container result stands at **811 passed** from `4cb427f`; it was not re-run.
+
+  **UI/persistence work is closed.** Remaining: the reviewer-identity design (above) is a
+  recommendation to approve, not build; migration/deployment stay for approval; nothing deployed or
+  pushed; the live Sheet and permissions are untouched; review and Gmail drafting stay off; follow-up
+  creation stays blocked; item 1's authenticated dashboard load stays pending a signed-in session.
+
 - **2026-09-30 (review-persistence milestone CLOSED) — save vs read-back separated, regressions
   strengthened, verified in the container; reviewer-identity recommendation written.** Continues
   from `75e186f`. Scoped to review persistence (no grounding-checker change, no new audit).

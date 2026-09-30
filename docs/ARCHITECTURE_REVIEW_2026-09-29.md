@@ -256,9 +256,15 @@ separated from reading its status back (a save that cannot be read back says so,
 changed" and never approval), the dropped-append and rejection-race regressions were strengthened,
 and a reviewer-identity fix is written as a recommendation (Ed25519 console-signs / worker-verifies;
 `docs/REVIEW_IDENTITY_RECOMMENDATION.md`) that stays an explicit blocker to enabling the gate.
-**Verified in the repository's container** (`deploy/test.Dockerfile`, `--network none`): Python **811
-passed**; React **53 passed** on the host (the container workflow is Python-only). **24 deliberate
-breaks all caught** (prior commit, unchanged). **Not deployed**: `outreach/writer.py` and the review
+**Verified in the repository's containers, no network at run time**: Python (`deploy/test.Dockerfile`)
+**811 passed**; frontend (`deploy/console-test.Dockerfile`, added) **54 tests passed, tsc clean, vite
+build ok** (no host npm/tsc/vite). **24 deliberate breaks all caught** (prior commit, unchanged). The
+review page's stale-status handling was then fixed (a save whose status can't be read back shows
+"Current status unavailable", disables actions, offers a reload), and the reviewer-identity
+recommendation was corrected: per-row signatures do not protect the latest decision (deletion/replay/
+reorder), so the design is a separate console-owned review spreadsheet with write-exclusivity (the
+founder account viewer, not editor, since the worker holds its token) plus a signed monotonic
+per-review sequence (`docs/REVIEW_IDENTITY_RECOMMENDATION.md`). **Not deployed**: `outreach/writer.py` and the review
 gate run inside `outreach-worker`/`outreach-console`, neither rebuilt; the `Reviews` tab is not
 created and its permissions posture is undecided, so nothing touches the live Sheet.
 

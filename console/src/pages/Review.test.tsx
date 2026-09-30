@@ -94,6 +94,34 @@ describe("the review page", () => {
     expect(screen.queryByText(/Confirmed by/)).toBeNull();
   });
 
+  it("clears a stale confirmation when the status can't be read back, then a reload restores it", async () => {
+    const confirmed = view({ review: { decision: "confirmed", reviewer: "admin@lakshyaa.ai", current: true } });
+    const rejected = view({ review: { decision: "rejected", reviewer: "admin@lakshyaa.ai", current: true } });
+    const load = vi.fn().mockResolvedValueOnce(confirmed).mockResolvedValueOnce(rejected);
+    const record = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ReviewStatusUnavailable("Your review was recorded, but its current status could not be loaded. Reload before continuing."),
+      );
+    render(<Review leadId="A-0007" from="admin@lakshyaa.ai" load={load} record={record} />);
+    await screen.findAllByText(/Confirmed by admin/);  // starts from a current confirmed review
+
+    fireEvent.click(screen.getByRole("button", { name: /Reject/ }));
+    await screen.findAllByText(/could not be loaded/);
+    // the stale confirmation is gone; the status is unavailable; actions are disabled; candidate kept
+    expect(screen.queryByText(/Confirmed by/)).toBeNull();
+    expect(screen.getAllByText(/Current status unavailable/).length).toBeGreaterThan(0);
+    expect((screen.getByRole("button", { name: /Confirm/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /Reject/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getAllByText(/pours slabs/).length).toBeGreaterThan(0);  // evidence preserved
+
+    // a successful reload restores the correct decision and re-enables actions
+    fireEvent.click(screen.getByRole("button", { name: /Reload/ }));
+    await screen.findAllByText(/Rejected by admin/);
+    expect(screen.queryByText(/Current status unavailable/)).toBeNull();
+    expect((screen.getByRole("button", { name: /Confirm/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("says plainly when there is no candidate to review", async () => {
     render(<Review leadId="A-9999" from="admin@lakshyaa.ai" load={() => Promise.reject(new LoadError("There is no candidate to review for this lead."))} record={vi.fn()} />);
     await screen.findByText(/no candidate to review/);
