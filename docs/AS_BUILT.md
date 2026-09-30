@@ -1372,6 +1372,54 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-09-30 (review-persistence milestone CLOSED) — save vs read-back separated, regressions
+  strengthened, verified in the container; reviewer-identity recommendation written.** Continues
+  from `75e186f`. Scoped to review persistence (no grounding-checker change, no new audit).
+
+  1. **Saving a review is separate from reading its status back** (`outreach/console.py`). If the
+     save succeeds but the follow-up read fails, the console returns (HTTP 200)
+     `{recorded: true, status_unavailable: true, message: "Your review was recorded, but its current
+     status could not be loaded. Reload before continuing."}` — it never says "nothing was changed"
+     and never shows approval as current. A distinct save failure still says nothing was changed; an
+     uncertain write still says the outcome is uncertain. The React client raises
+     `ReviewStatusUnavailable` for this case and shows the message without marking the review current
+     (`console/src/api.ts`, `pages/Review.tsx`). Tested on both sides (the exact path).
+  2. **Dropped-append regression strengthened**: the pre-existing row now shares EVERY original field
+     with the attempted write, including the timestamp, so only the unique `Attempt ID` distinguishes
+     them; the test proves an older identical row cannot confirm a dropped append (it is
+     `ReviewsUncertain`).
+  3. **Rejection race strengthened**: a rejection is injected AFTER the confirmation is appended but
+     BEFORE the console reads the current decision; the response shows `rejected`, never current
+     approval.
+
+  **Container verification (the repository's own workflow).** Docker 29.1.3 available.
+  `docker build -f deploy/test.Dockerfile -t outreach-tests .` then
+  `docker run --rm --network none outreach-tests` → **811 passed, 0 failed, no network.** Found and
+  fixed a pre-existing gap: `deploy/test.Dockerfile` never copied `console/`, so two tests that read
+  the React demo data (`test_console_model`, `test_assistant`) could not run in the container; added
+  `COPY console ./console` (source only — `.dockerignore` excludes node_modules/dist), which affects
+  the test image only, no deployed image. React tests (53 passed) and the build ran on the host — the
+  container workflow is Python-only, so the frontend is not container-verified (an honest limitation).
+  Deliberate-break coverage from `75e186f` is unchanged (24, all caught); no new break run was needed
+  as the changes are additive tests plus the save/read split, which the item-1 test pins.
+
+  **Milestone closed.** Review persistence is complete: content-bound gate, hash-issuance gating,
+  follow-ups gated, the review page, ordering/retry, the exact-schema Sheet adapter with unique
+  attempt-id reconciliation and honest uncertainty, save/read-back separation, and the read-only
+  migration dry-run — all verified in the no-network container.
+
+  **Reviewer identity — recommendation written, not implemented** (`docs/REVIEW_IDENTITY_RECOMMENDATION.md`).
+  The shared OAuth credential still cannot prove a review was an authenticated human decision, so
+  **enabling the review gate stays blocked.** The recommendation: the console signs each decision
+  (over review id, fingerprint, reviewer, decision, timestamp) with an **Ed25519 private key only the
+  console can read**, adds a `Signature` column, and the worker **verifies with the public key** — so
+  the worker (and any shared-OAuth script) can verify a review but cannot forge one (HMAC is rejected
+  because verify would equal forge). Required changes identified (a console-only signing-key secret,
+  the public key to the worker, the schema column, optional write-restriction on the tab); none
+  applied. Nothing deployed or pushed; the live Sheet and permissions are untouched; review and Gmail
+  drafting stay off; follow-up creation stays blocked; item 1's authenticated dashboard load stays
+  pending a signed-in session.
+
 - **2026-09-30 (review-store confirmation fixed; schema made exact) — corrects the append
   confirmation in `afec60c`.** A review found that `SheetReviewStore.put` confirmed an append by
   finding *any* identical row, so a pre-existing identical row could mask a dropped write; that the

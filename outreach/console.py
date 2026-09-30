@@ -229,12 +229,11 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                                    "again.")
             if decision not in ("confirm", "reject"):
                 return refuse(400, "A review is either confirm or reject.")
-            # The reviewer is the IAP-verified signed-in identity (g.email), never a body field.
+            # SAVE the review. The reviewer is the IAP-verified signed-in identity (g.email),
+            # never a body field.
             try:
-                record = (review.record_confirmation if decision == "confirm"
-                          else review.record_rejection)(reviews, lead_id, g.email, fingerprint,
-                                                        now=clock())
-                existing = reviews.get(lead_id)
+                (review.record_confirmation if decision == "confirm"
+                 else review.record_rejection)(reviews, lead_id, g.email, fingerprint, now=clock())
             except review.ReviewsUncertain:
                 # The write MAY have landed; never claim nothing changed.
                 log.exception("the review outcome is uncertain")
@@ -242,10 +241,19 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                                    "uncertain. Reload to check before acting; do not assume it was "
                                    "or was not saved, and do not retry blindly.")
             except Exception:
-                # A store that cannot be written records nothing and reports no success.
+                # The save failed; nothing was recorded.
                 log.exception("the review could not be recorded")
                 return refuse(502, "The review could not be recorded just now. Nothing was changed.")
-            log.info("review %s by %s for %s", record["decision"], g.email, lead_id)
+            # The save SUCCEEDED. Reading the current status back is a separate step: if it fails, the
+            # review is still recorded - never say "nothing was changed" or show approval as current.
+            try:
+                existing = reviews.get(lead_id)
+            except Exception:
+                log.exception("the review was recorded but its status could not be read back")
+                return jsonify(recorded=True, status_unavailable=True,
+                               message="Your review was recorded, but its current status could not "
+                                       "be loaded. Reload before continuing.")
+            log.info("review %s by %s for %s", decision, g.email, lead_id)
             return jsonify(review.review_view(candidate, None, chosen, existing=existing))
 
     return app

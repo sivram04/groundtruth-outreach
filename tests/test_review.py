@@ -365,15 +365,21 @@ def test_a_definite_write_failure_reports_nothing_recorded():
 # --- the four failure modes the founder called out (each would be mis-handled before this fix) ---
 
 def test_a_pre_existing_identical_row_does_not_mask_a_dropped_append():
-    """An older row with the same review id/fingerprint/reviewer/decision must not confirm THIS
-    append when it did not land. The unique Attempt ID distinguishes the specific write."""
-    api = Sheets({"Reviews": [HDR, srow("A-0001", "b" * 64, "confirmed", "old", attempt="old")]},
-                 drop_write=True)  # this append does not persist
+    """An older row with EVERY original field identical - including the timestamp - must not confirm
+    THIS append when it did not land. Only the unique Attempt ID distinguishes the attempted write,
+    so reconciliation cannot lean on any other field."""
+    from datetime import datetime, timezone
+    when = datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)
+    # the existing row and the new attempt share review id, fingerprint, reviewer, decision AND
+    # reviewed_at; they differ only by Attempt ID.
+    existing = srow("A-0001", "b" * 64, "confirmed", when.isoformat(),
+                    attempt="the-old-attempt-id", reviewer="founder@lakshyaa.ai")
+    api = Sheets({"Reviews": [HDR, existing]}, drop_write=True)  # this append does not persist
     store = review.SheetReviewStore(api=api, spreadsheet_id="sid")
     with pytest.raises(review.ReviewsUncertain):
-        review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", "b" * 64)
-    # the pre-existing row is still all there is; nothing new was confirmed
-    assert store.get("A-0001")["reviewed_at"] == "old"
+        review.record_confirmation(store, "A-0001", "founder@lakshyaa.ai", "b" * 64, now=when)
+    # only the pre-existing row is there; the dropped append was NOT confirmed by it
+    assert [r for r in api.tabs["Reviews"][1:]] == [existing]
 
 
 def test_a_committed_append_whose_response_failed_is_recorded_not_lost():

@@ -251,8 +251,14 @@ carries a unique `Attempt ID` and is reconciled by that id (an older identical r
 mask a dropped write), a committed-but-response-errored write is reported as recorded, an
 undeterminable write is reported as uncertain (never retried, and the console never says "nothing
 changed"), and the `Reviews` schema is now exact (six columns incl. Attempt ID; the migration dry-run
-describes the manual change for an older tab). Exact coverage: Python **809 passed**, React **52
-passed**, **24 deliberate breaks all caught**. **Not deployed**: `outreach/writer.py` and the review
+describes the manual change for an older tab). The milestone was then CLOSED: saving a review is
+separated from reading its status back (a save that cannot be read back says so, never "nothing
+changed" and never approval), the dropped-append and rejection-race regressions were strengthened,
+and a reviewer-identity fix is written as a recommendation (Ed25519 console-signs / worker-verifies;
+`docs/REVIEW_IDENTITY_RECOMMENDATION.md`) that stays an explicit blocker to enabling the gate.
+**Verified in the repository's container** (`deploy/test.Dockerfile`, `--network none`): Python **811
+passed**; React **53 passed** on the host (the container workflow is Python-only). **24 deliberate
+breaks all caught** (prior commit, unchanged). **Not deployed**: `outreach/writer.py` and the review
 gate run inside `outreach-worker`/`outreach-console`, neither rebuilt; the `Reviews` tab is not
 created and its permissions posture is undecided, so nothing touches the live Sheet.
 

@@ -505,3 +505,66 @@ def test_an_uncertain_write_is_not_reported_as_nothing_changed(built):
     assert resp.status_code == 502
     said = resp.get_json()["error"].lower()
     assert "uncertain" in said and "nothing was changed" not in said
+
+
+# --- item 1: saving is separate from reading the status back --------------------------------
+
+class _ReadFailsAfterSave:
+    """put() records; get() works until something is saved, then fails - so the SAVE succeeds but
+    the follow-up status read does not."""
+
+    def __init__(self):
+        self._m = review.MemoryReviewStore()
+        self.saved = False
+
+    def get(self, lead_id):
+        if self.saved:
+            raise RuntimeError("the review store read failed after the save")
+        return self._m.get(lead_id)
+
+    def put(self, record):
+        self.saved = True
+        self._m.put(record)
+
+
+def test_a_save_that_succeeds_but_cannot_be_read_back_says_so(built):
+    client = review_app(built, reviews=_ReadFailsAfterSave())
+    fingerprint = client.get("/api/review/A-0014", headers=signed()).get_json()["fingerprint"]
+    resp = client.post("/api/review/A-0014", headers=signed(),
+                       json={"decision": "confirm", "fingerprint": fingerprint})
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body.get("recorded") is True and body.get("status_unavailable") is True
+    assert body["message"] == ("Your review was recorded, but its current status could not be "
+                               "loaded. Reload before continuing.")
+    # it does not claim nothing changed, and shows no current approval
+    assert "review" not in body and "nothing was changed" not in body["message"].lower()
+
+
+# --- item 3: a rejection between the confirm write and the status read is not shown as approval ---
+
+class _RejectAfterConfirm:
+    """A concurrent rejection lands AFTER the confirmation is appended but BEFORE the console reads
+    the current decision back."""
+
+    def __init__(self):
+        self._m = review.MemoryReviewStore()
+
+    def get(self, lead_id):
+        return self._m.get(lead_id)
+
+    def put(self, record):
+        self._m.put(record)
+        if record["decision"] == "confirmed":
+            self._m.put({**record, "decision": "rejected"})  # the later rejection supersedes it
+
+
+def test_a_rejection_between_the_confirm_write_and_the_read_is_not_shown_as_approval(built):
+    client = review_app(built, reviews=_RejectAfterConfirm())
+    fingerprint = client.get("/api/review/A-0014", headers=signed()).get_json()["fingerprint"]
+    resp = client.post("/api/review/A-0014", headers=signed(),
+                       json={"decision": "confirm", "fingerprint": fingerprint})
+    assert resp.status_code == 200
+    view = resp.get_json()
+    # the confirm was written, but the later rejection is what the read returns: not approval
+    assert view["review"]["decision"] == "rejected"

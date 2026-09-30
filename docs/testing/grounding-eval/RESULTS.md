@@ -380,9 +380,16 @@ measurement honest and avoid overfitting**:
   proposed (not applied) fix. A follow-up review then fixed the append confirmation (a unique
   `Attempt ID` reconciled per write so an older identical row cannot mask a dropped one; committed-
   but-response-errored → recorded; undeterminable → uncertain, never retried; exact six-column
-  schema). The reviewer-identity limitation stays an explicit blocker to enabling the gate. Nothing
-  deployed; the `Reviews` tab is not created.
-- Whole suite: **809 Python passed (0 xfailed)**, **52 React passed**, **24 deliberate breaks caught**.
+  schema). The review-persistence milestone was then CLOSED: save is separated from reading the
+  status back (a save that cannot be read back says so, never "nothing changed" and never approval);
+  the dropped-append and rejection-race regressions were strengthened; and the reviewer-identity fix
+  is written as a recommendation (`docs/REVIEW_IDENTITY_RECOMMENDATION.md`, Ed25519 console-signs /
+  worker-verifies), which stays an explicit blocker to enabling the gate. Nothing deployed; the
+  `Reviews` tab is not created.
+- **Verified in the repository's container** (`docker build -f deploy/test.Dockerfile`; `docker run
+  --network none`): **811 Python passed (0 xfailed)**. React **53 passed** + build on the host (the
+  container workflow is Python-only). **24 deliberate breaks caught** (from the prior commit,
+  unchanged).
 
 ## What this does not establish (limits of the evidence itself)
 

@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LoadError, ReviewStale, type ReviewView } from "../api";
+import { LoadError, ReviewStale, ReviewStatusUnavailable, type ReviewView } from "../api";
 import { Review } from "./Review";
 
 const FP = "f".repeat(64);
@@ -78,6 +78,20 @@ describe("the review page", () => {
     // it reloaded the current candidate so it can be reviewed afresh
     await screen.findByText("An edited subject after review");
     expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("says the review was recorded but its status could not be loaded, without showing approval", async () => {
+    const record = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ReviewStatusUnavailable("Your review was recorded, but its current status could not be loaded. Reload before continuing."),
+      );
+    render(<Review leadId="A-0007" from="admin@lakshyaa.ai" load={() => Promise.resolve(view())} record={record} />);
+    await screen.findAllByText(/pours slabs/);
+    fireEvent.click(screen.getByRole("button", { name: /Confirm/ }));
+    await screen.findByText(/recorded, but its current status could not be loaded/);
+    // it must NOT show current approval
+    expect(screen.queryByText(/Confirmed by/)).toBeNull();
   });
 
   it("says plainly when there is no candidate to review", async () => {

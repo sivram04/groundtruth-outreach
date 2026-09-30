@@ -117,6 +117,10 @@ export interface ReviewView {
 /** The candidate changed between being shown and a confirm/reject: the review must be redone. */
 export class ReviewStale extends Error {}
 
+/** The review was saved, but reading its current status back failed. It IS recorded; reload before
+ *  continuing. Never treated as "nothing changed" and never shown as current approval. */
+export class ReviewStatusUnavailable extends Error {}
+
 async function reviewResponse(response: Response): Promise<ReviewView> {
   if (response.status === 401) throw new LoadError(SIGN_IN_ENDED, true);
   const isJson = (response.headers.get("Content-Type") ?? "").includes("application/json");
@@ -125,6 +129,14 @@ async function reviewResponse(response: Response): Promise<ReviewView> {
     const said =
       typeof body === "object" && body !== null && "error" in body ? String(body.error) : "";
     throw new ReviewStale(said || "The candidate changed since it was shown; reload and review it again.");
+  }
+  if (response.ok && typeof body === "object" && body !== null && "status_unavailable" in body) {
+    // The save succeeded but its status could not be read back: recorded, but reload before acting.
+    throw new ReviewStatusUnavailable(
+      "message" in body
+        ? String((body as { message: unknown }).message)
+        : "Your review was recorded, but its current status could not be loaded. Reload before continuing.",
+    );
   }
   if (!response.ok || !body || typeof body !== "object") {
     const said =
