@@ -108,3 +108,88 @@ deploy. Synthetic verification only; live verification remains a separate, not-d
    content-hash idempotency. *Regressions:* `test_calls.py::test_a_ui_shaped_retry_is_one_event_though_the_clock_advanced`,
    `test_console_calls.py::test_a_ui_shaped_retry_with_an_advancing_clock_makes_one_event`,
    `CallPanel.test.tsx` ("keeps one submission identity across a retry…").
+
+## Independent recheck of 829c309
+
+2026-09-30T23:42:59Z [TOOL] Commit
+`829c3097affe74d210df45c5344180b898b92a38`, current source mounted read-only in
+network-disabled containers. `test_calls.py`, `test_console_calls.py`,
+`test_followup.py`, `test_drafts.py`: **115 passed in 4.36s**.
+`console/src/pages/CallPanel.test.tsx`: **6 passed**. These independently confirm
+the tested sticky-DNC, explicit-target, sequential-retry and selection behavior;
+the full-suite/build/browser claims above were not independently rerun.
+
+The remediation is incomplete at two enforcement boundaries:
+
+1. **Initial Gmail draft creation bypasses call STOP/HOLD.** Using
+   `test_draft_pipeline.ready.__wrapped__` with pytest.MonkeyPatch, its valid signed
+   review and approved candidate, plus `test_sheet_append.FakeSheets` with a real
+   Call log header/row: `Store(api).call_events()` reads DO_NOT_CONTACT as STOP, or
+   CALLBACK as HOLD. Pass this same API to `job_draft.create`; each case returns
+   `CREATED` and invokes the fake Gmail creator once. `_read` and `_suppressed`
+   use the existing happy-path fixture (suppression false, representing the failed
+   redundant suppression write); candidate/review checks remain real. The create
+   function never consults the stored call event. This is the function called by
+   the worker create route; protecting `drafts.plan` alone does not protect a
+   candidate approved before the call. No real Gmail or Sheet operation occurred;
+   the test's enable flag exists only inside the isolated process.
+2. **Missing task identity still selects the current task.** Through the real
+   Flask route with synthetic MemoryStore: NO_ANSWER task A, then CALLBACK task B,
+   then POST COMPLETE without `task_id` (the previous UI's payload). Returns HTTP
+   200 and marks B done. Explicit stale IDs now correctly reject, but omission
+   still bypasses binding. The typed API keeps task_id optional, and the route
+   uses `client_task_id or task["id"]`.
+
+Additional inspected UI gap: the outcome API now returns a partial-success
+`warning` and `suppression_written:false`, but CallPanel's success callback ignores
+the result, clears the form/submission ID and renders no warning. The backend
+warning is therefore not communicated to the founder. This observation is from
+code inspection, not a new browser run.
+
+Verdict: accept the verified improvements, but do not mark all four original
+findings closed yet. Add the call decision check at the actual initial draft
+creation boundary, require task identity for new actions, and display partial
+success with a truthful retry path. Keep import and other milestones out of scope.
+No product-code edits, deployment, live writes, activation or sending. Evidence
+and continuity updates only, left uncommitted.
+
+## Remediation of the recheck (2026-09-30, product-code change)
+
+The three gaps the recheck named are closed; the working sticky-DNC, retry-identity
+and explicit-target fixes are preserved unchanged. Verified in containers, no
+network: Python **925 passed** (+5), frontend **78 passed** (+2), typecheck and
+build clean. Still flag-gated (`enable_calls`, off by default and in deploy); no
+live Sheet, no send, no deploy; synthetic verification only.
+
+1. **Call STOP/HOLD enforced at the real initial-draft boundary.** `job_draft.create`
+   — the only path that turns an approved candidate into a Gmail draft, and the one
+   the worker create route calls — now re-reads the Call log through
+   `job_draft._call_effect(api, lead_id)` (the same header contract as
+   `sheet.Store.call_events`) and refuses STOP, HOLD or unreadable history *before*
+   any reservation or Gmail write. It is read at the boundary, not cached, so an
+   approval granted before a later do-not-contact / interested / callback cannot
+   bypass it; a missing Call log tab is CONTINUE (a company without calls still
+   drafts); signing and all existing gates are unchanged. *Regressions
+   (`test_draft_pipeline.py`, real reader over `test_sheet_append.FakeSheets` and a
+   valid approved candidate):* DO_NOT_CONTACT with **no** suppression entry,
+   CALLBACK/HOLD, and unreadable (changed-header) history each raise `DraftBlocked`
+   with **no** Gmail create; a lead with no call history still reaches `CREATED`.
+
+2. **A task action requires a nonempty `task_id`.** The `client_task_id or task["id"]`
+   fallback is removed: the route refuses a missing (400) or blank (400) id and a
+   stale id (409); the typed `actOnCallTask` makes `task_id` required. *Regressions:*
+   `test_console_calls.py::test_a_task_action_without_a_task_id_is_refused` (missing,
+   blank and stale after a newer task replaces the original — none modifies the newer
+   task); browser-verified through the real API (missing/blank → 400, task stays
+   scheduled, correct id completes it).
+
+3. **CallPanel displays the partial success.** The success callback reads the result;
+   on `suppression_written:false` (or a `warning`) it shows what was saved and what
+   remains, keeps the submission identity and the form, and offers "Retry the rest",
+   which re-sends the **same** submission id (no second call recorded) to re-attempt
+   the suppression write. *Regressions (`CallPanel.test.tsx`):* the warning renders and
+   Retry reuses the submission id; a separate test runs the **real** `recordCallOutcome`
+   parser over the actual partial JSON response shape. The create-boundary gate has no
+   UI and the partial-success warning needs a suppression failure the synthetic harness
+   cannot inject, so these are covered by component-render, parser and server-route
+   tests rather than a browser run.

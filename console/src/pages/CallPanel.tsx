@@ -56,14 +56,18 @@ export function CallPanel({
   const [showSnooze, setShowSnooze] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  // One logical submission's identity. It survives a retry (so a lost response after a successful write
-  // makes no duplicate) and is cleared on success or whenever the form is edited (so a genuinely new
-  // call is recorded). The UI omits the call time, so this - not a server timestamp - is the identity.
+  // A partial success: the call was recorded but something else (its suppression entry) was not.
+  const [warning, setWarning] = useState("");
+  // One logical submission's identity. It survives a retry (so a lost response after a successful write,
+  // or a partial success, makes no duplicate call) and is cleared on a clean success or whenever the form
+  // is edited (so a genuinely new call is recorded). The UI omits the call time, so this - not a server
+  // timestamp - is the identity.
   const submissionId = useRef("");
 
   function editField<T>(set: (v: T) => void) {
     return (v: T) => {
       submissionId.current = "";
+      setWarning("");
       set(v);
     };
   }
@@ -81,12 +85,22 @@ export function CallPanel({
       outcome, note, submission_id: submissionId.current,
       callback_at: outcome === "CALLBACK" ? toIso(callbackAt) : undefined,
     }).then(
-      () => {
+      (result) => {
         setBusy(false);
+        onChanged();  // the call itself was recorded, so refresh the task/history either way
+        if (result?.suppression_written === false || result?.warning) {
+          // A partial success. Keep the submission identity and the form so a retry re-attempts the rest
+          // WITHOUT recording a second call (the same submission id is idempotent), and tell the founder.
+          setWarning(
+            result.warning ||
+              "The call was recorded, but its suppression entry was not written. The email suppression list may be incomplete until you retry.",
+          );
+          return;
+        }
+        setWarning("");
         submissionId.current = "";
         setNote("");
         setCallbackAt("");
-        onChanged();
       },
       (e: unknown) => {
         setBusy(false);  // keep submissionId so the next click retries the same submission
@@ -96,10 +110,10 @@ export function CallPanel({
   }
 
   function doAction(action: string, snooze_to?: string) {
-    if (busy) return;
+    if (busy || !task) return;
     setBusy(true);
     setError("");
-    act(leadId, { action, snooze_to, task_id: task?.id }).then(
+    act(leadId, { action, snooze_to, task_id: task.id }).then(
       () => {
         setBusy(false);
         setShowSnooze(false);
@@ -185,6 +199,18 @@ export function CallPanel({
       {error && (
         <div className="callout amber" role="alert">
           <div className="callout-text">{error}</div>
+        </div>
+      )}
+
+      {warning && (
+        <div className="callout amber" role="alert">
+          <div className="callout-text">
+            <strong>The call was saved. One step did not finish.</strong>
+            <span className="block small">{warning}</span>
+          </div>
+          <button type="button" className="secondary" disabled={busy} onClick={save}>
+            <RotateCw size={15} aria-hidden="true" /> Retry the rest
+          </button>
         </div>
       )}
 

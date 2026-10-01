@@ -341,11 +341,12 @@ export function recordCallOutcome(
   return callPost(`/api/calls/${encodeURIComponent(leadId)}/outcome`, outcome, fetcher);
 }
 
-/** Complete, snooze or cancel a lead's current call task. `task_id` names the exact task the founder
- *  was shown, so a stale action is refused rather than closing a newer task. */
+/** Complete, snooze or cancel a lead's call task. `task_id` is required and names the exact task the
+ *  founder was shown, so an action can never fall back to whatever task is open now: a stale id is
+ *  refused (409) and a missing one is refused (400), and neither touches a newer task. */
 export function actOnCallTask(
   leadId: string,
-  action: { action: string; snooze_to?: string; task_id?: string },
+  action: { action: string; task_id: string; snooze_to?: string },
   fetcher: typeof fetch = fetch,
 ): Promise<CallResult> {
   return callPost(`/api/calls/${encodeURIComponent(leadId)}/task`, action, fetcher);

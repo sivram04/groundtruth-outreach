@@ -1438,6 +1438,36 @@ Sheet — and how often the checks refuse it — is unknown.
   blocker shown; a stale task_id is refused 409 while the newer task stays scheduled; two UI-shaped submits one clock
   second apart add one history row. **Synthetic only; live verification remains a separate, not-done milestone.**
 
+- **2026-09-30 (calls: three enforcement-boundary gaps from the recheck)** — the recheck of `829c309`
+  (`docs/testing/calls-review-2026-09-30.md`, "Independent recheck") accepted the earlier improvements but found
+  the enforcement was still incomplete at two boundaries plus an unshown UI warning; all three are now closed. Still
+  flag-gated (`enable_calls`, off by default and in deploy), Sheets persistence, synthetic-verified.
+
+  - **Call STOP/HOLD is now enforced at `job_draft.create`, the real initial Gmail draft-creation boundary.**
+    `drafts.plan` is candidate selection; a candidate approved *before* a call decision would still reach `create`
+    (the function the worker create route calls). `job_draft._call_effect(api, lead_id)` re-reads the Call log at the
+    creation boundary (not a cached decision) with the same header contract as `sheet.Store.call_events`; `create`
+    refuses STOP, HOLD or unreadable history before any reservation or Gmail write. A missing Call log tab means no
+    calls (CONTINUE), so a company without calls still drafts. Signing and every existing gate are unchanged.
+  - **A task action now requires a nonempty `task_id`.** The `client_task_id or task["id"]` fallback is gone: the
+    route refuses a missing/blank id (400) and a stale id (409), and the typed API (`actOnCallTask`) makes `task_id`
+    required. So the previous UI's id-less payload can no longer act on whatever task is open now.
+  - **CallPanel shows the partial-success warning.** The success callback now reads the result: on
+    `suppression_written === false` (or a `warning`), it says what was saved and what remains, keeps the submission
+    identity and the form, and offers "Retry the rest" — which re-sends the same submission id (no second call is
+    recorded) to re-attempt the suppression write. A clean success clears the form as before.
+
+  **Verified in containers, no network.** Python **925 passed** (+5: create blocked by DO_NOT_CONTACT with no
+  suppression entry, by CALLBACK/HOLD, and by unreadable call history — each asserting no Gmail create; an eligible
+  no-call-history lead still drafts; task action refused without/with a blank/with a stale id, newer task untouched).
+  Frontend **78 passed** (+2: the partial-success warning renders and "Retry the rest" reuses the submission id; the
+  real API parser round-trips the partial shape), typecheck and build clean. **Browser-verified through the actual
+  local API**: a task action with no/blank `task_id` → 400, the task stays scheduled, the correct id completes it. The
+  create-boundary gate has no UI (Gmail drafting is off) and the partial-success warning needs a suppression-write
+  failure the synthetic harness store cannot inject, so both are covered by the component-render, parser and
+  server-route regressions rather than a browser run. **Synthetic only; live verification remains separate and not
+  done.**
+
 - **2026-09-30 (import: write-taking Resume removed; exclusive write ownership)** — a review
   (`docs/testing/import-review-2026-09-30.md`) reproduced an overlap: an original owner and a resume
   could both pass their presence check before either committed its append, and both wrote (two rows).

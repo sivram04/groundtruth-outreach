@@ -12,9 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from outreach import (drafting, gemini, gmail_drafts, handbook_drive, research, review,
+from outreach import (calls, drafting, gemini, gmail_drafts, handbook_drive, research, review,
                       suppression, tracking, writer)
-from outreach.sheet import DRAFT_COLUMNS, LEAD_TABS, SHEET_ID, SYSTEM_COLUMNS, Tab, _api
+from outreach.sheet import (CALLS_HEADER, CALLS_TAB, DRAFT_COLUMNS, LEAD_TABS, SHEET_ID,
+                            SYSTEM_COLUMNS, Tab, _api)
 
 MAX_PILOT = 4
 CONFIG_PATH = Path(__file__).resolve().parent.parent / ".secrets" / "pilot_handbook.json"
@@ -52,6 +53,36 @@ def _suppressed(api, email):
     except Exception:
         return None
     return suppression.covers(entries, email)
+
+
+def _call_effect(api, lead_id):
+    """The lead's email effect from the Call log (STOP / HOLD / CONTINUE), read at the draft-creation
+    boundary. Raises DraftBlocked when the Call log exists but cannot be read (fail closed) - unreadable
+    call history never means unrestricted outreach. A missing Call log tab means no calls (CONTINUE); its
+    header contract is the same one `sheet.Store.call_events` enforces, so an event is never read from the
+    wrong column. Read here, not from a cached decision, so a call outcome recorded after the founder's
+    approval is still honoured."""
+    try:
+        titles = {s["properties"]["title"]
+                  for s in api.get(spreadsheetId=SHEET_ID).execute().get("sheets", [])}
+    except Exception:
+        raise DraftBlocked("the call log could not be read; no draft is created") from None
+    if CALLS_TAB not in titles:
+        return calls.CONTINUE  # no Call log tab: this company has no call decisions (as Store does)
+    try:
+        values = (api.values().get(spreadsheetId=SHEET_ID, range=f"'{CALLS_TAB}'")
+                  .execute().get("values", []))
+    except Exception:
+        # The tab exists but cannot be read: fail closed rather than treat it as no restriction.
+        raise DraftBlocked("the call log could not be read; no draft is created") from None
+    if not values:
+        return calls.CONTINUE  # the tab is empty: no call decisions
+    header = values[0]
+    if header[:len(CALLS_HEADER)] != CALLS_HEADER:
+        raise DraftBlocked("the call log's columns were changed; no draft is created")
+    rows = [{h: (row[i] if i < len(row) else "") for i, h in enumerate(header) if h}
+            for row in values[1:] if any(str(cell).strip() for cell in row)]
+    return calls.outreach_effect([r for r in rows if r.get("Lead ID") == lead_id])
 
 
 def _read(api, ids):
@@ -275,6 +306,15 @@ def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
     api = api or _api()
     tabs, matches, facts = _read(api, [lead_id])
     tab, row, lead = matches[0]
+    # Enforce a recorded call decision at the real creation boundary. This is read now (not a cached
+    # decision from candidate selection), so an approval granted before a later do-not-contact /
+    # not-interested (STOP) or interested / callback (HOLD) cannot bypass it; unreadable call history
+    # fails closed. Candidate selection (`drafts.plan`) also checks this, but a candidate approved before
+    # the call would still reach here, so the final gate must live at the write boundary.
+    call_effect = _call_effect(api, lead_id)
+    if calls.blocks_outreach(call_effect):
+        raise DraftBlocked(f"a recorded call outcome ({call_effect.lower()}) blocks emailing this lead; "
+                           "no draft is created")
     book, rebuilt, company = _revalidated(lead, facts, written, settings, handbook, drive, pages)
     result = drafting.preview(lead, facts, settings,
                              suppressed=_suppressed(api, lead.get("BEST EMAIL", "")),

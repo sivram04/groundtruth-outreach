@@ -500,6 +500,10 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             if action not in calls.ACTIONS:
                 return refuse(400, "That is not a task action I recognise.")
             client_task_id = str(body.get("task_id", "")).strip()
+            # Every action must name the exact task it applies to; there is no "current task" fallback,
+            # so a payload that omits the id can never act on whatever task happens to be open now.
+            if not client_task_id:
+                return refuse(400, "This action must name the task it applies to. Reload and try again.")
             now = clock()
             with reading:
                 try:
@@ -514,10 +518,10 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                 # Act only on the exact task the founder was shown. If it has been superseded (a newer
                 # outcome opened a different task since the page loaded), refuse rather than silently
                 # closing the newer one. The action carries its target so replay stays correct too.
-                if client_task_id and client_task_id != task["id"]:
+                if client_task_id != task["id"]:
                     return refuse(409, "This call task changed since you loaded it. Reload and try again.")
                 try:
-                    event = calls.action_event(lead_id, action, client_task_id or task["id"],
+                    event = calls.action_event(lead_id, action, client_task_id,
                                                snooze_to=body.get("snooze_to"), now=now)
                 except ValueError as exc:
                     return refuse(400, str(exc))

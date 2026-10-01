@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CallError } from "../api";
+import { CallError, recordCallOutcome } from "../api";
 import type { CallTask } from "../types";
 import { CallPanel } from "./CallPanel";
 
@@ -64,6 +64,44 @@ describe("the call panel", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Complete/ }));
     await vi.waitFor(() => expect(onChanged).toHaveBeenCalled());
     expect(act.mock.calls[0]![1].task_id).toBe("T2");
+  });
+
+  it("shows a partial-success warning and retries the rest with the same submission id", async () => {
+    // A recorded call whose suppression entry failed: say what succeeded and what remains, and let the
+    // founder retry WITHOUT recording a second call (the same submission id is idempotent).
+    const record = vi
+      .fn()
+      .mockResolvedValueOnce({
+        recorded: true, task: null, history: [], effect: "STOP", suppression_written: false,
+        warning: "The email suppression list may be incomplete until you retry.",
+      })
+      .mockResolvedValue({ recorded: true, task: null, history: [], effect: "STOP", suppression_written: true });
+    const onChanged = vi.fn();
+    render(<CallPanel leadId="A-0002" phone="" task={null} onChanged={onChanged} record={record} act={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Outcome"), { target: { value: "DO_NOT_CONTACT" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save call/ }));
+    await vi.waitFor(() => expect(screen.getByText(/suppression list may be incomplete/)).toBeTruthy());
+    expect(screen.getByText(/The call was saved/)).toBeTruthy();
+    expect(onChanged).toHaveBeenCalled();  // the call itself did record, so the view refreshed
+    const firstId = record.mock.calls[0]![1].submission_id;
+
+    fireEvent.click(screen.getByRole("button", { name: /Retry the rest/ }));
+    await vi.waitFor(() => expect(record).toHaveBeenCalledTimes(2));
+    expect(record.mock.calls[1]![1].submission_id).toBe(firstId);  // one call, retried - not a new one
+    await vi.waitFor(() => expect(screen.queryByText(/suppression list may be incomplete/)).toBeNull());
+  });
+
+  it("parses the real partial-success response shape", async () => {
+    // Exercise the actual API parser, not only an injected mock: the server's partial JSON round-trips.
+    const fetcher = (async () =>
+      new Response(
+        JSON.stringify({ recorded: true, task: null, history: [], effect: "STOP", suppression_written: false, warning: "not written" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )) as unknown as typeof fetch;
+    const result = await recordCallOutcome("A-0002", { outcome: "DO_NOT_CONTACT", submission_id: "s-1" }, fetcher);
+    expect(result.recorded).toBe(true);
+    expect(result.suppression_written).toBe(false);
+    expect(result.warning).toBe("not written");
   });
 
   it("requires an explicit time for a callback, then sends it", async () => {

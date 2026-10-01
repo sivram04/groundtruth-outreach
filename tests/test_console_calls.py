@@ -98,13 +98,33 @@ def test_a_callback_without_a_time_is_refused(built):
 def test_complete_snooze_and_cancel(built):
     store = a_store()
     client = make(built, store)
-    outcome(client, "A-0001", outcome="NO_ANSWER", called_at="2026-09-28T13:00:00+00:00")
-    snoozed = act(client, "A-0001", action="SNOOZE", snooze_to="2026-10-09T14:00:00+00:00").get_json()
+    tid = outcome(client, "A-0001", outcome="NO_ANSWER",
+                  called_at="2026-09-28T13:00:00+00:00").get_json()["task"]["id"]
+    snoozed = act(client, "A-0001", action="SNOOZE", task_id=tid,
+                  snooze_to="2026-10-09T14:00:00+00:00").get_json()
     assert snoozed["task"]["snoozed"] is True and snoozed["task"]["due"] == "2026-10-09T14:00:00+00:00"
-    done = act(client, "A-0001", action="COMPLETE").get_json()
+    done = act(client, "A-0001", action="COMPLETE", task_id=tid).get_json()
     assert done["task"]["status"] == "done"
     # once done, there is no open task, and acting again is refused
-    assert act(client, "A-0001", action="CANCEL").status_code == 409
+    assert act(client, "A-0001", action="CANCEL", task_id=tid).status_code == 409
+
+
+def test_a_task_action_without_a_task_id_is_refused(built):
+    # The previous UI omitted task_id and the route fell back to the current task; that fallback is gone.
+    store = a_store()
+    client = make(built, store)
+    a = outcome(client, "A-0001", outcome="NO_ANSWER",
+                called_at="2026-09-28T13:00:00+00:00").get_json()["task"]["id"]
+    b = outcome(client, "A-0001", outcome="CALLBACK", note="call me",
+                callback_at="2026-10-02T14:00:00+00:00").get_json()["task"]["id"]
+    assert a != b
+    assert act(client, "A-0001", action="COMPLETE").status_code == 400  # missing
+    assert act(client, "A-0001", action="COMPLETE", task_id="").status_code == 400  # blank
+    assert act(client, "A-0001", action="COMPLETE", task_id=a).status_code == 409  # stale
+    # none of those touched the newer task B
+    lead = next(v for v in snapshot(client)["leads"] if v["id"] == "A-0001")
+    assert lead["call_task"]["id"] == b and lead["call_task"]["status"] == "scheduled"
+    assert act(client, "A-0001", action="COMPLETE", task_id=b).get_json()["task"]["status"] == "done"
     assert snapshot(client)["call_tasks"] == []
 
 

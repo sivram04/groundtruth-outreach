@@ -9,8 +9,15 @@ from pathlib import Path
 import pytest
 
 import review_fixtures as rf
-from outreach import drafting, gmail_drafts, handbook_drive, job_draft, review, worker, writer
+from outreach import calls, drafting, gmail_drafts, handbook_drive, job_draft, review, worker, writer
 from outreach.review_identity import Signer
+from outreach.sheet import CALLS_HEADER
+from test_sheet_append import FakeSheets
+
+# The genuine call-log reader, captured before `ready` patches it to CONTINUE, so the call-gate tests
+# can restore it and read synthetic persisted call events through the real code.
+_REAL_CALL_EFFECT = job_draft._call_effect
+CALL_NOW = __import__("datetime").datetime(2026, 9, 28, 13, 0, tzinfo=__import__("datetime").timezone.utc)
 
 HANDBOOK_TEXT = (Path(__file__).resolve().parent.parent / "examples" / "synthetic_handbook.txt"
                  ).read_text(encoding="utf-8")
@@ -303,6 +310,8 @@ def ready(monkeypatch):
     tab = FakeTab(row)
     monkeypatch.setattr(job_draft, "_read", lambda api, ids: ([tab], [(tab, 3, row)], facts()))
     monkeypatch.setattr(job_draft, "_suppressed", lambda api, email: False)
+    # By default no call decision restricts this lead; the call-gate tests restore the real reader.
+    monkeypatch.setattr(job_draft, "_call_effect", lambda api, lead_id: calls.CONTINUE)
     monkeypatch.setattr(gmail_drafts, "prior_sends", lambda gmail, recipient: False)
     monkeypatch.setattr(gmail_drafts, "existing_drafts", lambda gmail, recipient: [])
     monkeypatch.setattr(job_draft, "Tab", lambda api, name, cols: tab)
@@ -329,6 +338,68 @@ def test_one_approved_written_draft_reaches_gmail_once(ready):
     assert result["status"] == "CREATED" and len(created) == 1
     assert created[0]["to"] == "sam@example.test" and created[0]["body"].endswith(drafting.OPT_OUT)
     assert tab.lead["Draft status"] == "CREATED" and tab.lead["Draft hash"] == digest
+
+
+# --- a recorded call decision blocks initial Gmail draft creation (the real write boundary) --------
+# drafts.plan is candidate selection; job_draft.create is the only path that turns an approved candidate
+# into a Gmail draft (the worker create route calls it). So the call-decision gate must live here too, or
+# a candidate approved BEFORE a later do-not-contact / interested / callback would still be drafted. The
+# call log is re-read here through the real reader, from synthetic persisted events.
+
+def _call_log_row(outcome, **kw):
+    event = calls.outcome_event("A-0001", outcome, kw.get("note", ""), "2026-09-28T13:00:00+00:00",
+                                no_answer_business_days=3, callback_at=kw.get("callback_at"),
+                                now=CALL_NOW)
+    return [event.get(h, "") for h in CALLS_HEADER]
+
+
+def _create_with_call_log(monkeypatch, seed):
+    """Run job_draft.create with a valid approved candidate and a FakeSheets whose Call log `seed`
+    (a list of value rows, or None for no tab) the REAL _call_effect reads. Returns (created, api)."""
+    row, _tab, created = ready.__wrapped__(monkeypatch)
+    monkeypatch.setattr(job_draft, "_call_effect", _REAL_CALL_EFFECT)  # use the genuine reader
+    api = FakeSheets()
+    if seed is not None:
+        api.tabs["Call log"] = [list(CALLS_HEADER), *seed]
+    written, digest = approved_written(row)
+    return created, api, written, digest
+
+
+def test_a_recorded_do_not_contact_blocks_initial_draft_creation(monkeypatch):
+    # No suppression entry is seeded (the redundant write may have failed); the call event alone blocks.
+    created, api, written, digest = _create_with_call_log(monkeypatch,
+                                                          [_call_log_row(calls.DO_NOT_CONTACT, note="stop")])
+    with pytest.raises(job_draft.DraftBlocked, match="recorded call outcome"):
+        job_draft.create("A-0001", digest, written=written, settings=settings(),
+                         api=api, gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert created == []  # no Gmail draft was created, and no reservation was attempted
+
+
+def test_a_callback_hold_blocks_initial_draft_creation(monkeypatch):
+    created, api, written, digest = _create_with_call_log(
+        monkeypatch, [_call_log_row(calls.CALLBACK, callback_at="2026-10-02T14:00:00+00:00")])
+    with pytest.raises(job_draft.DraftBlocked, match="recorded call outcome"):
+        job_draft.create("A-0001", digest, written=written, settings=settings(),
+                         api=api, gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert created == []
+
+
+def test_unreadable_call_history_blocks_initial_draft_creation(monkeypatch):
+    # A Call log tab whose columns were changed cannot be read: fail closed, never draft.
+    created, api, written, digest = _create_with_call_log(monkeypatch, seed=[])
+    api.tabs["Call log"] = [["Something", "Else"], ["x", "y"]]  # wrong header
+    with pytest.raises(job_draft.DraftBlocked, match="call log"):
+        job_draft.create("A-0001", digest, written=written, settings=settings(),
+                         api=api, gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert created == []
+
+
+def test_a_lead_with_no_call_history_still_drafts(monkeypatch):
+    # The gate must not block a lead that simply has no call decisions (no Call log tab): eligible passes.
+    created, api, written, digest = _create_with_call_log(monkeypatch, seed=None)
+    result = job_draft.create("A-0001", digest, written=written, settings=settings(),
+                              api=api, gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert result["status"] == "CREATED" and len(created) == 1
 
 
 # --- the human evidence-review gate (acceptance-contract option B) --------------------------
@@ -394,6 +465,8 @@ def test_the_default_review_store_is_fail_closed(monkeypatch):
     tab = FakeTab(row)
     monkeypatch.setattr(job_draft, "_read", lambda api, ids: ([tab], [(tab, 3, row)], facts()))
     monkeypatch.setattr(job_draft, "_suppressed", lambda api, email: False)
+    # By default no call decision restricts this lead; the call-gate tests restore the real reader.
+    monkeypatch.setattr(job_draft, "_call_effect", lambda api, lead_id: calls.CONTINUE)
     monkeypatch.setattr(gmail_drafts, "prior_sends", lambda gmail, recipient: False)
     monkeypatch.setattr(gmail_drafts, "existing_drafts", lambda gmail, recipient: [])
     monkeypatch.setattr(job_draft, "Tab", lambda api, name, cols: tab)

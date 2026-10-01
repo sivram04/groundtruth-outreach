@@ -70,6 +70,28 @@
 
 ## [DISCOVERIES]
 
+- 2026-09-30 [FIX] Call-task recheck (docs/testing/calls-review-2026-09-30.md "Independent recheck" of
+  829c309): three enforcement-boundary gaps closed, earlier fixes preserved. (1) STOP/HOLD now enforced at
+  job_draft.create (the REAL initial Gmail-draft boundary the worker create route calls; drafts.plan is only
+  candidate selection, so a candidate approved BEFORE a call decision bypassed it). New job_draft._call_effect(api,
+  lead_id) re-reads the Call log at the boundary with the SAME header contract as sheet.Store.call_events (titles →
+  missing tab = CONTINUE so calls-less companies still draft; present+bad-header or read error = DraftBlocked, fail
+  closed); create refuses STOP/HOLD/unreadable before any reservation or Gmail write; signing + all gates unchanged.
+  (2) task action requires a nonempty task_id — removed the `client_task_id or task["id"]` fallback; route 400 on
+  missing/blank, 409 on stale; typed actOnCallTask makes task_id required; CallPanel doAction guards `!task`. (3)
+  CallPanel now READS the outcome result: on suppression_written===false (or warning) it shows what saved + what
+  remains, KEEPS the submission id + form, and offers "Retry the rest" (re-sends the same submission id → no 2nd
+  call). Containers no-net: Python 925 (+5: create blocked by DNC-no-suppression / CALLBACK-HOLD / unreadable, each
+  asserting no Gmail create; eligible no-call-history still CREATED; task action missing/blank/stale refused, newer
+  task untouched), frontend 78 (+2: partial-warning renders + Retry reuses id; real recordCallOutcome parser
+  round-trips the partial shape) + tsc/build. Browser (real API): task action no/blank task_id → 400, task stays
+  scheduled, correct id completes. Gap-1 has no UI (Gmail drafting off) and gap-3's warning needs a suppression
+  failure the harness store can't inject → covered by component-render + parser + server-route tests, not a browser
+  run. Test wiring: ready fixture (test_draft_pipeline) now patches job_draft._call_effect→CONTINUE by default (else
+  api=object() crashes); gap-1 tests restore _REAL_CALL_EFFECT (captured before ready patches) + a
+  test_sheet_append.FakeSheets seeded with a Call log tab (header row 1, no title row). Synthetic only; live NOT done;
+  enable_calls off in deploy; committed locally, not pushed.
+
 - 2026-09-30 [FIX] Call-task correctness, the four findings in docs/testing/calls-review-2026-09-30.md
   (against 52bebbd), all fixed + regressed through the REAL routes and the pure state machine (not mocks
   alone). (1) STOP/HOLD now enforced in eligibility: `calls.outreach_effect`/`blocks_outreach` (no clock);
@@ -216,6 +238,14 @@
   review handbook stays in `docs/`.
 
 ## [OUTCOMES]
+
+- 2026-09-30T23:42:59Z [TOOL] Rechecked 829c309: 115 targeted Python and 6 CallPanel
+  tests pass offline. Original retry/sticky-DNC fixes improved, but synthetic
+  job_draft.create still calls fake Gmail despite stored STOP/HOLD plus valid prior
+  approval; missing task_id still closes the newer task. CallPanel ignores the new
+  partial-success warning (inspection). Evidence appended to
+  docs/testing/calls-review-2026-09-30.md. All-four-fixed claim not yet supported;
+  no product code/live operations changed in this review.
 
 - 2026-09-30T22:45:34Z [TOOL] Independent local review of call milestone 52bebbd:
   23 targeted tests pass in a network-disabled container. Additional real-route
