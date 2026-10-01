@@ -9,6 +9,7 @@ afterEach(cleanup);
 const UPLOAD: PlaybookUpload = {
   kind: "docx",
   text: "## Initial email\nHi [FIRST_NAME],\n\n[CTA_QUESTION]\n\nBest,",
+  selection_token: "tok-xyz",
   review: {
     content_hash: "abc12345def",
     length: 50,
@@ -45,7 +46,7 @@ describe("the playbook page", () => {
     fireEvent.change(screen.getByLabelText(/Recipient first name/), { target: { value: "Dana" } });
     fireEvent.click(screen.getByRole("button", { name: /Preview follow-up 1/ }));
     await vi.waitFor(() => expect(screen.getByText(/Following up/)).toBeTruthy());
-    expect(preview).toHaveBeenCalledWith({ text: UPLOAD.text, content_hash: "abc12345def", first_name: "Dana" });
+    expect(preview).toHaveBeenCalledWith({ text: UPLOAD.text, selection_token: "tok-xyz", first_name: "Dana" });
   });
 
   it("shows a clear error when the file is rejected", async () => {

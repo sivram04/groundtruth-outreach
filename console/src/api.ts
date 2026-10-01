@@ -382,7 +382,7 @@ export async function reviewPlaybook(file: File, fetcher: typeof fetch = fetch):
 /** Preview a candidate follow-up from a selected playbook version (by content hash). Reads only; no Gmail,
  *  no Drive, no send. A changed file (hash mismatch) is refused by the server with 409. */
 export async function previewPlaybook(
-  selection: { text: string; content_hash: string; first_name?: string },
+  selection: { text: string; selection_token: string; first_name?: string },
   fetcher: typeof fetch = fetch,
 ): Promise<PlaybookPreview> {
   let response: Response;

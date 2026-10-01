@@ -47,7 +47,7 @@ export function Playbook({
     setBusy(true);
     setError("");
     setCandidate(null);
-    preview({ text: upload.text, content_hash: selectedHash, first_name: firstName }).then(
+    preview({ text: upload.text, selection_token: upload.selection_token, first_name: firstName }).then(
       (p) => {
         setBusy(false);
         setCandidate(p);

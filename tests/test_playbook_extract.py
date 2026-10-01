@@ -27,6 +27,35 @@ def _blank_pdf_bytes():
     return buffer.getvalue()
 
 
+def _text_pdf_bytes(text):
+    """A minimal, valid single-page PDF with selectable text, built with a correct xref table."""
+    def obj(n, inner):
+        return f"{n} 0 obj\n{inner}\nendobj\n".encode("latin-1")
+
+    stream = f"BT /F1 24 Tf 72 700 Td ({text}) Tj ET".encode("latin-1")
+    objs = [
+        obj(1, "<< /Type /Catalog /Pages 2 0 R >>"),
+        obj(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+        obj(3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+               "/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"),
+        b"4 0 obj\n<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream\nendobj\n",
+        obj(5, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"),
+    ]
+    body, offsets = b"%PDF-1.4\n", []
+    for o in objs:
+        offsets.append(len(body))
+        body += o
+    xref_at = len(body)
+    xref = b"xref\n0 6\n0000000000 65535 f \n" + b"".join(
+        f"{off:010d} 00000 n \n".encode("latin-1") for off in offsets)
+    return body + xref + f"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF".encode("latin-1")
+
+
+def test_a_pdf_with_selectable_text_is_extracted():
+    text, kind = px.extract("playbook.pdf", _text_pdf_bytes("Follow up timing playbook"))
+    assert kind == "pdf" and "Follow up timing playbook" in text
+
+
 def test_a_docx_with_text_is_extracted():
     data = _docx_bytes(["## Initial email", "Hi [FIRST_NAME],", "Best,"])
     text, kind = px.extract("playbook.docx", data)

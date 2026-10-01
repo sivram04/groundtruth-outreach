@@ -112,11 +112,13 @@ export interface PlaybookReview {
   usable_for_followups: boolean;
 }
 
-/** POST /api/playbook/review: the extracted text and its review. */
+/** POST /api/playbook/review: the extracted text, its review, and the selection token the preview requires
+ *  (minted for this founder and this content hash; time-bounded; not durable). */
 export interface PlaybookUpload {
   kind: string;
   text: string;
   review: PlaybookReview;
+  selection_token: string;
 }
 
 /** POST /api/playbook/preview: a candidate follow-up rendered from the selected version. */

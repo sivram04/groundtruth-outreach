@@ -69,27 +69,73 @@ def test_review_needs_a_file(built):
     assert make(built).post("/api/playbook/review", headers=signed()).status_code == 400
 
 
-def test_preview_renders_a_followup_from_the_selected_version(built):
+def _review_good(client):
+    """Review a real DOCX of GOOD and return its JSON (text + selection_token minted by the server)."""
+    r = client.post("/api/playbook/review", headers=signed(),
+                    data={"file": (_docx(GOOD.split("\n")), "playbook.docx")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 200
+    return r.get_json()
+
+
+def test_preview_renders_a_followup_from_a_reviewed_selected_version(built):
     client = make(built)
+    reviewed = _review_good(client)
     r = client.post("/api/playbook/preview", headers=signed(),
-                    json={"text": GOOD, "content_hash": playbook.content_hash(GOOD), "first_name": "Dana"})
+                    json={"text": reviewed["text"], "selection_token": reviewed["selection_token"],
+                          "first_name": "Dana"})
     assert r.status_code == 200
     body = r.get_json()
     assert body["problems"] == [] and body["body"] and "Following up" in body["body"]
-    assert body["body"].startswith("Hi Dana,") and body["content_hash"] == playbook.content_hash(GOOD)
+    assert body["body"].startswith("Hi Dana,")
 
 
-def test_preview_refuses_a_changed_file(built):
-    # The selected hash is for GOOD, but the posted text changed: a changed file must be reviewed again.
+def test_direct_preview_without_a_valid_token_is_refused(built):
+    # Posting arbitrary text with no token, or a forged token, must not yield a "selected" preview.
     client = make(built)
+    assert client.post("/api/playbook/preview", headers=signed(), json={"text": GOOD}).status_code == 400
+    forged = client.post("/api/playbook/preview", headers=signed(),
+                         json={"text": GOOD, "selection_token": "9999999999.deadbeef"})
+    assert forged.status_code == 403
+
+
+def test_preview_refuses_a_changed_file_even_with_a_valid_token(built):
+    # The token was minted for GOOD; previewing different text with it must be refused (re-review needed).
+    client = make(built)
+    reviewed = _review_good(client)
     r = client.post("/api/playbook/preview", headers=signed(),
-                    json={"text": GOOD + "\nAn extra sentence.", "content_hash": playbook.content_hash(GOOD)})
-    assert r.status_code == 409
+                    json={"text": reviewed["text"] + "\nAn extra sentence.",
+                          "selection_token": reviewed["selection_token"]})
+    assert r.status_code == 403
+
+
+def test_a_token_from_one_founder_does_not_work_for_another(built):
+    client = make(built)
+    reviewed = _review_good(client)  # minted for the default signed-in founder
+    other = client.post("/api/playbook/preview", headers={HEADER: token(email="intruder@lakshyaa.ai")},
+                        json={"text": reviewed["text"], "selection_token": reviewed["selection_token"]})
+    assert other.status_code in (401, 403)  # 401 if not allow-listed, else 403 on the token check
 
 
 def test_preview_needs_a_selection(built):
     assert make(built).post("/api/playbook/preview", headers=signed(),
-                            json={"text": "", "content_hash": ""}).status_code == 400
+                            json={"text": "", "selection_token": ""}).status_code == 400
+
+
+def test_an_oversized_upload_is_rejected(built):
+    from outreach import playbook_extract
+    big = io.BytesIO(b"x" * (playbook_extract.MAX_BYTES + 1000))
+    r = make(built).post("/api/playbook/review", headers=signed(),
+                         data={"file": (big, "big.docx")}, content_type="multipart/form-data")
+    assert r.status_code == 422 and r.get_json()["reason"] == "too_large"
+
+
+def test_oversized_preview_text_is_rejected(built):
+    from outreach import playbook_extract
+    huge = "x" * (playbook_extract.MAX_CHARS + 1)
+    r = make(built).post("/api/playbook/preview", headers=signed(),
+                         json={"text": huge, "selection_token": "9999999999.deadbeef"})
+    assert r.status_code == 413
 
 
 def test_playbook_is_off_unless_switched_on(built):
