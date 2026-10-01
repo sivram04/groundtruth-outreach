@@ -115,6 +115,7 @@ export function Leads({ data, query }: { data: Snapshot; query: URLSearchParams 
                       {lead.channel === "COMPANY_ONLY" && <Status tone="gray">No contact</Status>}
                       {draft && <Status tone={draftTone(draft.status)}>Draft: {draft.status_label.toLowerCase()}</Status>}
                       {lead.ready && !draft && <Status tone="green">Ready</Status>}
+                      {lead.variant && <Status tone="blue">A/B: {lead.variant}</Status>}
                     </div>
                   </td>
                   <td className="small">

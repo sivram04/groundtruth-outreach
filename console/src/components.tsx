@@ -26,6 +26,7 @@ export function Layout(props: {
   draftsWaiting: number;
   importEnabled?: boolean;
   playbookEnabled?: boolean;
+  experimentsEnabled?: boolean;
   assistant: ReactNode;
   assistantShown: boolean;
   onAssistant: (shown: boolean) => void;
@@ -37,6 +38,7 @@ export function Layout(props: {
     ...NAV,
     ...(props.importEnabled ? ([["import", "#/import", "Import"]] as [Page, string, string][]) : []),
     ...(props.playbookEnabled ? ([["playbook", "#/playbook", "Playbook"]] as [Page, string, string][]) : []),
+    ...(props.experimentsEnabled ? ([["experiments", "#/experiments", "A/B tests"]] as [Page, string, string][]) : []),
   ];
   return (
     <div className={`shell${props.assistantShown ? " with-assistant" : ""}`}>

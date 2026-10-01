@@ -136,6 +136,62 @@ export interface PlaybookPreview {
   problems: string[];
 }
 
+/** One metric of one A/B variant (outreach/experiments.py). `available` is false for a metric with
+ *  no recorded signal yet (positive replies, meetings); then only `why` is set. */
+export interface VariantMetric {
+  key: string;
+  label: string;
+  available: boolean;
+  count?: number;
+  denominator?: number;
+  denominator_label?: string;
+  rate?: string;
+  note?: string;
+  estimate?: boolean;
+  why?: string;
+}
+
+/** One variant of an A/B experiment, with its assigned leads and metrics. */
+export interface ExperimentVariant {
+  index: number;
+  name: string;
+  assigned: number;
+  /** Assigned leads now on the Suppression list (context only; null when the list is unreadable). */
+  suppressed: number | null;
+  lead_ids: string[];
+  metrics: VariantMetric[];
+}
+
+/** The variant-level report for the current experiment (outreach/experiments.py). No winner is ever
+ *  declared; small samples are flagged. */
+export interface ExperimentReport {
+  name: string;
+  defined: boolean;
+  variants: ExperimentVariant[];
+  comparison: { winner: string | null; can_compare: boolean; min_sends_to_compare: number; note: string };
+  notes: string[];
+  calls_unreadable: boolean;
+  suppression_unreadable: boolean;
+}
+
+/** POST /api/experiments/define. */
+export interface ExperimentDefineResult {
+  recorded: boolean;
+  name: string;
+  variants: string[];
+  written: number;
+}
+
+/** POST /api/experiments/assign. */
+export interface ExperimentAssignResult {
+  recorded: boolean;
+  name: string;
+  assigned: number;
+  already_assigned: number;
+  eligible: number;
+  ineligible: number;
+}
+
 /** One lead in a chat call-log proposal (outreach/call_log_chat.py). */
 export interface CallProposalLead {
   lead_id: string;
@@ -191,6 +247,10 @@ export interface Lead {
   cells: Record<string, string>;
   origin: "SYSTEM" | "HAND" | null;
   next_followup: { step: number; date: string; day: string } | null;
+  /** The lead's A/B variant in the current experiment (empty when unassigned); immutable once set. */
+  experiment?: string;
+  variant?: string;
+  variant_index?: number | null;
   suppressed: boolean | null;
   gmail_drafts: GmailDraft[];
   draft: DraftStatus | string | null;
@@ -285,6 +345,12 @@ export interface Snapshot {
   import_enabled?: boolean;
   /** Whether the playbook upload/review/preview flow is switched on (off by default and in deploy). */
   playbook_enabled?: boolean;
+  /** Whether the A/B test flow is switched on for this server (off by default and in deploy). */
+  experiments_enabled?: boolean;
+  /** The current experiment's variant-level report, or null when none is defined/assigned. */
+  experiments?: ExperimentReport | null;
+  /** The A/B tests tab could not be read: no assignment or report is shown. */
+  experiments_unreadable?: boolean;
   /** Whether the call-task flow is switched on for this server (off by default and in deploy). */
   calls_enabled?: boolean;
   /** Open call tasks, overdue first then by due date. `when` is the queue bucket. */

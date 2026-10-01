@@ -2,6 +2,8 @@ import type {
   CallCandidateResult,
   CallProposal,
   CallResult,
+  ExperimentAssignResult,
+  ExperimentDefineResult,
   ImportPreview,
   ImportResult,
   PlaybookPreview,
@@ -307,6 +309,53 @@ export async function importCommit(
     throw new ImportError("The console could not be reached. Check the connection and try again.");
   }
   return (await importBody(response, "The import")) as ImportResult;
+}
+
+// --- A/B experiments (flag-gated on the server) --------------------------------------------
+
+/** Why an experiment action could not be saved, in words for the founder. */
+export class ExperimentError extends Error {}
+
+async function experimentBody<T>(response: Response, what: string): Promise<T> {
+  if (response.status === 401) throw new LoadError(SIGN_IN_ENDED, true);
+  const isJson = (response.headers.get("Content-Type") ?? "").includes("application/json");
+  const body: unknown = isJson ? await response.json().catch(() => null) : null;
+  if (!response.ok || !body || typeof body !== "object" || !("recorded" in body)) {
+    const said = typeof body === "object" && body !== null && "error" in body ? String(body.error) : "";
+    throw new ExperimentError(said || (isJson ? `${what} could not be saved just now.` : SIGN_IN_ENDED));
+  }
+  return body as T;
+}
+
+async function experimentPost<T>(path: string, payload: Record<string, unknown>, fetcher: typeof fetch): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetcher(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new ExperimentError("The console could not be reached. Check the connection and try again.");
+  }
+  return experimentBody<T>(response, "The experiment");
+}
+
+/** Define an experiment's two named variants. Idempotent: the same definition saves nothing new. */
+export function defineExperiment(
+  input: { experiment: string; variant_a: string; variant_b: string },
+  fetcher: typeof fetch = fetch,
+): Promise<ExperimentDefineResult> {
+  return experimentPost<ExperimentDefineResult>("/api/experiments/define", input, fetcher);
+}
+
+/** Assign every eligible, not-yet-assigned lead to a variant. A lead is assigned once and never moves. */
+export function assignExperiment(
+  input: { experiment: string },
+  fetcher: typeof fetch = fetch,
+): Promise<ExperimentAssignResult> {
+  return experimentPost<ExperimentAssignResult>("/api/experiments/assign", input, fetcher);
 }
 
 // --- call tasks (flag-gated on the server) -------------------------------------------------

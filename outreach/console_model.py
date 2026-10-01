@@ -17,7 +17,7 @@ from collections import defaultdict
 from datetime import date, datetime, timezone
 from urllib.parse import quote, urlparse
 
-from outreach import calls, channels
+from outreach import calls, channels, experiments
 from outreach import drafts as drafts_tab
 from outreach import sequence, suppression, sync
 from outreach.business_days import NEW_YORK, add_business_days, new_york_date
@@ -256,6 +256,9 @@ def _lead(lead_id, row, events, entries, today, now=None, call_events=()):
         "events": [event_view(e) for e in _in_order(events)],
         "columns": [[column, value] for column, value in row.items()],
         "call_task": None, "call_history": [], "call_effect": "", "call_effect_said": "",
+        # An A/B variant assignment (the current experiment), filled in `build`. Empty when the lead
+        # is not assigned. An assignment never changes once made.
+        "experiment": "", "variant": "", "variant_index": None,
     }
     if now is not None and call_events:
         state = calls.call_state(call_events, now=now)
@@ -389,11 +392,14 @@ def draft_view(row, lead, now=None):
 
 
 def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", draft_rows=(),
-          drafts_error=None, suppression_error=None, call_events=(), calls_enabled=False):
+          drafts_error=None, suppression_error=None, call_events=(), calls_enabled=False,
+          ab_records=(), experiments_enabled=False):
     """The whole console, worked out once per request. `draft_rows` is the Drafts tab's rows,
     or None when it could not be read (`drafts_error` says why); `entries` is None when the
     Suppression list could not be read (`suppression_error` says why); `call_events` are the Call log
-    rows, and `calls_enabled` says whether the call-task flow is switched on for this server."""
+    rows, and `calls_enabled` says whether the call-task flow is switched on for this server.
+    `ab_records` are the A/B tests rows (None when unreadable), and `experiments_enabled` says whether
+    the A/B flow is switched on for this server."""
     today = new_york_date(now)
     events = sync.unique(events)
     by_lead = defaultdict(list)
@@ -481,6 +487,26 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", dr
                                               task["overdue"], today)})
     call_tasks.sort(key=lambda t: (not t["overdue"], t["due"], _lead_order(t["lead_id"])))
 
+    # A/B tests. `ab_records` is None when the A/B tab could not be read. The report and each lead's
+    # variant are read-only data; the flag only gates the write routes and the page in the console.
+    ab_unreadable = ab_records is None
+    experiments_state = {} if ab_unreadable else experiments.read(ab_records or [])
+    current_name = experiments.current(experiments_state)
+    current_state = experiments_state.get(current_name) if current_name else None
+    experiments_report = None
+    if current_state is not None:
+        for view in views:
+            index = current_state["assignments"].get(view["id"])
+            if index is not None:
+                view["experiment"] = current_state["name"]
+                view["variant_index"] = index
+                view["variant"] = experiments.variant_name(current_state, view["id"])
+        experiments_report = experiments.report(current_state, leads, events, call_events, entries,
+                                                now=now)
+    if ab_unreadable:
+        warnings.append("The A/B tests tab cannot be read, so no variant assignment or report is "
+                        "shown.")
+
     chosen = approvals(settings)
     doc = str(handbook_doc_id or "").strip()
     return {
@@ -496,6 +522,9 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", dr
         # never "no calls due" (which could hide a real or a wrongly-included call).
         "calls_unreadable": calls_unreadable,
         "suppression_unreadable": suppression_unreadable,
+        "experiments_enabled": experiments_enabled,
+        "experiments": experiments_report,
+        "experiments_unreadable": ab_unreadable,
         "drafts": drafts,
         "drafts_summary": {"ready": sum(1 for d in drafts if d["status"] == drafts_tab.READY),
                            "waiting": sum(1 for d in drafts if d["status"] == drafts_tab.WAITING),
@@ -514,7 +543,8 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", dr
     }
 
 
-def snapshot(store, *, settings, now, handbook_doc_id="", calls_enabled=False):
+def snapshot(store, *, settings, now, handbook_doc_id="", calls_enabled=False,
+             experiments_enabled=False):
     """Read the Sheet once through `store` and work the console out. A Drafts tab that cannot
     be read is said, and the rest is still shown."""
     try:
@@ -531,8 +561,15 @@ def snapshot(store, *, settings, now, handbook_doc_id="", calls_enabled=False):
         call_events = None  # the Call log exists but could not be read: fail closed (block outreach)
     except AttributeError:
         call_events = ()  # this store has no Call log at all (an older store): calls simply absent
+    try:
+        ab_records = store.ab_records()
+    except RuntimeError:
+        ab_records = None  # the A/B tab exists but could not be read: show no assignment or report
+    except AttributeError:
+        ab_records = ()  # an older store with no A/B tab at all
     return build(store.leads(), store.events(), entries, store.run_rows(),
                  settings=settings, now=now, handbook_doc_id=handbook_doc_id,
                  draft_rows=draft_rows, drafts_error=drafts_error,
                  suppression_error=suppression_error, call_events=call_events,
-                 calls_enabled=calls_enabled)
+                 calls_enabled=calls_enabled, ab_records=ab_records,
+                 experiments_enabled=experiments_enabled)

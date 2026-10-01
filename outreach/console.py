@@ -31,9 +31,9 @@ from pathlib import Path
 from flask import Flask, g, jsonify, request, send_from_directory
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from outreach import (assistant, call_log_chat, calls, channels, console_auth, console_model, followup,
-                      importer, job_draft, playbook, playbook_extract, playbook_select, post_call, review,
-                      suppression)
+from outreach import (assistant, call_log_chat, calls, channels, console_auth, console_model,
+                      experiments, followup, importer, job_draft, playbook, playbook_extract,
+                      playbook_select, post_call, review, suppression)
 from outreach.sheet import LEAD_TABS, DestinationMismatch, Store
 
 DEFAULT_STATIC = Path(__file__).resolve().parent.parent / "console" / "dist"
@@ -66,7 +66,8 @@ MAX_IMPORT_BYTES = 2_000_000
 
 def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings, clock=_now,
                static_dir=None, handbook_doc_id="", review_store=None, enable_review=False,
-               review_signer=None, enable_import=False, enable_calls=False, enable_playbook=False):
+               review_signer=None, enable_import=False, enable_calls=False, enable_playbook=False,
+               enable_experiments=False):
     """The console. `store`, `settings` and `clock` are called once per data request, and a test
     passes stand-ins for them. `verifier` None means not configured: every request is refused.
 
@@ -132,7 +133,8 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             with reading:
                 data = console_model.snapshot(store(), settings=chosen, now=clock(),
                                               handbook_doc_id=handbook_doc_id,
-                                              calls_enabled=enable_calls)
+                                              calls_enabled=enable_calls,
+                                              experiments_enabled=enable_experiments)
         except Exception:
             log.exception("the Sheet could not be read")
             return None, refuse(502, "The Sheet could not be read just now. Nothing was "
@@ -141,6 +143,7 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
         data["build"] = built()
         data["import_enabled"] = enable_import
         data["playbook_enabled"] = enable_playbook
+        data["experiments_enabled"] = enable_experiments
         return data, None
 
     @app.get("/api/snapshot")
@@ -616,6 +619,71 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                 callback_at=str(body.get("callback_at", "")).strip() or None)
             log.info("call-note interpreted for %s: %s", g.email, proposal.get("status"))
             return jsonify(proposal)
+
+    if enable_experiments:
+        # Defining an experiment and assigning leads writes to the Sheet (the A/B tests tab), so this is
+        # OFF by default and in deployment. It never sends, drafts, or touches a founder column, and it
+        # is not connected to production drafting: a variant is a NAME only and changes no email.
+        def _ab_now():
+            return clock().astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+        @app.post("/api/experiments/define")
+        def experiment_define():
+            """Define an experiment's two named variants. Idempotent: the same definition writes
+            nothing new. It assigns no leads and drafts nothing."""
+            body = request.get_json(silent=True) or {}
+            try:
+                rows = experiments.define_rows(body.get("experiment", ""), body.get("variant_a", ""),
+                                               body.get("variant_b", ""), _ab_now())
+            except ValueError as exc:
+                return refuse(400, str(exc))
+            with reading:
+                try:
+                    written = store().append_ab_records(rows)
+                except Exception:
+                    log.exception("an experiment definition could not be written")
+                    return refuse(502, "The experiment could not be saved just now. Nothing was "
+                                       "changed; try again in a minute.")
+            name = rows[0]["Experiment"]
+            log.info("experiment %r defined by %s (%s new rows)", name, g.email, len(written))
+            return jsonify(recorded=True, name=name,
+                           variants=[rows[0]["Variant"], rows[1]["Variant"]], written=len(written))
+
+        @app.post("/api/experiments/assign")
+        def experiment_assign():
+            """Assign every eligible, not-yet-assigned lead to a variant of a defined experiment. The
+            variant is deterministic and the write is idempotent, so a lead is assigned once and never
+            moves. Returns how many were newly assigned, already assigned, or not eligible."""
+            body = request.get_json(silent=True) or {}
+            experiment = str(body.get("experiment", "")).strip()
+            if not experiment:
+                return refuse(400, "Name the experiment to assign leads to.")
+            with reading:
+                try:
+                    st = store()
+                    leads = st.leads()
+                    state = experiments.read(st.ab_records()).get(experiment)
+                except Exception:
+                    log.exception("the Sheet could not be read to assign an experiment")
+                    return refuse(502, "The Sheet could not be read just now. Nothing was changed; "
+                                       "try again in a minute.")
+                if state is None or not state["defined"]:
+                    return refuse(400, "Define the experiment's two variants before assigning leads.")
+                already = set(state["assignments"])
+                eligible = sorted(lid for lid, row in leads.items() if experiments.eligible(row))
+                to_assign = [lid for lid in eligible if lid not in already]
+                rows = experiments.assign_rows(experiment, state["variants"], to_assign, _ab_now())
+                try:
+                    written = st.append_ab_records(rows)
+                except Exception:
+                    log.exception("experiment assignments could not be written")
+                    return refuse(502, "The assignments could not be saved just now. Some may not be "
+                                       "saved; reassigning is safe, as an assigned lead is never "
+                                       "moved. Try again in a minute.")
+            log.info("experiment %r: %s leads assigned by %s", experiment, len(written), g.email)
+            return jsonify(recorded=True, name=experiment, assigned=len(written),
+                           already_assigned=len(already),
+                           eligible=len(eligible), ineligible=len(leads) - len(eligible))
 
     if enable_playbook:
         # Upload, review, select and preview a playbook the founder is drafting. READ-ONLY and LOCAL: it

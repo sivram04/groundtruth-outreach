@@ -60,6 +60,12 @@ CLAIMS_HEADER = ["Lead ID", "Op key", "Attempt", "Claimed at (UTC)"]
 CALLS_TAB = "Call log"
 CALLS_HEADER = ["Event ID", "Lead ID", "Recorded at (UTC)", "Kind", "Outcome", "Note",
                 "Called at (UTC)", "Due", "Due kind", "Email effect", "Detail", "Task ID"]
+# A/B tests: an append-only log of experiment DEFINE rows (two named variants) and ASSIGN rows (a
+# lead to a variant). The Record ID makes a repeated write a no-op, so a lead is assigned at most
+# once per experiment and can never be recorded under two variants (outreach/experiments.py).
+AB_TAB = "A/B tests"
+AB_HEADER = ["Record ID", "Experiment", "Kind", "Variant", "Variant index", "Lead ID",
+             "Recorded at (UTC)"]
 
 
 _SHEETS = None
@@ -429,6 +435,36 @@ class Store:
             return []
         self._append(CALLS_TAB, CALLS_HEADER, [[e.get(h, "") for h in CALLS_HEADER] for e in fresh])
         return [e["Event ID"] for e in fresh]
+
+    def ab_records(self):
+        """Every A/B tab row, oldest first; [] when there is no A/B tests tab. Refuses a tab whose
+        columns were changed, so a record is never read from the wrong column."""
+        table = self.table(AB_TAB)
+        if table is None:
+            return []
+        header, rows = table
+        if header[:len(AB_HEADER)] != AB_HEADER:
+            raise RuntimeError("the A/B tests tab's columns were changed; it is neither read nor written")
+        return rows
+
+    def append_ab_records(self, records):
+        """Append A/B rows, skipping any whose Record ID is already present (so a repeated define or
+        assignment adds nothing, and a lead is never recorded under two variants). Returns the Record
+        IDs actually written."""
+        records = [dict(r) for r in records]
+        if not records:
+            return []
+        present = {row.get("Record ID", "") for row in self.ab_records()}
+        fresh, seen = [], set(present)
+        for record in records:
+            rid = record.get("Record ID", "")
+            if rid and rid not in seen:
+                fresh.append(record)
+                seen.add(rid)
+        if not fresh:
+            return []
+        self._append(AB_TAB, AB_HEADER, [[r.get(h, "") for h in AB_HEADER] for r in fresh])
+        return [r["Record ID"] for r in fresh]
 
     def claim_leads(self, lead_ids, op_key, attempt):
         """Resolve who may write each of `lead_ids`, and return a per-lead classification.

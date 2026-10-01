@@ -5,6 +5,7 @@ import { NAME } from "./brand";
 import { Card, Layout, Warnings } from "./components";
 import { Dashboard } from "./pages/Dashboard";
 import { Drafts } from "./pages/Drafts";
+import { Experiments } from "./pages/Experiments";
 import { Import } from "./pages/Import";
 import { Playbook } from "./pages/Playbook";
 import { LeadPage } from "./pages/LeadPage";
@@ -32,6 +33,7 @@ const TITLES: Record<string, string> = {
   sources: "Sources",
   import: "Import",
   playbook: "Playbook",
+  experiments: "A/B tests",
   missing: "Not found",
 };
 
@@ -53,6 +55,8 @@ function page(route: Route, data: Snapshot, onImported: () => void, generation: 
       return data.import_enabled ? <Import onImported={onImported} /> : <NotFound />;
     case "playbook":
       return data.playbook_enabled ? <Playbook /> : <NotFound />;
+    case "experiments":
+      return data.experiments_enabled ? <Experiments data={data} onChanged={onImported} /> : <NotFound />;
     default:
       return <NotFound />;
   }
@@ -148,6 +152,7 @@ export function App({ load = loadSnapshot, ask }: { load?: () => Promise<Snapsho
       draftsWaiting={data?.drafts.length ?? 0}
       importEnabled={data?.import_enabled ?? false}
       playbookEnabled={data?.playbook_enabled ?? false}
+      experimentsEnabled={data?.experiments_enabled ?? false}
       assistantShown={assistantShown}
       onAssistant={show}
       assistant={<Assistant companies={companies} ask={ask} onClose={() => show(false)} />}

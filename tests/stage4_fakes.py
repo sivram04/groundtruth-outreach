@@ -218,6 +218,7 @@ class MemoryStore:
         self.lead_appends = []
         self._claims = []  # the import claim ledger: (Lead ID, claim key) in append order
         self._call_rows = []  # the Call log (outreach/calls.py events), append order
+        self._ab_rows = []  # the A/B tests tab (outreach/experiments.py records), append order
         self.refuse_writes = False
 
     def table(self, name):
@@ -278,6 +279,21 @@ class MemoryStore:
                 present.add(eid)
         self._call_rows.extend(fresh)
         return [e["Event ID"] for e in fresh]
+
+    def ab_records(self):
+        return [dict(r) for r in self._ab_rows]
+
+    def append_ab_records(self, records):
+        """Mirror of Store.append_ab_records: append, skipping any Record ID already present."""
+        present = {r.get("Record ID", "") for r in self._ab_rows}
+        fresh = []
+        for record in records:
+            rid = record.get("Record ID", "")
+            if rid and rid not in present:
+                fresh.append(dict(record))
+                present.add(rid)
+        self._ab_rows.extend(fresh)
+        return [r["Record ID"] for r in fresh]
 
     def claim_leads(self, lead_ids, op_key, attempt):
         """Mirror of Store.claim_leads: earliest claim wins; classify won / mine_prior / other."""

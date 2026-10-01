@@ -63,6 +63,7 @@ export function LeadPage({
           <div className="chips">
             <Status tone={leadTone(lead.status)}>{lead.status_label}</Status>
             {lead.ready && <Status tone="green">Ready for a first draft</Status>}
+            {lead.variant && <Status tone="blue">A/B: {lead.variant}</Status>}
           </div>
         </div>
       </div>
