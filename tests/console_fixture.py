@@ -200,6 +200,7 @@ def snapshot():
                                draft_rows=draft_rows())
     data["signed_in_as"] = "admin@lakshyaa.ai"
     data["import_enabled"] = False  # the static demo has no server to import through
+    data["playbook_enabled"] = False  # likewise, the playbook upload needs a server
     return data
 
 

@@ -2202,6 +2202,7 @@
     "Opens are an estimate: Apple Mail loads images by itself, Outlook often blocks them, and opening your own Sent copy counts.",
     "A click in the first minute after sending, or a HEAD request, is taken as a mail scanner and not counted."
   ],
+  "playbook_enabled": false,
   "read_at": "2026-09-28 09:00 ET",
   "ready": [
     "A-0007",

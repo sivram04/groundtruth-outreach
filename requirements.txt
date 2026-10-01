@@ -8,3 +8,5 @@ requests==2.*
 beautifulsoup4==4.*
 cryptography==50.*
 openpyxl==3.*
+pypdf==5.*
+python-docx==1.*

@@ -25,6 +25,7 @@ export function Layout(props: {
   refreshing: boolean;
   draftsWaiting: number;
   importEnabled?: boolean;
+  playbookEnabled?: boolean;
   assistant: ReactNode;
   assistantShown: boolean;
   onAssistant: (shown: boolean) => void;
@@ -32,9 +33,11 @@ export function Layout(props: {
   children: ReactNode;
 }) {
   const active = props.page === "lead" ? "leads" : props.page;
-  const nav: [Page, string, string][] = props.importEnabled
-    ? [...NAV, ["import", "#/import", "Import"]]
-    : NAV;
+  const nav: [Page, string, string][] = [
+    ...NAV,
+    ...(props.importEnabled ? ([["import", "#/import", "Import"]] as [Page, string, string][]) : []),
+    ...(props.playbookEnabled ? ([["playbook", "#/playbook", "Playbook"]] as [Page, string, string][]) : []),
+  ];
   return (
     <div className={`shell${props.assistantShown ? " with-assistant" : ""}`}>
       {props.assistantShown && props.assistant}

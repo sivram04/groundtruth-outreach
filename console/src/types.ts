@@ -99,6 +99,34 @@ export interface CallCandidateResult {
   unavailable?: boolean;
 }
 
+/** A review of an uploaded playbook's text (outreach/playbook.py). */
+export interface PlaybookReview {
+  content_hash: string;
+  length: number;
+  initial_email: { present: boolean; paragraphs: string[]; problem?: string };
+  follow_ups: Record<string, { present: boolean; paragraphs: string[] }>;
+  timing: { stated: boolean; business_days: number[]; note: string };
+  offer_values: Record<string, string>;
+  missing: string[];
+  ambiguous: string[];
+  usable_for_followups: boolean;
+}
+
+/** POST /api/playbook/review: the extracted text and its review. */
+export interface PlaybookUpload {
+  kind: string;
+  text: string;
+  review: PlaybookReview;
+}
+
+/** POST /api/playbook/preview: a candidate follow-up rendered from the selected version. */
+export interface PlaybookPreview {
+  step: number;
+  content_hash: string;
+  body: string | null;
+  problems: string[];
+}
+
 /** One lead in a chat call-log proposal (outreach/call_log_chat.py). */
 export interface CallProposalLead {
   lead_id: string;
@@ -246,6 +274,8 @@ export interface Snapshot {
   build?: string;
   /** Whether the lead-import flow is switched on for this server (off by default and in deploy). */
   import_enabled?: boolean;
+  /** Whether the playbook upload/review/preview flow is switched on (off by default and in deploy). */
+  playbook_enabled?: boolean;
   /** Whether the call-task flow is switched on for this server (off by default and in deploy). */
   calls_enabled?: boolean;
   /** Open call tasks, overdue first then by due date. `when` is the queue bucket. */

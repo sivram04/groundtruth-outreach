@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 // Pages live after the # in the address (#/leads/A-0001?show=ready), so the server only ever
 // sends one page and a link to any page still works after a reload.
 
-export type Page = "dashboard" | "drafts" | "leads" | "lead" | "review" | "sources" | "import" | "missing";
+export type Page =
+  | "dashboard" | "drafts" | "leads" | "lead" | "review" | "sources" | "import" | "playbook" | "missing";
 
 export interface Route {
   page: Page;
@@ -28,6 +29,7 @@ export function parse(hash: string): Route {
   if (first === "drafts" && !second) return { page: "drafts", id: "", query };
   if (first === "sources" && !second) return { page: "sources", id: "", query };
   if (first === "import" && !second) return { page: "import", id: "", query };
+  if (first === "playbook" && !second) return { page: "playbook", id: "", query };
   if (first === "review" && second) return { page: "review", id: second, query };
   if (first === "leads") return second ? { page: "lead", id: second, query } : { page: "leads", id: "", query };
   return { page: "missing", id: "", query };

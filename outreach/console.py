@@ -29,8 +29,8 @@ from pathlib import Path
 
 from flask import Flask, g, jsonify, request, send_from_directory
 
-from outreach import (assistant, call_log_chat, calls, channels, console_auth, console_model, importer,
-                      job_draft, post_call, review, suppression)
+from outreach import (assistant, call_log_chat, calls, channels, console_auth, console_model, followup,
+                      importer, job_draft, playbook, playbook_extract, post_call, review, suppression)
 from outreach.sheet import LEAD_TABS, DestinationMismatch, Store
 
 DEFAULT_STATIC = Path(__file__).resolve().parent.parent / "console" / "dist"
@@ -63,7 +63,7 @@ MAX_IMPORT_BYTES = 2_000_000
 
 def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings, clock=_now,
                static_dir=None, handbook_doc_id="", review_store=None, enable_review=False,
-               review_signer=None, enable_import=False, enable_calls=False):
+               review_signer=None, enable_import=False, enable_calls=False, enable_playbook=False):
     """The console. `store`, `settings` and `clock` are called once per data request, and a test
     passes stand-ins for them. `verifier` None means not configured: every request is refused.
 
@@ -137,6 +137,7 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
         data["signed_in_as"] = g.email
         data["build"] = built()
         data["import_enabled"] = enable_import
+        data["playbook_enabled"] = enable_playbook
         return data, None
 
     @app.get("/api/snapshot")
@@ -612,6 +613,43 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                 callback_at=str(body.get("callback_at", "")).strip() or None)
             log.info("call-note interpreted for %s: %s", g.email, proposal.get("status"))
             return jsonify(proposal)
+
+    if enable_playbook:
+        # Upload, review and preview a playbook the founder is drafting. READ-ONLY and LOCAL: it extracts and
+        # parses the file and previews a candidate from it, but writes nothing, creates no Gmail draft, and
+        # does not change the production handbook (the Drive document stays authoritative). Off by default
+        # and in deploy. The uploaded text is parsed as data only, never run as instructions.
+        @app.post("/api/playbook/review")
+        def playbook_review():
+            upload = request.files.get("file")
+            if upload is None:
+                return refuse(400, "Attach a PDF or DOCX file.")
+            try:
+                text, kind = playbook_extract.extract(upload.filename, upload.read())
+            except playbook_extract.PlaybookRejected as exc:
+                return jsonify(rejected=True, reason=exc.reason, error=str(exc)), 422
+            result = playbook.review(text)
+            log.info("playbook reviewed by %s: %s (%s)", g.email, result["content_hash"][:8], kind)
+            # The founder selects the version by its content hash; the text is returned so the preview can be
+            # driven from it in this session (durable cross-session storage is a documented open item).
+            return jsonify(kind=kind, text=text, review=result)
+
+        @app.post("/api/playbook/preview")
+        def playbook_preview():
+            """Preview a candidate (follow-up 1) from a selected playbook version, using the existing
+            follow-up drafting boundary. Refuses if the posted text no longer matches the selected hash -
+            a changed file must be reviewed again. No Gmail, no Drive, no send."""
+            body = request.get_json(silent=True) or {}
+            text = str(body.get("text", ""))
+            selected = str(body.get("content_hash", "")).strip()
+            if not text.strip() or not selected:
+                return refuse(400, "Select a reviewed playbook version first.")
+            if playbook.content_hash(text) != selected:
+                return refuse(409, "This playbook changed since it was reviewed. Review and select it again.")
+            first_name = str(body.get("first_name", "")).strip() or "there"
+            draft, problems = followup.render(1, text, _chosen_settings(), first_name)
+            log.info("playbook preview for %s: %s", g.email, "drafted" if draft else "blocked")
+            return jsonify(step=1, content_hash=selected, body=draft, problems=problems)
 
     return app
 

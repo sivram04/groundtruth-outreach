@@ -4,6 +4,8 @@ import type {
   CallResult,
   ImportPreview,
   ImportResult,
+  PlaybookPreview,
+  PlaybookUpload,
   Snapshot,
 } from "./types";
 
@@ -346,6 +348,63 @@ export function recordCallOutcome(
   fetcher: typeof fetch = fetch,
 ): Promise<CallResult> {
   return callPost(`/api/calls/${encodeURIComponent(leadId)}/outcome`, outcome, fetcher);
+}
+
+/** Upload a PDF/DOCX playbook and get its extracted text and review. Reads only; writes nothing. A rejected
+ *  file (empty / too large / unsupported / malformed / image-only) throws CallError with the reason. */
+export async function reviewPlaybook(file: File, fetcher: typeof fetch = fetch): Promise<PlaybookUpload> {
+  const form = new FormData();
+  form.append("file", file);
+  let response: Response;
+  try {
+    response = await fetcher("/api/playbook/review", {
+      method: "POST",
+      headers: { Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      body: form,
+    });
+  } catch {
+    throw new CallError("The console could not be reached. Check the connection and try again.");
+  }
+  if (response.status === 401) throw new LoadError(SIGN_IN_ENDED, true);
+  const isJson = (response.headers.get("Content-Type") ?? "").includes("application/json");
+  const body: unknown = isJson ? await response.json().catch(() => null) : null;
+  if (!response.ok || !body || typeof body !== "object" || !("review" in body)) {
+    const said =
+      typeof body === "object" && body !== null && ("error" in body)
+        ? String((body as { error: unknown }).error)
+        : "That playbook could not be read.";
+    throw new CallError(said);
+  }
+  return body as PlaybookUpload;
+}
+
+/** Preview a candidate follow-up from a selected playbook version (by content hash). Reads only; no Gmail,
+ *  no Drive, no send. A changed file (hash mismatch) is refused by the server with 409. */
+export async function previewPlaybook(
+  selection: { text: string; content_hash: string; first_name?: string },
+  fetcher: typeof fetch = fetch,
+): Promise<PlaybookPreview> {
+  let response: Response;
+  try {
+    response = await fetcher("/api/playbook/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      body: JSON.stringify(selection),
+    });
+  } catch {
+    throw new CallError("The console could not be reached. Check the connection and try again.");
+  }
+  if (response.status === 401) throw new LoadError(SIGN_IN_ENDED, true);
+  const isJson = (response.headers.get("Content-Type") ?? "").includes("application/json");
+  const body: unknown = isJson ? await response.json().catch(() => null) : null;
+  if (!response.ok || !body || typeof body !== "object" || !("problems" in body)) {
+    const said =
+      typeof body === "object" && body !== null && "error" in body ? String((body as { error: unknown }).error) : "";
+    throw new CallError(said || "The preview could not be built.");
+  }
+  return body as PlaybookPreview;
 }
 
 /** Interpret a typed call note into a proposal to confirm. Reads only; the server writes nothing here

@@ -69,6 +69,7 @@ def main():
         static_dir=str(ROOT / "console" / "dist"),
         enable_import=True,
         enable_calls=True,
+        enable_playbook=True,
     )
     app.run(host="0.0.0.0", port=8139)
 
