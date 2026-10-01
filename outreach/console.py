@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, g, jsonify, request, send_from_directory
+from werkzeug.exceptions import RequestEntityTooLarge
 
 from outreach import (assistant, call_log_chat, calls, channels, console_auth, console_model, followup,
                       importer, job_draft, playbook, playbook_extract, playbook_select, post_call, review,
@@ -617,48 +618,80 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             return jsonify(proposal)
 
     if enable_playbook:
-        # Upload, review and preview a playbook the founder is drafting. READ-ONLY and LOCAL: it extracts and
-        # parses the file and previews a candidate from it, but writes nothing, creates no Gmail draft, and
-        # does not change the production handbook (the Drive document stays authoritative). Off by default
-        # and in deploy. The uploaded text is parsed as data only, never run as instructions.
+        # Upload, review, select and preview a playbook the founder is drafting. READ-ONLY and LOCAL: it
+        # extracts and parses the file and previews a candidate from it, but writes nothing, creates no Gmail
+        # draft, and does not change the production handbook (the Drive document stays authoritative). Off by
+        # default and in deploy. The uploaded text is parsed as data only, never run as instructions.
         #
-        # The selection secret is generated here, per process: a preview requires a token that only `/review`
-        # could have minted, for this founder, for this exact content hash, and that expires. So a caller
-        # cannot obtain a "selected playbook" preview by posting arbitrary text with a self-computed hash, and
-        # the selection does not survive a restart (it is in-session and time-bounded, never durable).
+        # Review and selection are separate. The per-process secret signs two kinds of token. `/review` mints
+        # a REVIEW token (proof the server read this founder's exact text); the founder's explicit `/select`
+        # exchanges it for a SELECT token; `/preview` requires a SELECT token. So a reviewed-but-never-selected
+        # version is refused, and no one can forge selection, reuse it for changed text, use another founder's
+        # token, or use an expired one. No token survives a restart - the choice is in-session and never durable.
         playbook_secret = secrets.token_bytes(32)
+
+        def _bounded_json():
+            """Parse the JSON body with the request bounded BEFORE parsing (works even without a usable
+            Content-Length). Raises RequestEntityTooLarge if the body is over the playbook size limit."""
+            request.max_content_length = playbook_extract.MAX_BYTES
+            return request.get_json(silent=True) or {}
 
         @app.post("/api/playbook/review")
         def playbook_review():
-            upload = request.files.get("file")
+            # Bound the whole request before multipart parsing (Werkzeug enforces this during form parsing,
+            # even with no Content-Length), so a huge upload cannot be buffered.
+            request.max_content_length = playbook_extract.MAX_BYTES
+            try:
+                upload = request.files.get("file")
+            except RequestEntityTooLarge:
+                return jsonify(rejected=True, reason="too_large",
+                               error=f"that file is over {playbook_extract.MAX_BYTES // 1_000_000} MB."), 413
             if upload is None:
                 return refuse(400, "Attach a PDF or DOCX file.")
-            # Bound the read before it is in memory (as the import route does); the extractor also checks.
-            data = upload.read(playbook_extract.MAX_BYTES + 1)
-            if len(data) > playbook_extract.MAX_BYTES:
-                return jsonify(rejected=True, reason="too_large",
-                               error=f"that file is over {playbook_extract.MAX_BYTES // 1_000_000} MB."), 422
             try:
-                text, kind = playbook_extract.extract(upload.filename, data)
+                text, kind = playbook_extract.extract(upload.filename, upload.read())
             except playbook_extract.PlaybookRejected as exc:
                 return jsonify(rejected=True, reason=exc.reason, error=str(exc)), 422
             result = playbook.review(text)
-            token = playbook_select.mint(playbook_secret, result["content_hash"], g.email)
+            review_token = playbook_select.mint(playbook_secret, playbook_select.REVIEW,
+                                                result["content_hash"], g.email)
             log.info("playbook reviewed by %s: %s (%s)", g.email, result["content_hash"][:8], kind)
-            # The text and a selection token are returned so the founder can select this reviewed version and
-            # preview it in this session; the token is the verifiable evidence the preview requires.
-            return jsonify(kind=kind, text=text, review=result, selection_token=token)
+            # A review token proves the review only; it is NOT a selection. The founder selects via /select.
+            return jsonify(kind=kind, text=text, review=result, review_token=review_token)
+
+        @app.post("/api/playbook/select")
+        def playbook_select_version():
+            """The founder's explicit Select action: exchange a valid review token for a select token bound to
+            this exact reviewed content and founder. Writes nothing; grants only a local, time-bounded preview."""
+            try:
+                body = _bounded_json()
+            except RequestEntityTooLarge:
+                return refuse(413, "That playbook is too large.")
+            text = str(body.get("text", ""))
+            review_token = str(body.get("review_token", "")).strip()
+            if not text.strip() or not review_token:
+                return refuse(400, "Review a playbook before selecting it.")
+            if len(text) > playbook_extract.MAX_CHARS:
+                return refuse(413, "That playbook is too long.")
+            content_hash = playbook.content_hash(text)
+            if not playbook_select.verify(playbook_secret, review_token, playbook_select.REVIEW,
+                                          content_hash, g.email):
+                return refuse(403, "This version has not been reviewed, or the review changed or expired. "
+                                   "Upload and review it again.")
+            token = playbook_select.mint(playbook_secret, playbook_select.SELECT, content_hash, g.email)
+            log.info("playbook selected by %s: %s", g.email, content_hash[:8])
+            return jsonify(content_hash=content_hash, selection_token=token)
 
         @app.post("/api/playbook/preview")
         def playbook_preview():
-            """Preview a candidate (follow-up 1) from a reviewed, selected playbook version, using the
-            existing follow-up drafting boundary. Requires the selection token `/review` minted for this
-            founder and this exact content: a forged token, a changed file, another founder or an expired
-            selection is refused - the founder must review and select the version again. No Gmail, no Drive,
-            no send."""
-            if (request.content_length or 0) > playbook_extract.MAX_BYTES:
+            """Preview a candidate (follow-up 1) from a SELECTED playbook version, using the existing
+            follow-up drafting boundary. Requires the select token from /select for this founder and this
+            exact content: a review-only token, a forged token, a changed file, another founder, or an
+            expired selection is refused. No Gmail, no Drive, no send."""
+            try:
+                body = _bounded_json()
+            except RequestEntityTooLarge:
                 return refuse(413, "That playbook is too large to preview.")
-            body = request.get_json(silent=True) or {}
             text = str(body.get("text", ""))
             token = str(body.get("selection_token", "")).strip()
             if not text.strip() or not token:
@@ -666,9 +699,9 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             if len(text) > playbook_extract.MAX_CHARS:  # cap before hashing or rendering
                 return refuse(413, "That playbook is too long to preview.")
             selected = playbook.content_hash(text)
-            if not playbook_select.verify(playbook_secret, token, selected, g.email):
-                return refuse(403, "This playbook was not reviewed and selected, or the selection changed or "
-                                   "expired. Review and select the version again.")
+            if not playbook_select.verify(playbook_secret, token, playbook_select.SELECT, selected, g.email):
+                return refuse(403, "This playbook was not selected, or the selection changed or expired. "
+                                   "Select the version again.")
             first_name = str(body.get("first_name", "")).strip() or "there"
             draft, problems = followup.render(1, text, _chosen_settings(), first_name)
             log.info("playbook preview for %s: %s", g.email, "drafted" if draft else "blocked")

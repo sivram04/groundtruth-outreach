@@ -1,22 +1,25 @@
 import { BookOpen, Check, FileUp } from "lucide-react";
 import { useRef, useState } from "react";
-import { CallError, previewPlaybook, reviewPlaybook } from "../api";
+import { CallError, previewPlaybook, reviewPlaybook, selectPlaybook } from "../api";
 import { Card, Status } from "../components";
 import type { PlaybookPreview, PlaybookUpload } from "../types";
 
-/** Upload a PDF/DOCX playbook, inspect its extracted text and identified sections, select an immutable
- *  version by content hash, and preview a candidate follow-up from it. Read-only and LOCAL: nothing is sent,
- *  no Gmail draft is made, and the production Drive handbook is untouched. The uploaded text is shown as
- *  data, never rendered as HTML and never run as instructions. `review`/`preview` are injectable for tests. */
+/** Upload a PDF/DOCX playbook, inspect its extracted text and identified sections, explicitly select the
+ *  version (a server step that exchanges the review proof for a time-bounded selection), and preview a
+ *  candidate follow-up from it. Read-only and LOCAL: nothing is sent, no Gmail draft is made, and the
+ *  production Drive handbook is untouched. The uploaded text is shown as data, never rendered as HTML and
+ *  never run as instructions. `review`/`select`/`preview` are injectable for tests. */
 export function Playbook({
   review = reviewPlaybook,
+  select = selectPlaybook,
   preview = previewPlaybook,
 }: {
   review?: typeof reviewPlaybook;
+  select?: typeof selectPlaybook;
   preview?: typeof previewPlaybook;
 }) {
   const [upload, setUpload] = useState<PlaybookUpload | null>(null);
-  const [selectedHash, setSelectedHash] = useState("");
+  const [selectionToken, setSelectionToken] = useState("");
   const [firstName, setFirstName] = useState("");
   const [candidate, setCandidate] = useState<PlaybookPreview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,7 +31,7 @@ export function Playbook({
     setBusy(true);
     setError("");
     setUpload(null);
-    setSelectedHash("");
+    setSelectionToken("");
     setCandidate(null);
     review(file).then(
       (u) => {
@@ -42,12 +45,29 @@ export function Playbook({
     );
   }
 
-  function runPreview() {
+  function onSelect() {
     if (!upload || busy) return;
     setBusy(true);
     setError("");
     setCandidate(null);
-    preview({ text: upload.text, selection_token: upload.selection_token, first_name: firstName }).then(
+    select({ text: upload.text, review_token: upload.review_token }).then(
+      (s) => {
+        setBusy(false);
+        setSelectionToken(s.selection_token);
+      },
+      (e: unknown) => {
+        setBusy(false);
+        setError(e instanceof CallError ? e.message : "This version could not be selected.");
+      },
+    );
+  }
+
+  function runPreview() {
+    if (!upload || busy || !selectionToken) return;
+    setBusy(true);
+    setError("");
+    setCandidate(null);
+    preview({ text: upload.text, selection_token: selectionToken, first_name: firstName }).then(
       (p) => {
         setBusy(false);
         setCandidate(p);
@@ -60,7 +80,7 @@ export function Playbook({
   }
 
   const r = upload?.review;
-  const selected = Boolean(upload && selectedHash === upload.review.content_hash);
+  const selected = Boolean(selectionToken);
 
   return (
     <>
@@ -124,7 +144,7 @@ export function Playbook({
 
           <div className="email-actions">
             <button type="button" className="primary" disabled={busy || selected}
-                    onClick={() => setSelectedHash(upload!.review.content_hash)}>
+                    onClick={onSelect}>
               <Check size={15} aria-hidden="true" />{" "}
               {selected ? `Selected version ${r.content_hash.slice(0, 8)}` : `Select this version (${r.content_hash.slice(0, 8)})`}
             </button>

@@ -5,6 +5,7 @@ import type {
   ImportPreview,
   ImportResult,
   PlaybookPreview,
+  PlaybookSelection,
   PlaybookUpload,
   Snapshot,
 } from "./types";
@@ -379,8 +380,36 @@ export async function reviewPlaybook(file: File, fetcher: typeof fetch = fetch):
   return body as PlaybookUpload;
 }
 
-/** Preview a candidate follow-up from a selected playbook version (by content hash). Reads only; no Gmail,
- *  no Drive, no send. A changed file (hash mismatch) is refused by the server with 409. */
+/** The founder's explicit Select action: exchange a review token for a selection token at the server. Reads
+ *  only; writes nothing. A version that was not reviewed (or whose review expired/changed) is refused. */
+export async function selectPlaybook(
+  choice: { text: string; review_token: string },
+  fetcher: typeof fetch = fetch,
+): Promise<PlaybookSelection> {
+  let response: Response;
+  try {
+    response = await fetcher("/api/playbook/select", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      body: JSON.stringify(choice),
+    });
+  } catch {
+    throw new CallError("The console could not be reached. Check the connection and try again.");
+  }
+  if (response.status === 401) throw new LoadError(SIGN_IN_ENDED, true);
+  const isJson = (response.headers.get("Content-Type") ?? "").includes("application/json");
+  const body: unknown = isJson ? await response.json().catch(() => null) : null;
+  if (!response.ok || !body || typeof body !== "object" || !("selection_token" in body)) {
+    const said =
+      typeof body === "object" && body !== null && "error" in body ? String((body as { error: unknown }).error) : "";
+    throw new CallError(said || "The version could not be selected.");
+  }
+  return body as PlaybookSelection;
+}
+
+/** Preview a candidate follow-up from a selected playbook version (by selection token). Reads only; no
+ *  Gmail, no Drive, no send. A version not selected (or whose selection changed/expired) is refused. */
 export async function previewPlaybook(
   selection: { text: string; selection_token: string; first_name?: string },
   fetcher: typeof fetch = fetch,

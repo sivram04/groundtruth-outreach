@@ -112,12 +112,19 @@ export interface PlaybookReview {
   usable_for_followups: boolean;
 }
 
-/** POST /api/playbook/review: the extracted text, its review, and the selection token the preview requires
- *  (minted for this founder and this content hash; time-bounded; not durable). */
+/** POST /api/playbook/review: the extracted text, its review, and a review token (proof the server read
+ *  this exact text for this founder; time-bounded). The review token is NOT a selection. */
 export interface PlaybookUpload {
   kind: string;
   text: string;
   review: PlaybookReview;
+  review_token: string;
+}
+
+/** POST /api/playbook/select: the founder's explicit selection exchanges a review token for a selection
+ *  token bound to the same content and founder (time-bounded; not durable). */
+export interface PlaybookSelection {
+  content_hash: string;
   selection_token: string;
 }
 
