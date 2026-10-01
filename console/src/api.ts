@@ -1,4 +1,11 @@
-import type { CallCandidateResult, CallResult, ImportPreview, ImportResult, Snapshot } from "./types";
+import type {
+  CallCandidateResult,
+  CallProposal,
+  CallResult,
+  ImportPreview,
+  ImportResult,
+  Snapshot,
+} from "./types";
 
 export const EXPECTED_VERSION = 2;
 
@@ -339,6 +346,35 @@ export function recordCallOutcome(
   fetcher: typeof fetch = fetch,
 ): Promise<CallResult> {
   return callPost(`/api/calls/${encodeURIComponent(leadId)}/outcome`, outcome, fetcher);
+}
+
+/** Interpret a typed call note into a proposal to confirm. Reads only; the server writes nothing here
+ *  (the confirm goes through recordCallOutcome). `lead_id` chooses among several matches; `callback_at`
+ *  supplies an explicit callback time. */
+export async function interpretCallNote(
+  note: string,
+  refine: { lead_id?: string; callback_at?: string } = {},
+  fetcher: typeof fetch = fetch,
+): Promise<CallProposal> {
+  let response: Response;
+  try {
+    response = await fetcher("/api/calls/interpret", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      body: JSON.stringify({ note, ...refine }),
+    });
+  } catch {
+    throw new CallError("The console could not be reached. Check the connection and try again.");
+  }
+  if (response.status === 401) throw new LoadError(SIGN_IN_ENDED, true);
+  const isJson = (response.headers.get("Content-Type") ?? "").includes("application/json");
+  const body: unknown = isJson ? await response.json().catch(() => null) : null;
+  if (!response.ok || !body || typeof body !== "object" || !("status" in body)) {
+    const said = typeof body === "object" && body !== null && "error" in body ? String(body.error) : "";
+    throw new CallError(said || "The note could not be read just now.");
+  }
+  return body as CallProposal;
 }
 
 /** Load the post-call email candidate for a lead (inspect / edit / discard). Reads only; the server

@@ -188,6 +188,66 @@ def test_an_older_call_candidate_does_not_claim_today(built, monkeypatch):
     assert "today" not in cand["body"].lower()
 
 
+# --- chat-based call logging: interpret (read-only) then confirm through the existing outcome route ------
+
+def interpret(client, **body):
+    return client.post("/api/calls/interpret", json=body, headers=signed())
+
+
+def test_interpret_proposes_a_no_answer_then_confirm_writes_through_the_outcome_route(built):
+    store = a_store()
+    client = make(built, store)
+    p = interpret(client, note="Called Bluebird Electric today, no answer; remind me to call again").get_json()
+    assert p["status"] == "ready" and p["lead"]["lead_id"] == "A-0002"
+    assert p["outcome"] == "NO_ANSWER" and p["due_text"] and store.call_events() == []  # interpret wrote nothing
+    # confirm reuses the existing outcome route with the proposal's own submission id
+    done = outcome(client, "A-0002", outcome=p["outcome"], note=p["note"],
+                   submission_id=p["submission_id"]).get_json()
+    assert done["task"]["status"] == "scheduled"
+    assert [t["lead_id"] for t in snapshot(client)["call_tasks"]] == ["A-0002"]  # survives reload
+    # a retry after a lost response (same submission id) makes no duplicate
+    outcome(client, "A-0002", outcome=p["outcome"], note=p["note"], submission_id=p["submission_id"])
+    assert len(store.call_events()) == 1
+
+
+def test_interpret_is_read_only_for_an_unclear_note(built):
+    store = a_store()
+    client = make(built, store)
+    assert interpret(client, note="spoke about the weather").get_json()["status"] == "unclear_outcome"
+    assert interpret(client, note="").status_code == 400
+    assert store.call_events() == []
+
+
+def test_interpret_asks_for_an_explicit_callback_time(built):
+    store = a_store()
+    client = make(built, store)
+    p = interpret(client, note="Bluebird Electric wants a call back next week").get_json()
+    assert p["status"] == "need_time" and p["lead"]["lead_id"] == "A-0002"
+    ready = interpret(client, note="Bluebird Electric wants a call back", lead_id="A-0002",
+                      callback_at="2026-10-02T18:00:00+00:00").get_json()
+    assert ready["status"] == "ready" and ready["outcome"] == "CALLBACK" and "2026-10-02" in ready["due_text"]
+
+
+def test_interpret_supports_a_phone_only_lead(built):
+    store = a_store()
+    client = make(built, store)
+    p = interpret(client, note="called Redwood Plumbing, no answer").get_json()
+    assert p["status"] == "ready" and p["lead"]["lead_id"] == "A-0001" and p["lead"]["email"] == ""
+
+
+def test_a_do_not_contact_from_chat_is_flagged_and_stays_a_sticky_stop(built):
+    store = a_store()
+    client = make(built, store)
+    p = interpret(client, note="Bluebird Electric asked to opt out, do not contact").get_json()
+    assert p["status"] == "ready" and p["outcome"] == "DO_NOT_CONTACT"
+    assert p["effect"] == calls.STOP and p["do_not_contact"] is True
+    outcome(client, "A-0002", outcome="DO_NOT_CONTACT", note=p["note"], submission_id=p["submission_id"])
+    # a later no-answer confirm does not lift the sticky stop
+    later = outcome(client, "A-0002", outcome="NO_ANSWER", called_at="2026-09-29T13:00:00+00:00").get_json()
+    assert later["effect"] == calls.STOP and later["task"] is None
+    assert snapshot(client)["call_tasks"] == []
+
+
 def test_showing_a_candidate_writes_nothing_and_does_not_authorise_anything(built, monkeypatch):
     # A HOLD (interested) candidate is inspectable, but showing it must not persist or authorise anything -
     # the ordinary email sequence's HOLD block is untouched (enforced elsewhere), and nothing is written.

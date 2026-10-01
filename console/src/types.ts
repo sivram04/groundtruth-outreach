@@ -99,6 +99,30 @@ export interface CallCandidateResult {
   unavailable?: boolean;
 }
 
+/** One lead in a chat call-log proposal (outreach/call_log_chat.py). */
+export interface CallProposalLead {
+  lead_id: string;
+  company: string;
+  contact: string;
+  email: string;
+  phone: string;
+}
+
+/** POST /api/calls/interpret: a proposal for the founder to confirm before anything is written. */
+export interface CallProposal {
+  status: "unclear_outcome" | "no_lead" | "choose_lead" | "need_time" | "ready";
+  outcome?: string;
+  note?: string;
+  lead?: CallProposalLead;
+  leads?: CallProposalLead[];
+  due?: string;
+  due_text?: string;
+  callback_at?: string;
+  effect?: string;
+  do_not_contact?: boolean;
+  submission_id?: string;
+}
+
 export interface Lead {
   id: string;
   tier: string;

@@ -1491,6 +1491,40 @@ Sheet — and how often the checks refuse it — is unknown.
   clock-advance overdue transition is covered by the controlled-clock route tests (the local harness runs on a fixed
   real clock). **Synthetic only; `enable_calls` off in deploy; no live Sheet, no send, no deploy.**
 
+- **2026-10-01 (calls: chat-based call logging)** — the founder can log a call by typing a short note
+  ("Called Dana at Bluebird today, no answer; remind me to call again") on the dashboard. New pure module
+  `outreach/call_log_chat.py` (deterministic, read-only, no model) detects the outcome, matches the lead by
+  company/contact, and builds a proposal; a flag-gated **read-only** endpoint `POST /api/calls/interpret`
+  (under `enable_calls`) returns it. The founder confirms, and only then does the console write — **through
+  the existing `POST /api/calls/<lead>/outcome` route**, so submission identity, task scheduling and the
+  STOP/HOLD and sticky do-not-contact rules are reused unchanged. A new `CallLogChat` card on the dashboard
+  (separate from the general assistant, which stays read-only) shows the proposal states: unclear outcome,
+  no lead, **choose a lead** (several matches), **need an explicit callback time** (never inferred from
+  prose), and **ready** (the exact lead, saved note, resulting due date and email effect to confirm; a
+  do-not-contact is shown as a clear permanent stop). Phone-only and email+phone leads are both supported;
+  a confirm retry reuses the proposal's submission id (no duplicate). **Verified, no network:** Python
+  **978 passed** (`test_call_log_chat.py` — outcome detection with a stop winning, lead matching and
+  ambiguity, the callback-time rule, phone-only, DNC; `test_console_calls.py` — interpret is read-only
+  (writes nothing), confirm writes through the outcome route, a retry makes one event, DNC from chat stays a
+  sticky stop), frontend **101 passed** (`CallLogChat.test.tsx` — read→confirm, choose, need-time, DNC
+  warning, retry reuses the submission id), typecheck and build clean. **Browser-exercised** (local harness,
+  real built pages, actual API): typed a no-answer note → Read it → the proposal showed the exact lead, note
+  and Mon 2026-10-05 due date → Confirm and save → "Saved" and the task appeared in the call queue; a
+  do-not-contact note showed the permanent-stop warning. Not browser-exercised (covered by route/component
+  tests): choose-a-lead, need-time, and the confirm retry. **Synthetic only; no sending, no Gmail draft, no
+  deploy, no live Sheet.**
+
+- **2026-10-01 (calls: post-call candidate freshness beyond call fields)** — the post-call candidate's
+  `reloadKey` only tracked call fields, so an external opt-out (or an offer-approval/handbook change) with
+  the call fields unchanged left a stale editable candidate on an open page after a refresh. `LeadPage` now
+  exports `postCallReloadKey(lead, data)`, which also folds in the lead's `suppressed` state,
+  `approvals.offer` and `links.handbook`, so a snapshot refresh re-checks the candidate when any fact it
+  depends on changes (edits survive only while those facts are unchanged). *Regressions:* `LeadPage.test.tsx`
+  (key changes on suppression/offer/handbook, stable otherwise) plus the component withdraw test. The
+  external-opt-out browser repro was not run (the harness has no out-of-band suppression write); it is proved
+  by the unit, route (`suppressed` → no candidate) and component tests. Python 978, frontend 101, typecheck
+  and build clean.
+
 - **2026-10-01 (calls: post-call candidate — four review gaps)** — a review
   (`docs/testing/post-call-review-2026-10-01.md`) found four user-visible gaps, now fixed; the read-only
   candidate design, manual editing, no-email, opt-out and unavailable states are preserved. **(1) Effective

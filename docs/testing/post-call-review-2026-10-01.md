@@ -1,5 +1,30 @@
 # Independent review of post-call candidate
 
+## Independent recheck of 428b56a
+
+2026-10-01T03:23:26Z [TOOL] Current source mounted read-only in network-disabled
+containers: `test_post_call.py` and `test_console_calls.py`: **47 passed in
+2.05s**; `PostCallCandidate.test.tsx`: **6 passed**. Inspection confirms the
+effective STOP gate, offer_approved gate, date-aware wording, and reload after
+call-history changes. Claude reports a local browser stop/withdrawal check; this
+review did not independently rerun browser, full suite, typecheck or build.
+
+The four specifically tested paths improved, but the fourth finding included
+external suppression changes. `LeadPage` now sets `reloadKey` from call-history
+length, call effect and task ID only. If a new opt-out or suppression arrives from
+mailbox sync, a refreshed snapshot changes `lead.suppressed` without changing
+that key. `PostCallCandidate` therefore retains its old editable candidate on
+the open lead page even though a direct API fetch would refuse it. The same
+invalidation issue applies to refreshed offer approval or handbook state when
+call fields stay unchanged. This is code-path analysis; it was not a browser
+reproduction. Add a parent snapshot-refresh regression that changes suppression
+with constant call fields, and withdraw the candidate on refresh. Preserve any
+user edits only while the candidate's underlying facts remain current.
+
+No product-code changes or live operations in this review. Evidence/continuity
+only; left uncommitted. The local post-call candidate milestone is otherwise
+accepted under the verification scope above.
+
 2026-10-01T03:06:55Z [TOOL] Reviewed local commit `d107e01`. Current source
 mounted read-only in network-disabled containers: `test_post_call.py` and
 `test_console_calls.py`: **41 passed in 2.03s**;
@@ -79,3 +104,21 @@ Local browser checks are distinguished from the synthetic route tests above:
 gap 4's live withdrawal was seen in the browser; gaps 1-3 are proved by the
 network-disabled route/pure tests (the handbook is stubbed locally, `enable_calls`
 is off in deploy). No sending, no Gmail draft, no deploy, no live Sheet.
+
+## Candidate freshness beyond call fields (2026-10-01, product-code change)
+
+The remaining freshness gap: `reloadKey` only tracked the call fields, so an
+external opt-out (or an offer-approval or handbook change) with the call fields
+unchanged left a stale editable candidate on an open page after a refresh. Fixed:
+`postCallReloadKey(lead, data)` (exported from `LeadPage`) now also folds in the
+lead's `suppressed` state, `approvals.offer` and `links.handbook`, so a snapshot
+refresh re-checks the candidate when any fact it depends on changes. *Regressions:*
+`LeadPage.test.tsx` (the key changes on a suppression flip, an offer-approval flip
+and a handbook change, and is stable otherwise) plus the existing component test
+that a `reloadKey` change withdraws a candidate whose server result is now a
+refusal. The external-opt-out → refresh → withdrawal was **not** reproduced in the
+browser: the local harness has no out-of-band suppression-write path, so this is
+proved by the unit (key derivation) and route (`suppressed` → no candidate) and
+component (reloadKey change → re-fetch → withdraw) tests. Edits survive only while
+the source facts are unchanged — any relevant change re-fetches, replacing the
+draft.

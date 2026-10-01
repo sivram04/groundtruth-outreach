@@ -29,8 +29,8 @@ from pathlib import Path
 
 from flask import Flask, g, jsonify, request, send_from_directory
 
-from outreach import (assistant, calls, channels, console_auth, console_model, importer, job_draft,
-                      post_call, review, suppression)
+from outreach import (assistant, call_log_chat, calls, channels, console_auth, console_model, importer,
+                      job_draft, post_call, review, suppression)
 from outreach.sheet import LEAD_TABS, DestinationMismatch, Store
 
 DEFAULT_STATIC = Path(__file__).resolve().parent.parent / "console" / "dist"
@@ -584,6 +584,34 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                 return jsonify(candidate=None, reason=exc.reason)
             log.info("post-call candidate shown for %s to %s", lead_id, g.email)
             return jsonify(candidate=cand)
+
+        @app.post("/api/calls/interpret")
+        def call_interpret():
+            """Read a typed note about a call into a proposal the founder confirms. READ-ONLY: it writes
+            nothing (the confirm goes to POST /api/calls/<lead>/outcome, which applies the STOP/HOLD and
+            sticky do-not-contact rules). Separate from the general assistant, which stays read-only too."""
+            body = request.get_json(silent=True) or {}
+            note = str(body.get("note", "")).strip()
+            if not note:
+                return refuse(400, "Type a short note about the call.")
+            chosen = _chosen_settings()
+            try:
+                rule = int(chosen.get("call_no_answer_business_days",
+                                      calls.DEFAULT_NO_ANSWER_BUSINESS_DAYS))
+            except (TypeError, ValueError):
+                rule = calls.DEFAULT_NO_ANSWER_BUSINESS_DAYS
+            with reading:
+                try:
+                    leads = store().leads()
+                except Exception:
+                    log.exception("the Sheet could not be read to interpret a call note")
+                    return refuse(502, "The Sheet could not be read just now.")
+            proposal = call_log_chat.interpret(
+                note, leads, now=clock(), rule=rule,
+                chosen_lead_id=str(body.get("lead_id", "")).strip() or None,
+                callback_at=str(body.get("callback_at", "")).strip() or None)
+            log.info("call-note interpreted for %s: %s", g.email, proposal.get("status"))
+            return jsonify(proposal)
 
     return app
 

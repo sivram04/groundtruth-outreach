@@ -16,6 +16,7 @@ import { SHOW, filterLeads } from "../filters";
 import { gmailSearch } from "../format";
 import { href, leadHref } from "../router";
 import type { Draft, Snapshot, TierCounts } from "../types";
+import { CallLogChat } from "./CallLogChat";
 import { CallQueue } from "./CallQueue";
 
 // The tone of each kind of thing that needs the founder: an answer, something late, a draft,
@@ -267,6 +268,7 @@ export function Dashboard({ data, onChanged }: { data: Snapshot; onChanged: () =
             unreadable={Boolean(data.calls_unreadable || data.suppression_unreadable)}
             onChanged={onChanged}
           />
+          <CallLogChat onChanged={onChanged} />
         </section>
       )}
 

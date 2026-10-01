@@ -4,9 +4,24 @@ import { DraftPreview } from "../draft-view";
 import { gmailSearch, plural, safeHref } from "../format";
 import { href } from "../router";
 import type { Snapshot } from "../types";
+import type { Lead } from "../types";
 import { CallPanel } from "./CallPanel";
 import { NotFound } from "./NotFound";
 import { PostCallCandidate } from "./PostCallCandidate";
+
+/** A value that changes whenever a fact the post-call candidate depends on changes, so the open lead page
+ *  re-checks the candidate after a snapshot refresh — not only when the call fields change, but also when
+ *  suppression (an external opt-out), offer approval, or the handbook changes. */
+export function postCallReloadKey(lead: Lead, data: Snapshot): string {
+  return [
+    lead.call_history?.length ?? 0,
+    lead.call_effect ?? "",
+    lead.call_task?.id ?? "",
+    lead.suppressed ? "1" : lead.suppressed === null ? "?" : "0",
+    data.approvals?.offer ? "1" : "0",
+    data.links?.handbook ?? "",
+  ].join("|");
+}
 
 export function LeadPage({ data, id, onChanged }: { data: Snapshot; id: string; onChanged?: () => void }) {
   const lead = data.leads.find((item) => item.id === id);
@@ -125,10 +140,7 @@ export function LeadPage({ data, id, onChanged }: { data: Snapshot; id: string; 
             effectSaid={lead.call_effect_said}
             onChanged={onChanged ?? (() => {})}
           />
-          <PostCallCandidate
-            leadId={lead.id}
-            reloadKey={`${lead.call_history?.length ?? 0}|${lead.call_effect ?? ""}|${lead.call_task?.id ?? ""}`}
-          />
+          <PostCallCandidate leadId={lead.id} reloadKey={postCallReloadKey(lead, data)} />
         </>
       )}
 

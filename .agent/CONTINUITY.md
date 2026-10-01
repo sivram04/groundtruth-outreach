@@ -70,6 +70,31 @@
 
 ## [DISCOVERIES]
 
+- 2026-10-01 [BUILD] Chat-based call logging (flag-gated enable_calls). New PURE outreach/call_log_chat.py
+  (deterministic, read-only, no model): detect_outcome (phrase lists, STOP wins), match_leads (company/
+  contact tokens; over-match → choose, which is safe), interpret(note, leads, now, rule, chosen_lead_id,
+  callback_at) → status unclear_outcome/no_lead/choose_lead/need_time/ready. CALLBACK time NEVER parsed from
+  prose — only from an explicit callback_at (UI datetime). New READ-ONLY endpoint POST /api/calls/interpret
+  (console.py under enable_calls) returns the proposal; CONFIRM reuses the existing POST
+  /api/calls/<lead>/outcome (submission identity, scheduling, STOP/HOLD/sticky DNC). Frontend:
+  api.interpretCallNote, types CallProposal/CallProposalLead, CallLogChat.tsx on the Dashboard (SEPARATE from
+  the read-only assistant): read→proposal→confirm; choose-lead buttons re-interpret with lead_id; need-time
+  datetime input re-interprets with callback_at; ready shows exact lead/note/due/effect + a clear sticky-stop
+  warning for DNC; confirm reuses the proposal's submission_id (retry = one event). Python 978 (test_call_log_chat.py
+  + endpoint cases in test_console_calls.py), frontend 101 (CallLogChat.test.tsx + LeadPage.test.tsx) + tsc/build.
+  Browser (harness, ?r=chat full load): no-answer note → Read it → proposal (exact lead/note/Mon 2026-10-05)
+  → Confirm → "Saved" + task in queue (auto-refresh); DNC note → permanent-stop warning. NOT browser-run
+  (route/component-tested): choose-lead, need-time, confirm-retry. Matching gotcha: trade words (electric/
+  plumbing) cross-match, so unambiguous fixtures need distinct company tokens; over-match → choose is the
+  intended safe behavior. Synthetic only; enable_calls off in deploy; committed, not pushed.
+
+- 2026-10-01 [FIX] Post-call candidate freshness: reloadKey only tracked call fields, so an external opt-out
+  (or offer-approval/handbook change) with call fields unchanged left a stale candidate after refresh.
+  LeadPage now exports postCallReloadKey(lead,data) folding in lead.suppressed + data.approvals.offer +
+  data.links.handbook. Regressions: LeadPage.test.tsx (key changes on suppression/offer/handbook, stable
+  otherwise) + the component withdraw test. External-opt-out browser repro NOT run (harness has no out-of-band
+  suppression write) → proved by unit + route (suppressed→no candidate) + component tests.
+
 - 2026-10-01 [FIX] Post-call candidate: four review gaps (docs/testing/post-call-review-2026-10-01.md).
   (1) EFFECTIVE decision: endpoint computes calls.outreach_effect(events) → refuses call_stop on STOP, and
   post_call.candidate takes effect= and raises on STOP (sticky DNC after a later NO_ANSWER, even with a
@@ -321,6 +346,13 @@
   review handbook stays in `docs/`.
 
 ## [OUTCOMES]
+
+- 2026-10-01T03:23:26Z [TOOL] Independent recheck of post-call fix 428b56a:
+  47 Python and 6 component tests pass offline. Effective STOP, offer approval,
+  date-aware copy and reload on call change inspected. One residual UI freshness
+  gap: same-lead snapshot refresh after external suppression (or offer/handbook
+  change) leaves candidate visible because reloadKey tracks only call fields.
+  Evidence: docs/testing/post-call-review-2026-10-01.md. No product/live edits.
 
 - 2026-10-01T03:06:55Z [TOOL] Reviewed post-call candidate d107e01: 41 Python
   and 5 component tests pass offline, but a real-route synthetic DNC plus failed
