@@ -174,6 +174,22 @@ def _call_due_text(due, kind):
     return moment(due)  # a TIME (a requested callback): the New York clock time
 
 
+def _call_when(due, due_kind, overdue, today):
+    """Which queue bucket a scheduled task is in: OVERDUE (already past), TODAY (due on today's New York
+    date and not yet overdue), or UPCOMING (a later day). Uses the same New York clock as `overdue`."""
+    if overdue:
+        return "OVERDUE"
+    try:
+        if due_kind == "DATE":
+            due_day = date.fromisoformat(due)
+        else:
+            when = calls._parse(due)
+            due_day = when.astimezone(NEW_YORK).date() if when else None
+    except (ValueError, TypeError):
+        due_day = None
+    return "TODAY" if due_day == today else "UPCOMING"
+
+
 def call_task_view(task):
     """One lead's current call task as the pages show it, or None when there is no task."""
     if not task:
@@ -441,14 +457,19 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", dr
     tiers.append({"prefix": "", "label": "A and B", **_tier_counts(views, events, None)})
 
     # The call tasks that are open, overdue first then by due date, so they stay visible until acted on.
+    # Each carries a `when` bucket (OVERDUE / TODAY / UPCOMING) worked out from the New York date, so the
+    # dashboard queue can show overdue and due-today together and keep upcoming separate.
     call_tasks = []
     for view in views:
         task = view["call_task"]
         if task and task["status"] == "scheduled":
-            call_tasks.append({"lead_id": view["id"], "company": view["company"],
-                               "contact": view["contact"], "phone": view["phone"],
-                               "why": task["why"], "note": task["note"], "due": task["due"],
-                               "due_text": task["due_text"], "overdue": task["overdue"]})
+            call_tasks.append({"id": task.get("id", ""), "lead_id": view["id"],
+                               "company": view["company"], "contact": view["contact"],
+                               "phone": view["phone"], "why": task["why"], "note": task["note"],
+                               "due": task["due"], "due_kind": task.get("due_kind", ""),
+                               "due_text": task["due_text"], "overdue": task["overdue"],
+                               "when": _call_when(task["due"], task.get("due_kind", ""),
+                                                  task["overdue"], today)})
     call_tasks.sort(key=lambda t: (not t["overdue"], t["due"], _lead_order(t["lead_id"])))
 
     chosen = approvals(settings)
@@ -461,6 +482,9 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", dr
         "coming_up_days": COMING_UP_BUSINESS_DAYS, "tiers": tiers, "notes": list(NOTES),
         "calls_enabled": calls_enabled, "call_tasks": call_tasks,
         "calls_overdue": sum(1 for t in call_tasks if t["overdue"]),
+        "calls_due_today": sum(1 for t in call_tasks if t["when"] == "TODAY"),
+        # The Call log could not be read: the queue shows an unavailable state, never "no calls due".
+        "calls_unreadable": calls_unreadable,
         "drafts": drafts,
         "drafts_summary": {"ready": sum(1 for d in drafts if d["status"] == drafts_tab.READY),
                            "waiting": sum(1 for d in drafts if d["status"] == drafts_tab.WAITING),

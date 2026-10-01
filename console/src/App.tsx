@@ -33,7 +33,7 @@ const TITLES: Record<string, string> = {
 function page(route: Route, data: Snapshot, onImported: () => void) {
   switch (route.page) {
     case "dashboard":
-      return <Dashboard data={data} />;
+      return <Dashboard data={data} onChanged={onImported} />;
     case "drafts":
       return <Drafts data={data} />;
     case "leads":

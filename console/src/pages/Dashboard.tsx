@@ -16,6 +16,7 @@ import { SHOW, filterLeads } from "../filters";
 import { gmailSearch } from "../format";
 import { href, leadHref } from "../router";
 import type { Draft, Snapshot, TierCounts } from "../types";
+import { CallQueue } from "./CallQueue";
 
 // The tone of each kind of thing that needs the founder: an answer, something late, a draft,
 // a check. The order numbers come from the server (console_model NEED_LABELS).
@@ -99,7 +100,7 @@ function Pipeline({ all }: { all: TierCounts }) {
   );
 }
 
-export function Dashboard({ data }: { data: Snapshot }) {
+export function Dashboard({ data, onChanged }: { data: Snapshot; onChanged: () => void }) {
   const [show, setShow] = useState("all");
   const [words, setWords] = useState("");
   const leads = new Map(data.leads.map((lead) => [lead.id, lead]));
@@ -258,6 +259,12 @@ export function Dashboard({ data }: { data: Snapshot }) {
           )}
         </div>
       </section>
+
+      {data.calls_enabled && (
+        <section className="section">
+          <CallQueue tasks={data.call_tasks ?? []} unreadable={data.calls_unreadable} onChanged={onChanged} />
+        </section>
+      )}
 
       <div className="grid-dash">
         <Card title="Needs you">

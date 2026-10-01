@@ -1,5 +1,14 @@
 # Independent call-task review
 
+## Independent contract-fix verification of 7053b63
+
+2026-10-01T02:18:28Z [TOOL] Current source mounted read-only in a network-disabled
+container: `tests/test_draft_pipeline.py` and `tests/test_sheet_append.py`,
+**95 passed in 6.96s**. Inspection confirms the present-empty-tab CONTINUE branch
+was removed. Accept the scoped reader-contract alignment; dashboard call queue
+remains unimplemented. Full-suite/build/browser/live behavior not rerun here.
+No product changes or live operations; this evidence update is uncommitted.
+
 ## Independent verification of 0a85b45
 
 2026-10-01T00:05:25Z [TOOL] Rechecked current commit `0a85b45` in
@@ -237,10 +246,28 @@ governs (an empty tab has no header → block). *Regressions:* `test_sheet_appen
 and a present headerless tab raises `DraftBlocked` with **no** Gmail create. Containers, no network: Python
 **928 passed**. Still flag-gated; synthetic only.
 
-## Next milestone (NOT started): dashboard call queue
+## Dashboard call queue (2026-09-30, product-code change)
 
-Scoped but not implemented in this change (usage limit): overdue-first / due-today / upcoming buckets on
-the dashboard, reusing the existing task identity and Complete/Snooze/Cancel API, with an unavailable
-state when call history is unreadable. `console_model.build` already emits `call_tasks` (overdue-first)
-and `calls_overdue`; the queue needs a `when` bucket per task, a `calls_unreadable` flag surfaced from the
-snapshot, a dashboard component, and a browser journey.
+Built. The dashboard now shows a "Calls to make" queue (only when `enable_calls` is on): overdue first,
+then due today, with upcoming kept in a separate, collapsed section. `console_model.build` gives each open
+task a `when` bucket (OVERDUE / TODAY / UPCOMING) worked out from the New York date (same clock as
+`overdue`), carries the task `id`, and the snapshot adds `calls_due_today` and `calls_unreadable`. Each
+item shows company (link to the lead), contact, phone, due date/time and the recorded reason/note, and
+reuses the existing task identity + Complete/Snooze/Cancel API (`actOnCallTask`, `task_id` required); a
+stale action shows the server's message and refreshes. An unreadable Call log shows an **unavailable**
+state ("the call log could not be read … do not assume there are no calls due"), never "no calls due".
+Phone-only and email+phone leads both appear.
+
+*Regressions:* `test_console_calls.py` — the queue buckets overdue/today/upcoming through the real
+snapshot (controlled clock), an upcoming call is separate, and an unreadable Call log is `calls_unreadable`
+with an empty `call_tasks` (not "no calls due"); `CallQueue.test.tsx` — overdue+today listed together and
+upcoming separate, the unavailable state vs a genuinely empty queue, Complete bound to the exact `task_id`
+with a refresh, and a stale 409 showing the server message. Containers, no network: Python **931 passed**,
+frontend **83 passed**, typecheck and build clean. **Browser journey** through the actual local API and
+the real built pages: a no-answer and a past-callback appear in the queue (1 overdue, 1 upcoming, phone and
+reason shown); Complete removes the overdue task and the queue auto-refreshes; a reload confirms it stayed
+gone (only the upcoming one remains). The clock-advance overdue transition is covered by the
+controlled-clock route tests (`test_a_task_becomes_overdue_on_a_later_clock`, `test_the_queue_buckets_…`),
+since the local harness runs on a fixed real clock. Snooze is covered by `CallQueue.test.tsx` and the
+existing `test_complete_snooze_and_cancel`. Synthetic only; `enable_calls` off in deploy; no live Sheet,
+no send, no deploy.

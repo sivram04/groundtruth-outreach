@@ -199,12 +199,29 @@ export interface Snapshot {
   import_enabled?: boolean;
   /** Whether the call-task flow is switched on for this server (off by default and in deploy). */
   calls_enabled?: boolean;
-  /** Open call tasks, overdue first then by due date. */
-  call_tasks?: {
-    lead_id: string; company: string; contact: string; phone: string;
-    why: string; note: string; due: string; due_text: string; overdue: boolean;
-  }[];
+  /** Open call tasks, overdue first then by due date. `when` is the queue bucket. */
+  call_tasks?: CallQueueItem[];
   calls_overdue?: number;
+  calls_due_today?: number;
+  /** The Call log could not be read: the queue must show an unavailable state, never "no calls due". */
+  calls_unreadable?: boolean;
+}
+
+/** One open call task on the dashboard queue (outreach/console_model.build). */
+export interface CallQueueItem {
+  /** The scheduling outcome's Event ID: the identity each action must name. */
+  id: string;
+  lead_id: string;
+  company: string;
+  contact: string;
+  phone: string;
+  why: string;
+  note: string;
+  due: string;
+  due_kind: string;
+  due_text: string;
+  overdue: boolean;
+  when: "OVERDUE" | "TODAY" | "UPCOMING";
 }
 
 /** One accepted lead in an import preview: mapped to the destination's columns, with its channel and

@@ -7,8 +7,10 @@
     "tracking": false
   },
   "call_tasks": [],
+  "calls_due_today": 0,
   "calls_enabled": false,
   "calls_overdue": 0,
+  "calls_unreadable": false,
   "coming_up": [
     {
       "date": "2026-09-29",

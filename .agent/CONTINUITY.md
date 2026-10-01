@@ -70,6 +70,22 @@
 
 ## [DISCOVERIES]
 
+- 2026-09-30 [BUILD] Dashboard call queue (flag-gated enable_calls). console_model.build gives each open
+  task a `when` bucket (OVERDUE/TODAY/UPCOMING, from the NY date, same clock as overdue), carries the task
+  `id`, and the snapshot adds `calls_due_today` + `calls_unreadable`. New CallQueue component
+  (console/src/pages/CallQueue.tsx) on the Dashboard: overdue first, then due today, upcoming in a separate
+  <details>; each item = company (link to lead), contact, phone, due date/time, reason/note; reuses
+  actOnCallTask (task_id required) for Complete/Snooze/Cancel; a stale 409 shows the server message +
+  refreshes; unreadable Call log → an UNAVAILABLE state, never "no calls due". App passes onChanged=refresh
+  to Dashboard. Phone-only + email+phone both appear; complete/cancel remove, snooze moves, survive reload.
+  Containers: Python 931 (+3 route tests: buckets on a controlled clock, upcoming separate, unreadable →
+  calls_unreadable+empty), frontend 83 (+5 CallQueue.test.tsx) + tsc/build; regenerated demo snapshot.json
+  (console_fixture.py --write in a RW-mounted container — the equality test test_the_react_apps_demo_data_is_this_fixture
+  would otherwise fail on the new keys). Browser (harness, fixed real clock): no-answer + past-callback → 1
+  overdue + 1 upcoming with phone/reason → Complete removes it + auto-refresh → reload confirms gone. Clock-
+  advance overdue transition is covered by controlled-clock route tests (harness can't advance its clock).
+  Synthetic only; enable_calls off in deploy; committed locally, not pushed.
+
 - 2026-09-30 [FIX] Call-history contract aligned: job_draft._call_effect now matches sheet.Store.call_events
   for all three cases — absent tab = no calls (CONTINUE); valid header + no events = no calls; present tab
   WITHOUT the required header (incl. an empty headerless tab) = unreadable → block (fail closed). Removed
@@ -249,6 +265,12 @@
   review handbook stays in `docs/`.
 
 ## [OUTCOMES]
+
+- 2026-10-01T02:18:28Z [TOOL] Independently verified 7053b63 with 95 targeted
+  draft-pipeline/Sheet-adapter tests passing offline. Scoped call-history header
+  contract fix accepted. Dashboard queue still not implemented; next milestone
+  unchanged. Evidence appended to docs/testing/calls-review-2026-09-30.md.
+  No product/live changes, no broader test or browser rerun.
 
 - 2026-10-01T00:05:25Z [TOOL] Rechecked 0a85b45: 196 targeted Python and 8
   CallPanel tests pass offline. Three prior reproduced gaps addressed locally;

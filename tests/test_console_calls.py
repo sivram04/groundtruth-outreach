@@ -184,6 +184,48 @@ def test_a_task_becomes_overdue_on_a_later_clock(built):
     assert next(v for v in data["leads"] if v["id"] == "A-0001")["call_task"]["overdue"] is True
 
 
+def _when(data, lead_id):
+    return next(t for t in data["call_tasks"] if t["lead_id"] == lead_id)["when"]
+
+
+def test_the_queue_buckets_overdue_today_and_upcoming(built):
+    store = a_store()
+    now = {"t": at("2026-10-01 09:00")}  # Thursday
+    client = make(built, store, now=lambda: now["t"])
+    # A-0001 no-answer called Monday -> due Thursday 2026-10-01 (a DATE): due today, not overdue.
+    outcome(client, "A-0001", outcome="NO_ANSWER", called_at="2026-09-28T13:00:00+00:00")
+    # A-0002 callback for Tuesday (a TIME already past by Thursday): overdue.
+    outcome(client, "A-0002", outcome="CALLBACK", callback_at="2026-09-30T14:00:00+00:00")
+    data = snapshot(client)
+    assert _when(data, "A-0001") == "TODAY" and _when(data, "A-0002") == "OVERDUE"
+    assert data["calls_overdue"] == 1 and data["calls_due_today"] == 1
+    # overdue sorts before due-today
+    assert [t["lead_id"] for t in data["call_tasks"]] == ["A-0002", "A-0001"]
+    assert data["calls_unreadable"] is False
+
+
+def test_an_upcoming_call_is_bucketed_separately(built):
+    store = a_store()
+    client = make(built, store, now=lambda: MON)  # Monday
+    outcome(client, "A-0001", outcome="NO_ANSWER", called_at="2026-09-28T13:00:00+00:00")  # due Thu
+    data = snapshot(client)
+    assert _when(data, "A-0001") == "UPCOMING"
+    assert data["calls_overdue"] == 0 and data["calls_due_today"] == 0
+
+
+def test_an_unreadable_call_log_is_an_unavailable_queue_not_no_calls(built):
+    store = a_store()
+    client = make(built, store)
+    outcome(client, "A-0001", outcome="NO_ANSWER", called_at="2026-09-28T13:00:00+00:00")
+
+    def boom():
+        raise RuntimeError("the Call log tab's columns were changed")
+
+    store.call_events = boom
+    data = snapshot(client)
+    assert data["calls_unreadable"] is True and data["call_tasks"] == []  # unavailable, not "no calls due"
+
+
 def test_an_unknown_lead_or_outcome_is_refused(built):
     store = a_store()
     client = make(built, store)

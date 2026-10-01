@@ -1468,6 +1468,29 @@ Sheet — and how often the checks refuse it — is unknown.
   server-route regressions rather than a browser run. **Synthetic only; live verification remains separate and not
   done.**
 
+- **2026-09-30 (calls: contract alignment + the dashboard call queue)** — two things. **(a) Call-history contract
+  aligned.** `job_draft._call_effect` now agrees with `sheet.Store.call_events` on all three cases: an absent Call log
+  tab is no call history (drafting allowed); a valid header with no event rows is no call history; a present tab
+  without the required header (including an empty, headerless tab) is unreadable and blocks drafting (fail closed).
+  The early `if not values: return CONTINUE` is removed so the header check governs both. Regressions in
+  `test_sheet_append.py` (Store, three cases) and `test_draft_pipeline.py` (valid-header-no-events still CREATED; a
+  present headerless tab raises `DraftBlocked` with no Gmail create). **(b) Dashboard call queue** (shown only when
+  `enable_calls` is on): `console_model.build` gives each open task a `when` bucket (OVERDUE / TODAY / UPCOMING) from
+  the New York date, carries the task `id`, and the snapshot adds `calls_due_today` and `calls_unreadable`. A new
+  `CallQueue` component on the dashboard shows overdue first, then due today, with upcoming in a separate collapsed
+  section; each item gives company (link to the lead), contact, phone, due date/time and the recorded reason/note, and
+  reuses the existing task identity + Complete/Snooze/Cancel API (`task_id` required, stale action shows the server's
+  message and refreshes). An unreadable Call log shows an **unavailable** state, never "no calls due". Phone-only and
+  email+phone leads both appear; completing or cancelling removes a task and a snooze moves it, surviving reload.
+  **Verified in containers, no network:** Python **931 passed** (+3: queue buckets through the real snapshot on a
+  controlled clock, upcoming separate, unreadable → `calls_unreadable` with empty `call_tasks`), frontend **83 passed**
+  (+5: `CallQueue.test.tsx` — buckets, unavailable vs empty, Complete bound to the exact `task_id` + refresh, stale 409
+  message), typecheck and build clean; the demo `snapshot.json` regenerated. **Browser journey** through the actual
+  local API and the real built pages: a no-answer and a past-callback appear (1 overdue, 1 upcoming, phone + reason
+  shown); Complete removes the overdue task, the queue auto-refreshes, and a reload confirms it stayed gone. The
+  clock-advance overdue transition is covered by the controlled-clock route tests (the local harness runs on a fixed
+  real clock). **Synthetic only; `enable_calls` off in deploy; no live Sheet, no send, no deploy.**
+
 - **2026-09-30 (import: write-taking Resume removed; exclusive write ownership)** — a review
   (`docs/testing/import-review-2026-09-30.md`) reproduced an overlap: an original owner and a resume
   could both pass their presence check before either committed its append, and both wrote (two rows).
