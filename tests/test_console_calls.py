@@ -4,7 +4,7 @@ the next call, act on the task, and see it on reload. Calls are OFF unless switc
 import pytest
 
 import console_fixture as fx
-from outreach import calls, console, console_auth
+from outreach import calls, console, console_auth, suppression
 from stage4_fakes import MemoryStore, at
 from test_console_auth import ALLOWED, AUDIENCE, Keys, token
 
@@ -211,6 +211,34 @@ def test_an_upcoming_call_is_bucketed_separately(built):
     data = snapshot(client)
     assert _when(data, "A-0001") == "UPCOMING"
     assert data["calls_overdue"] == 0 and data["calls_due_today"] == 0
+
+
+def test_the_queue_leaves_out_an_opted_out_lead(built):
+    # An opted-out (suppressed) lead is not an actionable call, so it is excluded from the queue; a
+    # non-suppressed lead's task stays. The lead's own call history is untouched (on the lead page).
+    store = a_store()
+    client = make(built, store)
+    outcome(client, "A-0001", outcome="NO_ANSWER", called_at="2026-09-28T13:00:00+00:00")  # phone-only
+    outcome(client, "A-0002", outcome="NO_ANSWER", called_at="2026-09-28T13:00:00+00:00")  # email+phone
+    store.append_suppression([{"Address or domain": "dana@bluebird.test", "Reason": "opt-out",
+                               "Added at": "2026-09-28T00:00:00+00:00", "Source": "test"}])
+    data = snapshot(client)
+    assert next(v for v in data["leads"] if v["id"] == "A-0002")["suppressed"]
+    assert [t["lead_id"] for t in data["call_tasks"]] == ["A-0001"]  # A-0002 left out, A-0001 kept
+    assert data["calls_unreadable"] is False and data["suppression_unreadable"] is False
+    # the opted-out lead still has its call history recorded
+    assert next(v for v in data["leads"] if v["id"] == "A-0002")["call_history"]
+
+
+def test_unreadable_suppression_makes_the_queue_unavailable(built):
+    # If who opted out cannot be read, the queue is unavailable (empty + flagged), never a usable list
+    # that might include a suppressed lead.
+    store = a_store()
+    client = make(built, store)
+    outcome(client, "A-0001", outcome="NO_ANSWER", called_at="2026-09-28T13:00:00+00:00")
+    store.entries = suppression.Unreadable("the Suppression tab could not be read")
+    data = snapshot(client)
+    assert data["suppression_unreadable"] is True and data["call_tasks"] == []
 
 
 def test_an_unreadable_call_log_is_an_unavailable_queue_not_no_calls(built):

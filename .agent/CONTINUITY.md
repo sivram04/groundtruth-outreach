@@ -70,6 +70,24 @@
 
 ## [DISCOVERIES]
 
+- 2026-10-01 [FIX] Dashboard call-queue acceptance gaps (review in docs/testing/calls-review-2026-09-30.md).
+  (1) The queue now HONOURS SUPPRESSION: console_model.build skips a lead whose view["suppressed"] is truthy
+  (opted out) - call_state only knew call-recorded DNC, not the separate Suppression list - and when
+  entries is None (suppression unreadable) empties the queue + sets snapshot `suppression_unreadable`; the
+  Dashboard passes unreadable = calls_unreadable || suppression_unreadable to CallQueue, which shows the
+  unavailable state ("call log or suppression list could not be read", never "no calls due"). The opted-out
+  lead keeps its call history on the lead page. (2) Stale-action recovery: QueueItem's refusal keeps the
+  server message AND shows a "Reload the queue" button that calls onChanged; after the dashboard re-reads
+  and passes the newer task, the next action targets the refreshed task_id (tested STALE→FRESH via rerender).
+  (3) Upcoming items now include contact + note (were company/phone/due/reason only). Python 933 (+2 route
+  tests: opt-out excluded while a non-suppressed stays; unreadable suppression → flag+empty), frontend 86
+  (+3: Cancel/Snooze bound to id, stale→Reload→refreshed id, upcoming contact+note) + tsc/build; regenerated
+  demo snapshot.json (new key suppression_unreadable - the equality test needs the --write regen, RW mount).
+  Browser (harness, fixed real clock): overdue past-callback → Snooze to 2026-12-01 via the UI (form_input
+  on the datetime-local by ref; clicks need a retry when the pane is hidden) → moved out of overdue → reload
+  shows "1 upcoming" (persisted). Browser evidence vs controlled-clock route tests kept distinct. Synthetic
+  only; enable_calls off in deploy; committed locally, not pushed.
+
 - 2026-09-30 [BUILD] Dashboard call queue (flag-gated enable_calls). console_model.build gives each open
   task a `when` bucket (OVERDUE/TODAY/UPCOMING, from the NY date, same clock as overdue), carries the task
   `id`, and the snapshot adds `calls_due_today` + `calls_unreadable`. New CallQueue component
@@ -265,6 +283,13 @@
   review handbook stays in `docs/`.
 
 ## [OUTCOMES]
+
+- 2026-10-01T02:31:57Z [TOOL] Reviewed dashboard queue f509dbb: 64 targeted Python
+  and 13 queue/panel UI tests pass offline. Real snapshot probe still queues an
+  opted-out/suppressed lead; unknown suppression also leaves queue actionable.
+  Inspection: stale error does not refresh; upcoming items omit contact/note.
+  Dashboard snooze/cancel verification not established by reported browser trace.
+  Evidence: docs/testing/calls-review-2026-09-30.md. No product/live changes.
 
 - 2026-10-01T02:18:28Z [TOOL] Independently verified 7053b63 with 95 targeted
   draft-pipeline/Sheet-adapter tests passing offline. Scoped call-history header

@@ -33,7 +33,7 @@ describe("the call queue", () => {
 
   it("shows an unavailable state, not 'no calls due', when call history is unreadable", () => {
     render(<CallQueue tasks={[]} unreadable onChanged={vi.fn()} act={vi.fn()} />);
-    expect(screen.getByText(/call log could not be read/)).toBeTruthy();
+    expect(screen.getByText(/could not be read/)).toBeTruthy();
     expect(screen.queryByText(/No calls are due/)).toBeNull();
   });
 
@@ -51,10 +51,60 @@ describe("the call queue", () => {
     expect(act).toHaveBeenCalledWith("A-0001", { action: "COMPLETE", task_id: "T9", snooze_to: undefined });
   });
 
-  it("shows the server's message when a stale action is refused", async () => {
-    const act = vi.fn().mockRejectedValue(new CallError("This call task changed since you loaded it. Reload and try again."));
-    render(<CallQueue tasks={[item()]} onChanged={vi.fn()} act={act} />);
-    fireEvent.click(screen.getByRole("button", { name: /Complete/ }));
+  it("cancels a call by its exact task id and refreshes", async () => {
+    const act = vi.fn().mockResolvedValue({ recorded: true, task: null, history: [], effect: "CONTINUE" });
+    const onChanged = vi.fn();
+    render(<CallQueue tasks={[item({ id: "T5" })]} onChanged={onChanged} act={act} />);
+    fireEvent.click(screen.getByRole("button", { name: /Cancel/ }));
+    await vi.waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(act).toHaveBeenCalledWith("A-0001", { action: "CANCEL", task_id: "T5", snooze_to: undefined });
+  });
+
+  it("snoozes a call to a chosen time, bound to its task id", async () => {
+    const act = vi.fn().mockResolvedValue({ recorded: true, task: null, history: [], effect: "CONTINUE" });
+    const onChanged = vi.fn();
+    render(<CallQueue tasks={[item({ id: "T6" })]} onChanged={onChanged} act={act} />);
+    fireEvent.click(screen.getByRole("button", { name: /Snooze/ }));
+    fireEvent.change(screen.getByLabelText(/Snooze until/), { target: { value: "2026-10-09T14:00" } });
+    fireEvent.click(screen.getByRole("button", { name: /Save snooze/ }));
+    await vi.waitFor(() => expect(onChanged).toHaveBeenCalled());
+    const [, body] = act.mock.calls[0]!;
+    expect(body.action).toBe("SNOOZE");
+    expect(body.task_id).toBe("T6");
+    expect(typeof body.snooze_to).toBe("string");
+  });
+
+  it("shows the server's message on a stale action and recovers via Reload to the refreshed task", async () => {
+    // A stale action (409): the message stays, a Reload refreshes, and after the queue re-renders with the
+    // newer task id a subsequent action targets THAT id, not the stale one.
+    const act = vi
+      .fn()
+      .mockRejectedValueOnce(new CallError("This call task changed since you loaded it. Reload and try again."))
+      .mockResolvedValue({ recorded: true, task: null, history: [], effect: "CONTINUE" });
+    const onChanged = vi.fn();
+    const { rerender } = render(<CallQueue tasks={[item({ id: "STALE" })]} onChanged={onChanged} act={act} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Complete/ }));
     await vi.waitFor(() => expect(screen.getByText(/changed since you loaded it/)).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /Reload the queue/ }));
+    expect(onChanged).toHaveBeenCalled(); // the Reload asked the dashboard to re-read
+    // the dashboard refreshes and passes the newer task; the next action must target the new id
+    rerender(<CallQueue tasks={[item({ id: "FRESH" })]} onChanged={onChanged} act={act} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Complete/ }));
+    await vi.waitFor(() => expect(act).toHaveBeenCalledTimes(2));
+    expect(act.mock.calls[1]![1].task_id).toBe("FRESH");
+  });
+
+  it("includes contact and note on an upcoming item", () => {
+    render(
+      <CallQueue
+        tasks={[item({ when: "UPCOMING", contact: "Dana Ray", note: "try the mobile", phone: "614-555-0100" })]}
+        onChanged={vi.fn()}
+        act={vi.fn()}
+      />,
+    );
+    const details = screen.getByText("1 upcoming");
+    fireEvent.click(details);
+    expect(screen.getByText(/Dana Ray/)).toBeTruthy();
+    expect(screen.getByText(/try the mobile/)).toBeTruthy();
   });
 });

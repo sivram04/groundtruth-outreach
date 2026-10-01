@@ -205,6 +205,8 @@ export interface Snapshot {
   calls_due_today?: number;
   /** The Call log could not be read: the queue must show an unavailable state, never "no calls due". */
   calls_unreadable?: boolean;
+  /** The Suppression list could not be read: who opted out is unknown, so the queue is unavailable too. */
+  suppression_unreadable?: boolean;
 }
 
 /** One open call task on the dashboard queue (outreach/console_model.build). */

@@ -262,7 +262,11 @@ export function Dashboard({ data, onChanged }: { data: Snapshot; onChanged: () =
 
       {data.calls_enabled && (
         <section className="section">
-          <CallQueue tasks={data.call_tasks ?? []} unreadable={data.calls_unreadable} onChanged={onChanged} />
+          <CallQueue
+            tasks={data.call_tasks ?? []}
+            unreadable={Boolean(data.calls_unreadable || data.suppression_unreadable)}
+            onChanged={onChanged}
+          />
         </section>
       )}
 

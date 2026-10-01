@@ -459,17 +459,26 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", dr
     # The call tasks that are open, overdue first then by due date, so they stay visible until acted on.
     # Each carries a `when` bucket (OVERDUE / TODAY / UPCOMING) worked out from the New York date, so the
     # dashboard queue can show overdue and due-today together and keep upcoming separate.
+    #
+    # Suppression is honoured here: a lead that opted out (or is otherwise on the Suppression list) is not
+    # an actionable call, so it is left out of the queue - its call history still shows on the lead page.
+    # If the Suppression list could not be read we cannot tell who opted out, so the whole queue is
+    # unavailable (empty + flagged), never an apparently-usable list that might include a suppressed lead.
+    suppression_unreadable = entries is None
     call_tasks = []
     for view in views:
         task = view["call_task"]
-        if task and task["status"] == "scheduled":
-            call_tasks.append({"id": task.get("id", ""), "lead_id": view["id"],
-                               "company": view["company"], "contact": view["contact"],
-                               "phone": view["phone"], "why": task["why"], "note": task["note"],
-                               "due": task["due"], "due_kind": task.get("due_kind", ""),
-                               "due_text": task["due_text"], "overdue": task["overdue"],
-                               "when": _call_when(task["due"], task.get("due_kind", ""),
-                                                  task["overdue"], today)})
+        if not (task and task["status"] == "scheduled"):
+            continue
+        if suppression_unreadable or view["suppressed"]:
+            continue
+        call_tasks.append({"id": task.get("id", ""), "lead_id": view["id"],
+                           "company": view["company"], "contact": view["contact"],
+                           "phone": view["phone"], "why": task["why"], "note": task["note"],
+                           "due": task["due"], "due_kind": task.get("due_kind", ""),
+                           "due_text": task["due_text"], "overdue": task["overdue"],
+                           "when": _call_when(task["due"], task.get("due_kind", ""),
+                                              task["overdue"], today)})
     call_tasks.sort(key=lambda t: (not t["overdue"], t["due"], _lead_order(t["lead_id"])))
 
     chosen = approvals(settings)
@@ -483,8 +492,10 @@ def build(leads, events, entries, runs, *, settings, now, handbook_doc_id="", dr
         "calls_enabled": calls_enabled, "call_tasks": call_tasks,
         "calls_overdue": sum(1 for t in call_tasks if t["overdue"]),
         "calls_due_today": sum(1 for t in call_tasks if t["when"] == "TODAY"),
-        # The Call log could not be read: the queue shows an unavailable state, never "no calls due".
+        # The Call log or the Suppression list could not be read: the queue shows an unavailable state,
+        # never "no calls due" (which could hide a real or a wrongly-included call).
         "calls_unreadable": calls_unreadable,
+        "suppression_unreadable": suppression_unreadable,
         "drafts": drafts,
         "drafts_summary": {"ready": sum(1 for d in drafts if d["status"] == drafts_tab.READY),
                            "waiting": sum(1 for d in drafts if d["status"] == drafts_tab.WAITING),

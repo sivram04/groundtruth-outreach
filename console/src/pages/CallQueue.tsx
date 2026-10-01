@@ -40,8 +40,9 @@ function QueueItem({
       },
       (e: unknown) => {
         setBusy(false);
-        // A stale task (409) or any other refusal: say exactly what the server said, and refresh so the
-        // founder sees the current state rather than acting on a task that has already changed.
+        // A stale task (409 - a newer outcome replaced it) or any other refusal: keep the explanation on
+        // screen and offer an explicit Reload, so the next action targets the refreshed task id rather
+        // than the stale one this item was rendered with.
         setError(e instanceof CallError ? e.message : "The task could not be updated.");
       },
     );
@@ -97,6 +98,9 @@ function QueueItem({
         {error && (
           <div className="callout amber" role="alert">
             <div className="callout-text">{error}</div>
+            <button type="button" className="secondary" disabled={busy} onClick={onChanged}>
+              <RotateCw size={15} aria-hidden="true" /> Reload the queue
+            </button>
           </div>
         )}
       </div>
@@ -117,15 +121,16 @@ export function CallQueue({
   onChanged: () => void;
   act?: typeof actOnCallTask;
 }) {
-  // Call history could not be read: an unavailable state, NEVER "no calls due" (which would hide real
-  // calls). The founder is told to reload rather than shown an empty, falsely-reassuring queue.
+  // The call log or the suppression list could not be read: an unavailable state, NEVER "no calls due"
+  // (which would hide real calls, or wrongly include a lead who opted out). The founder is told to reload
+  // rather than shown an empty, falsely-reassuring queue.
   if (unreadable) {
     return (
       <Card title="Calls to make">
         <div className="callout amber" role="alert">
           <div className="callout-text">
-            The call log could not be read, so the call queue is unavailable right now. Reload to try again;
-            do not assume there are no calls due.
+            The call log or the suppression list could not be read, so the call queue is unavailable right
+            now. Reload to try again; do not assume there are no calls due.
           </div>
         </div>
       </Card>
@@ -166,7 +171,11 @@ export function CallQueue({
                   </a>
                   <span className="small muted block">
                     {item.why}
-                    {item.phone ? ` · ${item.phone}` : ""}
+                    {item.note && ` — ${item.note}`}
+                  </span>
+                  <span className="small muted block">
+                    {item.contact && `${item.contact} · `}
+                    {item.phone ? item.phone : "no phone on file"}
                   </span>
                 </span>
               </li>

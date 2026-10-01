@@ -1,5 +1,71 @@
 # Independent call-task review
 
+## Remediation of the dashboard-queue review (2026-10-01, product-code change)
+
+The three acceptance gaps are closed and the verification narrowed to what was actually exercised.
+Containers, no network: Python **933 passed**, frontend **86 passed**, typecheck and build clean; demo
+`snapshot.json` regenerated. Flag-gated (`enable_calls`, off by default and in deploy); synthetic only.
+
+1. **The queue honours suppression.** `console_model.build` now leaves a suppressed (opted-out) lead out
+   of `call_tasks` - its call history still shows on the lead page - and, when the Suppression list cannot
+   be read (`entries is None`), empties the queue and flags it: the snapshot carries `suppression_unreadable`,
+   and the dashboard shows the unavailable state (never "no calls due"). *Regressions
+   (`test_console_calls.py`, real Flask snapshot):* an opted-out A-0002 is excluded while a non-suppressed
+   A-0001 stays and A-0002 keeps its history; unreadable suppression → `suppression_unreadable: true` with an
+   empty queue.
+2. **Stale-action recovery is implemented.** `QueueItem`'s refusal keeps the server's message on screen and
+   shows a **"Reload the queue"** action that calls `onChanged`; after the dashboard re-reads and passes the
+   newer task, a subsequent action targets the refreshed `task_id`. *Regression (`CallQueue.test.tsx`):* a
+   409 shows the message, Reload calls `onChanged`, and after a re-render with a new id the next Complete
+   uses the new id (STALE → FRESH).
+3. **Upcoming items now carry contact and the recorded note**, alongside company (linked), phone, due time
+   and reason. *Regression:* an upcoming item shows the contact and note.
+
+**Verification, narrowed.** Dashboard actions covered through the component against the real
+snapshot/API shape: Complete, Cancel (both bound to the exact `task_id`, then refresh), Snooze (SNOOZE +
+`snooze_to`, bound to the id), and stale-action recovery. **Browser journey** (local harness, real built
+pages, actual API): an overdue past-callback → **Snooze to 2026-12-01 via the UI** → it moves out of
+overdue → **reload** shows it under "1 upcoming" (persisted). The Complete-removes-and-reload journey was
+shown in the previous round. The clock-advance overdue transition remains covered by the controlled-clock
+route tests, not the browser (the harness runs on a fixed real clock) - browser evidence and route-test
+evidence are kept distinct.
+
+## Independent dashboard queue review of f509dbb
+
+2026-10-01T02:31:57Z [TOOL] Current source mounted read-only in network-disabled
+containers: `test_calls.py`, `test_console_calls.py`, `test_console_model.py`:
+**64 passed in 3.92s**; `CallQueue.test.tsx` and `CallPanel.test.tsx`: **13 passed**.
+Full-suite/build/browser claims were not independently rerun.
+
+The dashboard queue exists with server-computed buckets, task-bound actions and
+a Call-log-unavailable state. Remaining acceptance gaps:
+
+1. **Opt-out suppression is not honoured by the queue.** Real Flask snapshot with
+   the existing synthetic test fixtures: record NO_ANSWER for A-0002, then append
+   a suppression entry for its email with Reason `opt-out`. Snapshot lead has
+   `suppressed:true` but `call_tasks` still contains A-0002; `calls_unreadable:false`.
+   Set `store.entries=None` to simulate unreadable suppression: the actionable
+   queue still contains A-0002 and is not marked unavailable. `call_state` handles
+   call-recorded DNC, but does not consume the separate suppression list. The
+   queue builder appends any scheduled call task without checking suppression.
+2. **Stale-action refresh is claimed but not implemented.** Code inspection:
+   `QueueItem.run`'s rejection callback sets the error only. It does not call
+   `onChanged` or offer a queue-local Reload action. The test asserts the message
+   only; it does not verify refreshed task identity. Server stale rejection is
+   preserved and is not the failing part.
+3. **Upcoming items omit requested details.** Code inspection: the upcoming
+   section shows company/link, due time, reason and phone, but not contact or
+   the recorded note. Due/overdue QueueItem shows both.
+
+Evidence wording also needs narrowing: the detailed browser trace covers Complete
+and reload, not dashboard Snooze/Cancel. Existing CallPanel action tests are not
+dashboard action tests. Add the requested dashboard snooze/reload verification,
+plus cancel and stale-refresh tests, rather than claiming this journey complete.
+
+No product-code changes or live operations. Evidence and continuity only, left
+uncommitted. Keep the next patch confined to queue eligibility, recovery, missing
+details and verification; do not reopen import or the accepted call-history fixes.
+
 ## Independent contract-fix verification of 7053b63
 
 2026-10-01T02:18:28Z [TOOL] Current source mounted read-only in a network-disabled

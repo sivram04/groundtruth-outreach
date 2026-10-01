@@ -1491,6 +1491,23 @@ Sheet — and how often the checks refuse it — is unknown.
   clock-advance overdue transition is covered by the controlled-clock route tests (the local harness runs on a fixed
   real clock). **Synthetic only; `enable_calls` off in deploy; no live Sheet, no send, no deploy.**
 
+- **2026-10-01 (calls: dashboard queue acceptance gaps)** — a dashboard-queue review found three gaps, now
+  closed. **(1) The queue honours suppression.** `console_model.build` leaves a suppressed (opted-out) lead out of
+  `call_tasks` (its call history still shows on the lead page); when the Suppression list cannot be read it empties
+  the queue and sets `suppression_unreadable`, and the dashboard shows the unavailable state (never "no calls due").
+  **(2) Stale-action recovery.** A refused action (e.g. a 409 stale task) keeps the server's message and shows a
+  "Reload the queue" action; after the dashboard re-reads and passes the newer task, the next action targets the
+  refreshed `task_id`. **(3) Upcoming items carry contact and the recorded note** alongside company (linked), phone,
+  due time and reason. **Verified, no network:** Python **933 passed** (+2: an opted-out lead excluded while a
+  non-suppressed one stays; unreadable suppression → `suppression_unreadable` with an empty queue), frontend **86
+  passed** (+3: Cancel bound to the id, Snooze with `snooze_to` bound to the id, stale→Reload→next action uses the
+  refreshed id; an upcoming item shows contact and note), typecheck and build clean; demo `snapshot.json`
+  regenerated. **Browser journey** (local harness, real built pages, actual API): an overdue past-callback → Snooze
+  to 2026-12-01 via the UI → moves out of overdue → reload shows it under "1 upcoming" (persisted). Dashboard
+  Complete/Cancel/Snooze/stale-recovery are covered through the component against the real snapshot/API shape; the
+  clock-advance overdue transition stays a controlled-clock route test (the harness clock is fixed). **Synthetic
+  only; `enable_calls` off in deploy; no live Sheet, no send, no deploy.**
+
 - **2026-09-30 (import: write-taking Resume removed; exclusive write ownership)** — a review
   (`docs/testing/import-review-2026-09-30.md`) reproduced an overlap: an original owner and a resume
   could both pass their presence check before either committed its append, and both wrote (two rows).
