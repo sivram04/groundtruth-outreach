@@ -70,6 +70,29 @@
 
 ## [DISCOVERIES]
 
+- 2026-10-01 [BUILD] Post-call email candidate (flag-gated enable_calls; candidate-only, no send/Gmail/
+  persist). New PURE outreach/post_call.py composes a candidate from latest_call(events) (outcome+note, and
+  callback_at only for CALLBACK), the lead's "Offerings evidence" (verbatim company quote), the handbook-
+  approved offer (settings signature fields + cta), tied to the handbook content_hash; reuses
+  drafting.sign_off (opt-out footer) + verified_first_name. Rules: candidate ONLY for NO_ANSWER/INTERESTED/
+  CALLBACK (eligible_outcome); NO_ANSWER never claims a conversation; never invents recipient words; CALLBACK
+  uses only the recorded time; no candidate for DNC/NOT_INTERESTED/WRONG_NUMBER/no-email/no-handbook/offer-
+  not-configured (raises post_call.NotEligible(reason)). New flag-gated endpoint GET
+  /api/calls/<lead>/candidate (console.py, under enable_calls): reads lead+call events+suppression+handbook
+  (job_draft._handbook), returns {candidate} or {candidate:null, reason, unavailable?}; reasons no_email /
+  outcome_not_eligible (render nothing), suppressed (note), call_log_unreadable / suppression_unreadable /
+  handbook_unavailable (unavailable). Frontend: api.loadCallCandidate + types CallCandidate/CallCandidateResult;
+  PostCallCandidate.tsx on LeadPage (under CallPanel) fetches on mount, editable subject/body, Discard,
+  "what this is based on" (outcome/note/evidence/handbook), disclaimer "not sent, no Gmail draft, a hold still
+  pauses the sequence". It authorises nothing + writes nothing (tested: showing it leaves call_events/
+  suppression unchanged and call_effect still HOLD). Python 952 (+21: test_post_call.py pure + endpoint cases
+  in test_console_calls.py), frontend 91 (+5 PostCallCandidate.test.tsx) + tsc/build. Browser (harness
+  EXTENDED with offer SETTINGS + STUB_HANDBOOK via monkeypatching job_draft._handbook + A-0001 Offerings
+  evidence — LOCAL ONLY): NO_ANSWER on email lead → candidate card with subject/body/opt-out/evidence/note/
+  handbook → reload persists; phone-only A-0002 → no card. Gotcha: a monkeypatch lambda for _handbook must
+  not name its 2nd param `handbook` (shadows the captured book → returns None). UNVERIFIED LIVE: real Drive
+  handbook, signed-in browser, API latency; handbook stubbed; enable_calls off in deploy. Committed, not pushed.
+
 - 2026-10-01 [FIX] Dashboard call-queue acceptance gaps (review in docs/testing/calls-review-2026-09-30.md).
   (1) The queue now HONOURS SUPPRESSION: console_model.build skips a lead whose view["suppressed"] is truthy
   (opted out) - call_state only knew call-recorded DNC, not the separate Suppression list - and when
@@ -283,6 +306,12 @@
   review handbook stays in `docs/`.
 
 ## [OUTCOMES]
+
+- 2026-10-01T02:47:29Z [TOOL] Independent scoped check of dashboard queue fix
+  8d8d278: 50 Python and 8 CallQueue UI tests pass offline; inspected suppression
+  exclusion/unavailable state, stale Reload, and upcoming contact/note. Accept the
+  local queue milestone. Claude reports browser Snooze/reload; not independently
+  rerun. Evidence: docs/testing/calls-review-2026-09-30.md. No product/live edits.
 
 - 2026-10-01T02:31:57Z [TOOL] Reviewed dashboard queue f509dbb: 64 targeted Python
   and 13 queue/panel UI tests pass offline. Real snapshot probe still queues an

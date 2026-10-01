@@ -76,6 +76,29 @@ export interface CallResult {
   warning?: string;
 }
 
+/** A post-call email candidate for the founder to inspect, edit or discard (outreach/post_call.py).
+ *  It is never sent, never a Gmail draft, never persisted. */
+export interface CallCandidate {
+  outcome: string;
+  to: string;
+  subject: string;
+  body: string;
+  evidence: { quote: string; url: string } | null;
+  note: string;
+  callback_at: string;
+  callback_text: string;
+  handbook_hash: string;
+  handbook_name: string;
+}
+
+/** GET /api/calls/<lead>/candidate: the candidate, or null with a reason (and `unavailable` when the
+ *  call log, suppression list or handbook could not be read, as opposed to simply not applicable). */
+export interface CallCandidateResult {
+  candidate: CallCandidate | null;
+  reason?: string;
+  unavailable?: boolean;
+}
+
 export interface Lead {
   id: string;
   tier: string;

@@ -1491,6 +1491,30 @@ Sheet — and how often the checks refuse it — is unknown.
   clock-advance overdue transition is covered by the controlled-clock route tests (the local harness runs on a fixed
   real clock). **Synthetic only; `enable_calls` off in deploy; no live Sheet, no send, no deploy.**
 
+- **2026-10-01 (calls: post-call email candidate)** — when the founder records a call for a lead with an
+  email, they can inspect a post-call email candidate (edit or discard it) beside its evidence. New pure
+  module `outreach/post_call.py` composes it from the latest saved call outcome and note, the company's own
+  cited words on the lead row, the handbook-approved offer (settings), tied to the current Drive handbook's
+  content hash. **Separate from the initial email and the follow-up sequence**, and **candidate-only: no
+  sending, no Gmail draft, no persistence.** A flag-gated endpoint `GET /api/calls/<lead>/candidate` (under
+  `enable_calls`) builds it on demand; `PostCallCandidate` on the lead page shows it with editable subject/
+  body, a Discard action, and "what this is based on" (outcome, note, company evidence, handbook). **Rules:**
+  offered only for NO_ANSWER, INTERESTED, CALLBACK; NO_ANSWER never claims a conversation; no wording invents
+  the recipient's words; a CALLBACK uses only the recorded callback time; DO_NOT_CONTACT, NOT_INTERESTED and
+  WRONG_NUMBER get none; no email → none (a phone-only lead keeps its task and history); a suppressed lead →
+  none; an unreadable call log, suppression list or handbook → unavailable, not silently produced; the body
+  always carries the opt-out footer. **It authorises nothing** — a HOLD still blocks the ordinary email
+  sequence, and showing it writes nothing; suppression, signing and review gates are untouched (this path
+  never reaches Gmail-draft creation). **Verified, no network:** Python **952 passed** (+21:
+  `test_post_call.py` pure wording/eligibility, `test_console_calls.py` endpoint across each outcome and
+  every refusal/unavailable case, and that showing it writes nothing and leaves HOLD in force), frontend
+  **91 passed** (+5 `PostCallCandidate.test.tsx`), typecheck and build clean. **Browser journey** (local
+  harness extended with a stub handbook + offer settings, real built pages, actual API): record NO_ANSWER on
+  an email lead → the candidate appears with subject, editable body, opt-out footer, cited evidence, note,
+  outcome and handbook → reload shows it again; a phone-only lead shows no candidate. **Unverified live:** a
+  real Drive handbook, a signed-in browser and real API latency; the handbook is stubbed locally and
+  `enable_calls` is off in deploy. **Synthetic only; no sending, no Gmail draft, no deploy, no live Sheet.**
+
 - **2026-10-01 (calls: dashboard queue acceptance gaps)** — a dashboard-queue review found three gaps, now
   closed. **(1) The queue honours suppression.** `console_model.build` leaves a suppressed (opted-out) lead out of
   `call_tasks` (its call history still shows on the lead page); when the Suppression list cannot be read it empties

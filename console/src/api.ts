@@ -1,4 +1,4 @@
-import type { CallResult, ImportPreview, ImportResult, Snapshot } from "./types";
+import type { CallCandidateResult, CallResult, ImportPreview, ImportResult, Snapshot } from "./types";
 
 export const EXPECTED_VERSION = 2;
 
@@ -339,6 +339,31 @@ export function recordCallOutcome(
   fetcher: typeof fetch = fetch,
 ): Promise<CallResult> {
   return callPost(`/api/calls/${encodeURIComponent(leadId)}/outcome`, outcome, fetcher);
+}
+
+/** Load the post-call email candidate for a lead (inspect / edit / discard). Reads only; the server
+ *  never sends, drafts to Gmail, or persists. Returns the candidate or a reason it is not offered. */
+export async function loadCallCandidate(
+  leadId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<CallCandidateResult> {
+  let response: Response;
+  try {
+    response = await fetcher(`/api/calls/${encodeURIComponent(leadId)}/candidate`, {
+      headers: { Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+  } catch {
+    throw new CallError("The console could not be reached. Check the connection and try again.");
+  }
+  if (response.status === 401) throw new LoadError(SIGN_IN_ENDED, true);
+  const isJson = (response.headers.get("Content-Type") ?? "").includes("application/json");
+  const body: unknown = isJson ? await response.json().catch(() => null) : null;
+  if (!response.ok || !body || typeof body !== "object" || !("candidate" in body)) {
+    throw new CallError("The post-call candidate could not be loaded.");
+  }
+  return body as CallCandidateResult;
 }
 
 /** Complete, snooze or cancel a lead's call task. `task_id` is required and names the exact task the

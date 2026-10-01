@@ -29,7 +29,8 @@ from pathlib import Path
 
 from flask import Flask, g, jsonify, request, send_from_directory
 
-from outreach import assistant, calls, channels, console_auth, console_model, importer, job_draft, review
+from outreach import (assistant, calls, channels, console_auth, console_model, importer, job_draft,
+                      post_call, review, suppression)
 from outreach.sheet import LEAD_TABS, DestinationMismatch, Store
 
 DEFAULT_STATIC = Path(__file__).resolve().parent.parent / "console" / "dist"
@@ -533,6 +534,51 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                 result = _call_state_for(st, lead_id, now)
             log.info("call task %s for %s by %s", action, lead_id, g.email)
             return jsonify(recorded=True, **result)
+
+        @app.get("/api/calls/<lead_id>/candidate")
+        def call_candidate(lead_id):
+            """A post-call email candidate for the founder to inspect, edit or discard. Reads only; it
+            never sends, never creates a Gmail draft, never writes. Separate from the initial email and the
+            follow-up sequence, and it does not authorise anything: a HOLD still blocks the ordinary
+            sequence. Returns {candidate} or {candidate:null, reason, unavailable?}."""
+            chosen = _chosen_settings()
+            with reading:
+                try:
+                    st = store()
+                    leads = st.leads()
+                except Exception:
+                    log.exception("the Sheet could not be read for a post-call candidate")
+                    return refuse(502, "The Sheet could not be read just now.")
+                if lead_id not in leads:
+                    return refuse(404, "There is no such lead.")
+                row = leads[lead_id]
+                try:
+                    events = [e for e in st.call_events() if e.get("Lead ID") == lead_id]
+                except Exception:
+                    log.exception("the Call log could not be read for a post-call candidate")
+                    return jsonify(candidate=None, unavailable=True, reason="call_log_unreadable")
+                try:
+                    entries = st.suppression()
+                except suppression.Unreadable:
+                    # Who opted out is unknown: never offer an outreach candidate that might reach them.
+                    return jsonify(candidate=None, unavailable=True, reason="suppression_unreadable")
+            latest = post_call.latest_call(events)
+            if latest is None or not post_call.eligible_outcome(latest["outcome"]):
+                return jsonify(candidate=None, reason="outcome_not_eligible")
+            email = channels.email_of(row)
+            if not email:  # a phone-only lead keeps its task and history, but gets no email candidate
+                return jsonify(candidate=None, reason="no_email")
+            if suppression.covers(entries, email):
+                return jsonify(candidate=None, reason="suppressed")
+            book, _why = job_draft._handbook(chosen)
+            if book is None:  # grounded in the current handbook, or not offered at all
+                return jsonify(candidate=None, unavailable=True, reason="handbook_unavailable")
+            try:
+                cand = post_call.candidate(row, latest, chosen, handbook=book)
+            except post_call.NotEligible as exc:
+                return jsonify(candidate=None, reason=exc.reason)
+            log.info("post-call candidate shown for %s to %s", lead_id, g.email)
+            return jsonify(candidate=cand)
 
     return app
 

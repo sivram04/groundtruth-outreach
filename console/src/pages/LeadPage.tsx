@@ -6,6 +6,7 @@ import { href } from "../router";
 import type { Snapshot } from "../types";
 import { CallPanel } from "./CallPanel";
 import { NotFound } from "./NotFound";
+import { PostCallCandidate } from "./PostCallCandidate";
 
 export function LeadPage({ data, id, onChanged }: { data: Snapshot; id: string; onChanged?: () => void }) {
   const lead = data.leads.find((item) => item.id === id);
@@ -115,14 +116,17 @@ export function LeadPage({ data, id, onChanged }: { data: Snapshot; id: string; 
       </div>
 
       {data.calls_enabled && (
-        <CallPanel
-          leadId={lead.id}
-          phone={lead.phone}
-          task={lead.call_task ?? null}
-          history={lead.call_history}
-          effectSaid={lead.call_effect_said}
-          onChanged={onChanged ?? (() => {})}
-        />
+        <>
+          <CallPanel
+            leadId={lead.id}
+            phone={lead.phone}
+            task={lead.call_task ?? null}
+            history={lead.call_history}
+            effectSaid={lead.call_effect_said}
+            onChanged={onChanged ?? (() => {})}
+          />
+          <PostCallCandidate leadId={lead.id} />
+        </>
       )}
 
       <Card title="Emails" icon={Mail}>

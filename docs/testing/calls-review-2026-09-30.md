@@ -1,5 +1,53 @@
 # Independent call-task review
 
+## Independent queue remediation check of 8d8d278
+
+2026-10-01T02:47:29Z [TOOL] Reviewed current commit `8d8d278` and ran
+`tests/test_console_calls.py tests/test_console_model.py` against read-only mounted
+source in the network-disabled Python container: **50 passed in 6.14s**. The
+network-disabled frontend container ran `CallQueue.test.tsx`: **8 passed**.
+Inspection confirms the queue excludes leads marked suppressed, marks unreadable
+suppression unavailable, offers Reload after an action error, and includes contact
+and note in upcoming items. These are the three previously identified queue gaps.
+The reported local browser Snooze/reload journey is from Claude's run; this review
+did not independently rerun the browser, full suite, typecheck or build. The
+dashboard queue is accepted as a local milestone under these limits. No live
+Sheet/Gmail or deployment verification. No product-code changes in this review.
+
+## Post-call email candidate (2026-10-01, product-code change)
+
+Built as candidate creation and review only — no sending, no Gmail draft, no persistence. A new pure
+module `outreach/post_call.py` composes a post-call email candidate from already-saved facts: the latest
+call outcome and note, the company's own cited words on the lead row, the handbook-approved offer
+(settings), tied to the current Drive handbook's content hash. A flag-gated endpoint
+`GET /api/calls/<lead>/candidate` (under `enable_calls`) builds it on demand and the lead page shows it
+beside its evidence with editable fields and a Discard action.
+
+Rules enforced: a candidate is offered only for NO_ANSWER, INTERESTED and CALLBACK; NO_ANSWER wording
+never claims a conversation and no wording invents the recipient's words; a CALLBACK uses only the
+recorded callback time; DO_NOT_CONTACT, NOT_INTERESTED and WRONG_NUMBER get none; a lead with no email
+gets none (a phone-only lead keeps its task and history); a suppressed lead gets none; an unreadable call
+log, suppression list or handbook makes it unavailable, not silently produced. The body always carries the
+opt-out footer. It does not authorise anything: a HOLD still blocks the ordinary email sequence, and
+showing the candidate writes nothing (no call event, no suppression). Suppression, signing and review
+gates are untouched (this path never reaches Gmail-draft creation).
+
+*Regressions:* `test_post_call.py` (pure: each outcome's wording, no-conversation after NO_ANSWER, no
+invented recipient words, callback uses only the recorded time, the internal note is context not pasted,
+the company evidence is the company's own verbatim words, no candidate for a stop/wrong-number/no-email/
+no-handbook/offer-not-configured, latest-outcome selection); `test_console_calls.py` (the real Flask
+endpoint: candidate for each eligible outcome; no_email; outcome_not_eligible; suppressed; unreadable
+suppression and unreadable call log → unavailable; handbook unavailable; showing it writes nothing and the
+HOLD effect is unchanged); `PostCallCandidate.test.tsx` (renders candidate + evidence + discard; nothing
+for no_email/outcome_not_eligible; the suppressed and unavailable states; the recorded callback time).
+Containers, no network: Python **952 passed**, frontend **91 passed**, typecheck and build clean.
+**Browser journey** (local harness extended with a stub handbook + offer settings, real built pages, actual
+API): record NO_ANSWER on an email lead → the "Post-call email" candidate appears with its subject, editable
+body, the opt-out footer, the cited company evidence, the note, the outcome and the handbook → reload shows
+it again; a phone-only lead shows no candidate section. **Unverified live:** a real Drive handbook, a
+signed-in browser and real API latency - the handbook is stubbed locally and `enable_calls` is off in
+deploy. No sending, no Gmail draft, no deploy, no live Sheet.
+
 ## Remediation of the dashboard-queue review (2026-10-01, product-code change)
 
 The three acceptance gaps are closed and the verification narrowed to what was actually exercised.

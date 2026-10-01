@@ -52,6 +52,123 @@ def snapshot(client):
     return client.get("/api/snapshot", headers=signed()).get_json()
 
 
+# --- the post-call email candidate (inspect / edit / discard; never sends or persists) --------------
+from outreach import job_draft  # noqa: E402
+
+HANDBOOK = {"content_hash": "h1", "name": "Handbook"}
+OFFER = {"call_no_answer_business_days": 3, "product_name": "Lakshyaa", "sender_name": "A Founder",
+         "founder_title": "Founder", "sender_website": "https://example.test",
+         "postal_address": "1 Example St, Columbus OH", "sender_phone": "614-555-0100",
+         "cta_question": "Would next week work?"}
+
+
+def make_cand(built, store, monkeypatch, *, now=MON, handbook=HANDBOOK, settings=OFFER):
+    monkeypatch.setattr(job_draft, "_handbook",
+                        lambda s, handbook_arg=None, drive=None: (handbook, None if handbook else "no handbook"))
+    clock = now if callable(now) else (lambda: now)
+    return console.create_app(
+        verifier=console_auth.Verifier(AUDIENCE, ALLOWED, fetch=Keys()), store=lambda: store,
+        settings=lambda: settings, clock=clock, static_dir=built, enable_calls=True).test_client()
+
+
+def candidate(client, lead):
+    return client.get(f"/api/calls/{lead}/candidate", headers=signed())
+
+
+def test_a_post_call_candidate_is_offered_for_no_answer_on_an_email_lead(built, monkeypatch):
+    store = a_store()
+    client = make_cand(built, store, monkeypatch)
+    outcome(client, "A-0002", outcome="NO_ANSWER", called_at="2026-09-28T13:00:00+00:00")
+    data = candidate(client, "A-0002").get_json()
+    cand = data["candidate"]
+    assert cand["outcome"] == "NO_ANSWER" and cand["to"] == "dana@bluebird.test"
+    assert cand["subject"] == "Tried to reach you — Lakshyaa"
+    assert "tried to reach you" in cand["body"].lower()
+    assert "we spoke" not in cand["body"].lower()  # no invented conversation
+    assert cand["handbook_hash"] == "h1"
+
+
+def test_interested_and_callback_candidates(built, monkeypatch):
+    store = a_store()
+    client = make_cand(built, store, monkeypatch)
+    outcome(client, "A-0002", outcome="INTERESTED")
+    assert candidate(client, "A-0002").get_json()["candidate"]["outcome"] == "INTERESTED"
+    outcome(client, "A-0002", outcome="CALLBACK", callback_at="2026-10-02T18:00:00+00:00")
+    cand = candidate(client, "A-0002").get_json()["candidate"]
+    assert cand["outcome"] == "CALLBACK" and "2026-10-02" in cand["body"]
+
+
+def test_a_phone_only_lead_gets_no_candidate(built, monkeypatch):
+    store = a_store()
+    client = make_cand(built, store, monkeypatch)
+    outcome(client, "A-0001", outcome="NO_ANSWER", called_at="2026-09-28T13:00:00+00:00")  # phone-only
+    data = candidate(client, "A-0001").get_json()
+    assert data["candidate"] is None and data["reason"] == "no_email"
+
+
+def test_a_stop_or_wrong_number_gets_no_candidate(built, monkeypatch):
+    store = a_store()
+    client = make_cand(built, store, monkeypatch)
+    for bad in ("NOT_INTERESTED", "WRONG_NUMBER", "DO_NOT_CONTACT"):
+        outcome(client, "A-0002", outcome=bad)
+        data = candidate(client, "A-0002").get_json()
+        assert data["candidate"] is None and data["reason"] == "outcome_not_eligible"
+
+
+def test_a_suppressed_lead_gets_no_candidate(built, monkeypatch):
+    store = a_store()
+    client = make_cand(built, store, monkeypatch)
+    outcome(client, "A-0002", outcome="INTERESTED")
+    store.append_suppression([{"Address or domain": "dana@bluebird.test", "Reason": "opt-out",
+                               "Added at": "2026-09-28T00:00:00+00:00", "Source": "test"}])
+    data = candidate(client, "A-0002").get_json()
+    assert data["candidate"] is None and data["reason"] == "suppressed"
+
+
+def test_unreadable_suppression_or_call_log_makes_the_candidate_unavailable(built, monkeypatch):
+    store = a_store()
+    client = make_cand(built, store, monkeypatch)
+    outcome(client, "A-0002", outcome="NO_ANSWER", called_at="2026-09-28T13:00:00+00:00")
+    store.entries = suppression.Unreadable("the Suppression tab could not be read")
+    data = candidate(client, "A-0002").get_json()
+    assert data["candidate"] is None and data["unavailable"] is True and data["reason"] == "suppression_unreadable"
+    # an unreadable Call log is unavailable too
+    store2 = a_store()
+    client2 = make_cand(built, store2, monkeypatch)
+    outcome(client2, "A-0002", outcome="NO_ANSWER", called_at="2026-09-28T13:00:00+00:00")
+
+    def boom():
+        raise RuntimeError("the Call log tab's columns were changed")
+
+    store2.call_events = boom
+    data2 = candidate(client2, "A-0002").get_json()
+    assert data2["candidate"] is None and data2["unavailable"] is True and data2["reason"] == "call_log_unreadable"
+
+
+def test_no_candidate_when_the_handbook_is_unavailable(built, monkeypatch):
+    store = a_store()
+    client = make_cand(built, store, monkeypatch, handbook=None)
+    outcome(client, "A-0002", outcome="NO_ANSWER", called_at="2026-09-28T13:00:00+00:00")
+    data = candidate(client, "A-0002").get_json()
+    assert data["candidate"] is None and data["unavailable"] is True and data["reason"] == "handbook_unavailable"
+
+
+def test_showing_a_candidate_writes_nothing_and_does_not_authorise_anything(built, monkeypatch):
+    # A HOLD (interested) candidate is inspectable, but showing it must not persist or authorise anything -
+    # the ordinary email sequence's HOLD block is untouched (enforced elsewhere), and nothing is written.
+    store = a_store()
+    client = make_cand(built, store, monkeypatch)
+    outcome(client, "A-0002", outcome="INTERESTED")
+    before_calls = len(store.call_events())
+    before_supp = list(store.suppression())
+    data = candidate(client, "A-0002").get_json()
+    assert data["candidate"]["outcome"] == "INTERESTED"
+    assert len(store.call_events()) == before_calls  # nothing recorded
+    assert list(store.suppression()) == before_supp  # no suppression written
+    # the lead's recorded email effect is still HOLD (the sequence block is not lifted)
+    assert next(v for v in snapshot(client)["leads"] if v["id"] == "A-0002")["call_effect"] == calls.HOLD
+
+
 def test_calls_are_off_unless_switched_on(built):
     client = console.create_app(
         verifier=console_auth.Verifier(AUDIENCE, ALLOWED, fetch=Keys()), store=a_store,
