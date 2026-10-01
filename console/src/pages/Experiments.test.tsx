@@ -29,11 +29,16 @@ const REPORT: ExperimentReport = {
   name: "Subject test",
   defined: true,
   variants: [
-    { index: 0, name: "Short", assigned: 3, suppressed: 0, lead_ids: ["A-0001"], metrics: metrics({ assigned: 3, sent: 2, replies: 1, opens: 1, tracked: 1 }) },
-    { index: 1, name: "Long", assigned: 2, suppressed: 1, lead_ids: ["A-0002"], metrics: metrics({ assigned: 2, sent: 1, opt_outs: 1 }) },
+    { index: 0, name: "Short", assigned: 3, suppressed: 0, excluded: { before_assignment: 2, undated: 0 }, lead_ids: ["A-0001"], metrics: metrics({ assigned: 3, sent: 2, replies: 1, opens: 1, tracked: 1 }) },
+    { index: 1, name: "Long", assigned: 2, suppressed: 1, excluded: { before_assignment: 0, undated: 0 }, lead_ids: ["A-0002"], metrics: metrics({ assigned: 2, sent: 1, opt_outs: 1 }) },
   ],
   comparison: { winner: null, can_compare: false, min_sends_to_compare: 30, note: "Too few confirmed sends to compare: each variant needs at least 30." },
-  notes: ["Confirmed sent means a send was recorded, not that it was delivered.", "Opens are an estimate and are labelled so."],
+  notes: [
+    "Only outcomes recorded at or after a lead was assigned are counted here.",
+    "Opens are an estimate and are labelled so.",
+    "2 recorded event(s) are excluded from these results: 2 happened before the lead was assigned, and 0 could not be dated against the assignment.",
+  ],
+  excluded: { before_assignment: 2, undated: 0 },
   calls_unreadable: false,
   suppression_unreadable: false,
 };
@@ -86,6 +91,23 @@ describe("the A/B tests page", () => {
     expect(screen.getAllByText(/\(est\.\)/).length).toBeGreaterThan(0);
     // The suppressed-but-assigned context row.
     expect(screen.getByText(/Assigned, now suppressed/)).toBeTruthy();
+    // Outcomes recorded before assignment are excluded and said so, not counted.
+    expect(screen.getByText(/excluded from these results/)).toBeTruthy();
+    expect(screen.getByText(/at or after a lead was assigned/)).toBeTruthy();
+  });
+
+  it("shows the calls metric as not available when the Call log cannot be read", () => {
+    const unavailableCalls: ExperimentReport = {
+      ...REPORT,
+      calls_unreadable: true,
+      variants: REPORT.variants.map((v) => ({
+        ...v,
+        metrics: v.metrics.map((m) => (m.key === "calls" ? { key: "calls", label: "Calls made", available: false, why: "the Call log could not be read" } : m)),
+      })),
+    };
+    render(<Experiments data={snap({ experiments: unavailableCalls })} define={vi.fn()} assign={vi.fn()} />);
+    // positive replies (×2) + meetings (×2) + calls (×2) now read "not available".
+    expect(screen.getAllByText("not available").length).toBeGreaterThanOrEqual(6);
   });
 
   it("shows the server's message when a define is refused", async () => {

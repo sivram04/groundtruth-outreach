@@ -653,7 +653,10 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
         def experiment_assign():
             """Assign every eligible, not-yet-assigned lead to a variant of a defined experiment. The
             variant is deterministic and the write is idempotent, so a lead is assigned once and never
-            moves. Returns how many were newly assigned, already assigned, or not eligible."""
+            moves. A lead is assigned only if it is NOT on the Suppression list and NOT in a call
+            STOP/HOLD state; if either safety source cannot be read, NOBODY is assigned (an unreadable
+            safety source is never permission). Returns how many were newly assigned, already assigned,
+            or not eligible."""
             body = request.get_json(silent=True) or {}
             experiment = str(body.get("experiment", "")).strip()
             if not experiment:
@@ -669,8 +672,33 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                                        "try again in a minute.")
                 if state is None or not state["defined"]:
                     return refuse(400, "Define the experiment's two variants before assigning leads.")
+                # Fail closed: both safety sources must be readable before anyone is assigned.
+                try:
+                    entries = st.suppression()
+                except suppression.Unreadable:
+                    log.exception("the Suppression list could not be read to assign an experiment")
+                    return refuse(502, "The Suppression list could not be read, so no lead was "
+                                       "assigned. A lead is assigned only when it is known not to be "
+                                       "suppressed. Try again in a minute.")
+                try:
+                    call_rows = st.call_events()
+                except Exception:
+                    log.exception("the Call log could not be read to assign an experiment")
+                    return refuse(502, "The Call log could not be read, so no lead was assigned. A "
+                                       "lead is assigned only when its call state is known not to be a "
+                                       "stop or a hold. Try again in a minute.")
+                by_call = {}
+                for event in call_rows:
+                    by_call.setdefault(event.get("Lead ID", ""), []).append(event)
+
+                def _safe(lead_id, row):
+                    email = channels.email_of(row)
+                    suppressed = bool(email and suppression.covers(entries, email))
+                    effect = calls.outreach_effect(by_call.get(lead_id, []))
+                    return experiments.safe_to_assign(row, suppressed=suppressed, call_effect=effect)
+
                 already = set(state["assignments"])
-                eligible = sorted(lid for lid, row in leads.items() if experiments.eligible(row))
+                eligible = sorted(lid for lid, row in leads.items() if _safe(lid, row))
                 to_assign = [lid for lid in eligible if lid not in already]
                 rows = experiments.assign_rows(experiment, state["variants"], to_assign, _ab_now())
                 try:

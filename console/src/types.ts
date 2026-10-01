@@ -158,6 +158,8 @@ export interface ExperimentVariant {
   assigned: number;
   /** Assigned leads now on the Suppression list (context only; null when the list is unreadable). */
   suppressed: number | null;
+  /** Recorded events not counted because they predate the assignment or cannot be dated against it. */
+  excluded?: { before_assignment: number; undated: number };
   lead_ids: string[];
   metrics: VariantMetric[];
 }
@@ -170,6 +172,8 @@ export interface ExperimentReport {
   variants: ExperimentVariant[];
   comparison: { winner: string | null; can_compare: boolean; min_sends_to_compare: number; note: string };
   notes: string[];
+  /** Totals of events excluded from results because they predate assignment or cannot be dated. */
+  excluded?: { before_assignment: number; undated: number };
   calls_unreadable: boolean;
   suppression_unreadable: boolean;
 }

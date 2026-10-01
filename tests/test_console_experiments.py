@@ -5,7 +5,8 @@ unless switched on."""
 
 import pytest
 
-from outreach import console, console_auth, experiments
+from outreach import calls, console, console_auth, experiments, sequence
+from outreach.sync import _event
 from stage4_fakes import MemoryStore, at, lead
 from test_console_auth import ALLOWED, AUDIENCE, Keys, token
 
@@ -151,3 +152,118 @@ def test_an_unreadable_ab_tab_is_flagged_not_guessed(built):
     data = snapshot(make(built, store))
     assert data["experiments_unreadable"] is True and data["experiments"] is None
     assert any("A/B tests tab cannot be read" in w for w in data["warnings"])
+
+
+# -- outcomes are attributed only after assignment (through the real snapshot) ---------------------
+
+def _sent_total(report):
+    return sum(next(m for m in v["metrics"] if m["key"] == "sent")["count"] for v in report["variants"])
+
+
+def _replies_total(report):
+    return sum(next(m for m in v["metrics"] if m["key"] == "replies")["count"] for v in report["variants"])
+
+
+def test_a_previously_emailed_leads_old_send_and_reply_are_not_counted(built):
+    # The reviewer's case, end to end: a lead with a send + reply on 2026-09-30 is assigned on
+    # 2026-10-01; neither old outcome is a result of the test, so the snapshot counts neither.
+    store = MemoryStore(
+        [lead("A-0001"),
+         lead("A-0002", **{"BEST EMAIL": "pat@acme.test", "Their email": "pat@acme.test"}),
+         lead("A-0003", **{"BEST EMAIL": "robin@north.test", "Their email": "robin@north.test"})],
+        events=[_event("A-0001", sequence.SENT, "INITIAL", at("2026-09-30 10:00"),
+                       "sam@example-electric.test", "ADDRESS", "t1", "m1", "hand"),
+                _event("A-0001", sequence.REPLIED, "", at("2026-09-30 11:00"),
+                       "sam@example-electric.test", "THREAD", "t1", "m1r", "")],
+        lead_columns=COLUMNS)
+    client = make(built, store, now=at("2026-10-01 09:00"))
+    define(client, experiment="Subject test", variant_a="Short", variant_b="Long")
+    assign(client, experiment="Subject test")
+    data = snapshot(client)
+    report = data["experiments"]
+    assert _sent_total(report) == 0 and _replies_total(report) == 0
+    assert report["excluded"]["before_assignment"] == 2
+    # The previously-emailed lead is still assigned; only its old outcomes are excluded.
+    by_id = {l["id"]: l for l in data["leads"]}
+    assert by_id["A-0001"]["variant"] in ("Short", "Long")
+
+
+def test_calls_are_unavailable_in_the_snapshot_when_the_call_log_cannot_be_read(built):
+    class ToggleCalls(MemoryStore):
+        fail_calls = False
+
+        def call_events(self):
+            if self.fail_calls:
+                raise RuntimeError("the Call log tab's columns were changed")
+            return super().call_events()
+
+    store = ToggleCalls([lead("A-0001"), lead("A-0002", **{"BEST EMAIL": "pat@acme.test",
+                                                           "Their email": "pat@acme.test"})],
+                        lead_columns=COLUMNS)
+    client = make(built, store)
+    define(client, experiment="Subject test", variant_a="Short", variant_b="Long")
+    assign(client, experiment="Subject test")  # needs the call log readable
+    store.fail_calls = True                     # now it cannot be read
+    report = snapshot(client)["experiments"]
+    assert report["calls_unreadable"] is True
+    for variant in report["variants"]:
+        calls_metric = next(m for m in variant["metrics"] if m["key"] == "calls")
+        assert calls_metric["available"] is False and "count" not in calls_metric
+
+
+# -- assignment safety --------------------------------------------------------------------------
+
+def test_a_suppressed_lead_is_not_assigned(built):
+    store = MemoryStore(
+        [lead("A-0001"),  # sam@example-electric.test, which is suppressed below
+         lead("A-0002", **{"BEST EMAIL": "pat@acme.test", "Their email": "pat@acme.test"})],
+        suppression=[{"Address or domain": "sam@example-electric.test", "Reason": "opted out",
+                      "Added at": "", "Source": ""}],
+        lead_columns=COLUMNS)
+    client = make(built, store)
+    define(client, experiment="Subject test", variant_a="Short", variant_b="Long")
+    result = assign(client, experiment="Subject test").get_json()
+    assert result["eligible"] == 1  # only A-0002 is safe to assign
+    by_id = {l["id"]: l for l in snapshot(client)["leads"]}
+    assert by_id["A-0001"]["variant"] == "" and by_id["A-0002"]["variant"] in ("Short", "Long")
+
+
+def test_a_lead_in_a_call_stop_or_hold_state_is_not_assigned(built):
+    store = MemoryStore(
+        [lead("A-0001"),
+         lead("A-0002", **{"BEST EMAIL": "pat@acme.test", "Their email": "pat@acme.test"}),
+         lead("A-0003", **{"BEST EMAIL": "robin@north.test", "Their email": "robin@north.test"})],
+        lead_columns=COLUMNS)
+    now = at("2026-09-28 09:00")
+    store.append_call_events([
+        calls.outcome_event("A-0001", calls.DO_NOT_CONTACT, "", now.isoformat(),
+                            no_answer_business_days=3, now=now),   # STOP
+        calls.outcome_event("A-0002", calls.INTERESTED, "", now.isoformat(),
+                            no_answer_business_days=3, now=now)])   # HOLD
+    client = make(built, store, now=now)
+    define(client, experiment="Subject test", variant_a="Short", variant_b="Long")
+    result = assign(client, experiment="Subject test").get_json()
+    assert result["eligible"] == 1  # only A-0003 is neither stopped nor held
+    by_id = {l["id"]: l for l in snapshot(client)["leads"]}
+    assert by_id["A-0001"]["variant"] == "" and by_id["A-0002"]["variant"] == ""
+    assert by_id["A-0003"]["variant"] in ("Short", "Long")
+
+
+def test_an_unreadable_safety_source_refuses_the_whole_assignment(built):
+    # Suppression unreadable -> nobody is assigned (an unreadable safety source is not permission).
+    store = MemoryStore([lead("A-0001")], suppression=None, lead_columns=COLUMNS)
+    client = make(built, store)
+    define(client, experiment="Subject test", variant_a="Short", variant_b="Long")
+    assert assign(client, experiment="Subject test").status_code == 502
+    assert experiments.read(store.ab_records()).get("Subject test", {}).get("assignments", {}) == {}
+
+    # Call log unreadable -> likewise refused.
+    class RefusingCalls(MemoryStore):
+        def call_events(self):
+            raise RuntimeError("the Call log tab's columns were changed")
+
+    store2 = RefusingCalls([lead("A-0001")], lead_columns=COLUMNS)
+    client2 = make(built, store2)
+    define(client2, experiment="Subject test", variant_a="Short", variant_b="Long")
+    assert assign(client2, experiment="Subject test").status_code == 502
+    assert experiments.read(store2.ab_records()).get("Subject test", {}).get("assignments", {}) == {}

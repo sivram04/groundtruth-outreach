@@ -78,9 +78,10 @@ available** when no recorded signal exists:
 
 ## Verified (network-disabled containers)
 
-- Python: `test_experiments.py` (13) and `test_console_experiments.py` (8), whole suite **1040
-  passed** (`deploy/test.Dockerfile`, `--network none`).
-- Frontend: `Experiments.test.tsx` (6), whole suite **116 passed**, typecheck and build clean
+- Python: `test_experiments.py` (23) and `test_console_experiments.py` (15), whole suite **1050
+  passed** (`deploy/test.Dockerfile`, `--network none`). *(Counts include the recheck regressions
+  below.)*
+- Frontend: `Experiments.test.tsx` (7), whole suite **117 passed**, typecheck and build clean
   (`deploy/console-test.Dockerfile`, `--network none`).
 - Real loopback-HTTP, through the real Flask app and the Store boundary: `define → assign →
   snapshot` shows each lead's variant and the report (3 assigned, 2 ineligible, winner null); a
@@ -90,6 +91,34 @@ available** when no recorded signal exists:
 Tests cover: stable assignment across reload/retry (and across a rename), record deduplication, the
 suppression context count, unreadable Call log / Suppression / A/B tab, the "not available" metrics,
 and the refusal to declare a winner.
+
+## Recheck remediation (2026-10-01)
+
+A recheck of `a2e427a` found three correctness gaps; all are fixed, with regressions through the real
+snapshot/API.
+
+1. **Outcomes before assignment were counted.** A lead assigned on Oct 1 with a Sept 30 send and
+   reply had both counted in its variant's results. Now `read()` keeps each lead's assignment time
+   and the report counts an outcome **only when it is reliably at or after that time**. An event (or
+   call) before the assignment, or one whose time — or the assignment's own time — cannot be read, is
+   **not counted** and is tallied as excluded (`variants[].excluded` and `report.excluded`:
+   `before_assignment` / `undated`), with a note explaining the exclusion. Proven end to end through
+   `GET /api/snapshot` for a previously-emailed lead: the old send and reply are excluded (totals 0,
+   `excluded.before_assignment == 2`) while the lead stays assigned.
+2. **Calls read as 0 when the Call log was unreadable.** The calls metric is now **unavailable**
+   (`available: false`, no count), not a zero that could hide real calls or skew a variant.
+3. **Assignment ignored the safety sources.** `POST /api/experiments/assign` now assigns a lead only
+   when it is **not on the Suppression list** and **not in a call STOP/HOLD state**
+   (`experiments.safe_to_assign`). If the Suppression list **or** the Call log cannot be read, the
+   whole assignment is **refused (502) and nobody is assigned** — an unreadable safety source is never
+   treated as permission.
+
+Regressions: `test_experiments.py` (before-assignment, undated, no-assignment-time, calls-unavailable,
+`safe_to_assign` STOP/HOLD/suppressed) and `test_console_experiments.py` (the previously-emailed lead
+through the real snapshot; calls unavailable in the snapshot; a suppressed lead and a STOP/HOLD lead
+not assigned; an unreadable safety source refusing the whole assignment). Verified no-network: Python
+**1050**, frontend **117**, typecheck + build; and a real loopback-HTTP run confirming the excluded
+pre-assignment outcomes and the fail-closed assignment.
 
 ## Not done / out of scope
 
