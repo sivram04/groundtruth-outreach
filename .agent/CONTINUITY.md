@@ -70,6 +70,21 @@
 
 ## [DISCOVERIES]
 
+- 2026-10-01 [FIX] Post-call candidate: four review gaps (docs/testing/post-call-review-2026-10-01.md).
+  (1) EFFECTIVE decision: endpoint computes calls.outreach_effect(events) → refuses call_stop on STOP, and
+  post_call.candidate takes effect= and raises on STOP (sticky DNC after a later NO_ANSWER, even with a
+  failed suppression write); ordinary suppression.covers kept. (2) offer_approved REQUIRED: post_call.offer_approved
+  checks the flag → offer_not_approved; stopped calling wording "handbook-approved" (it's composed in code
+  from settings; handbook name/hash only tie it to a version, text not read). (3) No false "today": candidate
+  takes now=; "today" only when the saved call's NY date == now's NY date, older call worded with no timing
+  claim (all 3 outcomes). (4) Stale candidate withdrawn: PostCallCandidate gains reloadKey prop (LeadPage
+  derives it from call_history.length|call_effect|call_task.id) in the useEffect deps → re-fetches on a parent
+  refresh after a CallPanel save. Python 958, frontend 92 + tsc/build. Browser (harness, FULL reload via
+  ?r=1 — note a hash-only nav does NOT reload the SPA bundle, so after a dist rebuild use a query param or
+  base-path nav): NO_ANSWER candidate visible → record DO_NOT_CONTACT via CallPanel → post-call section
+  disappears with no manual reload. Gaps 1-3 proved by route/pure tests. Synthetic only; handbook stubbed in
+  the harness (offer settings + STUB_HANDBOOK + offer_approved); enable_calls off in deploy; committed, not pushed.
+
 - 2026-10-01 [BUILD] Post-call email candidate (flag-gated enable_calls; candidate-only, no send/Gmail/
   persist). New PURE outreach/post_call.py composes a candidate from latest_call(events) (outcome+note, and
   callback_at only for CALLBACK), the lead's "Offerings evidence" (verbatim company quote), the handbook-
@@ -306,6 +321,14 @@
   review handbook stays in `docs/`.
 
 ## [OUTCOMES]
+
+- 2026-10-01T03:06:55Z [TOOL] Reviewed post-call candidate d107e01: 41 Python
+  and 5 component tests pass offline, but a real-route synthetic DNC plus failed
+  redundant suppression write then NO_ANSWER still offers a candidate while
+  effective call decision is STOP. Unapproved offer also produces a candidate;
+  historical calls are phrased as happening today. Inspection: candidate UI
+  does not reload on same-lead snapshot refresh. Evidence:
+  docs/testing/post-call-review-2026-10-01.md. No product/live edits.
 
 - 2026-10-01T02:47:29Z [TOOL] Independent scoped check of dashboard queue fix
   8d8d278: 50 Python and 8 CallQueue UI tests pass offline; inspected suppression

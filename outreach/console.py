@@ -565,16 +565,21 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             latest = post_call.latest_call(events)
             if latest is None or not post_call.eligible_outcome(latest["outcome"]):
                 return jsonify(candidate=None, reason="outcome_not_eligible")
+            # The EFFECTIVE call decision, not just the latest outcome: a sticky do-not-contact (STOP) blocks
+            # the candidate even after a later no-answer, whether or not the Suppression write landed.
+            effect = calls.outreach_effect(events)
+            if effect == calls.STOP:
+                return jsonify(candidate=None, reason="call_stop")
             email = channels.email_of(row)
             if not email:  # a phone-only lead keeps its task and history, but gets no email candidate
                 return jsonify(candidate=None, reason="no_email")
-            if suppression.covers(entries, email):
+            if suppression.covers(entries, email):  # the ordinary suppression check is kept too
                 return jsonify(candidate=None, reason="suppressed")
             book, _why = job_draft._handbook(chosen)
             if book is None:  # grounded in the current handbook, or not offered at all
                 return jsonify(candidate=None, unavailable=True, reason="handbook_unavailable")
             try:
-                cand = post_call.candidate(row, latest, chosen, handbook=book)
+                cand = post_call.candidate(row, latest, chosen, handbook=book, now=clock(), effect=effect)
             except post_call.NotEligible as exc:
                 return jsonify(candidate=None, reason=exc.reason)
             log.info("post-call candidate shown for %s to %s", lead_id, g.email)

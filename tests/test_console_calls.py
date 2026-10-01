@@ -59,7 +59,7 @@ HANDBOOK = {"content_hash": "h1", "name": "Handbook"}
 OFFER = {"call_no_answer_business_days": 3, "product_name": "Lakshyaa", "sender_name": "A Founder",
          "founder_title": "Founder", "sender_website": "https://example.test",
          "postal_address": "1 Example St, Columbus OH", "sender_phone": "614-555-0100",
-         "cta_question": "Would next week work?"}
+         "cta_question": "Would next week work?", "offer_approved": True}
 
 
 def make_cand(built, store, monkeypatch, *, now=MON, handbook=HANDBOOK, settings=OFFER):
@@ -151,6 +151,41 @@ def test_no_candidate_when_the_handbook_is_unavailable(built, monkeypatch):
     outcome(client, "A-0002", outcome="NO_ANSWER", called_at="2026-09-28T13:00:00+00:00")
     data = candidate(client, "A-0002").get_json()
     assert data["candidate"] is None and data["unavailable"] is True and data["reason"] == "handbook_unavailable"
+
+
+def test_a_sticky_do_not_contact_blocks_the_candidate_through_the_route(built, monkeypatch):
+    # DO_NOT_CONTACT with a FAILED suppression write, then a later NO_ANSWER: the effective decision is still
+    # STOP, so no candidate is offered even though the latest outcome is eligible and Suppression is empty.
+    store = a_store()
+    client = make_cand(built, store, monkeypatch)
+
+    def boom(_entries):
+        raise RuntimeError("the Suppression tab could not be written")
+
+    store.append_suppression = boom
+    stop = outcome(client, "A-0002", outcome="DO_NOT_CONTACT", note="remove me").get_json()
+    assert stop["effect"] == calls.STOP and stop["suppression_written"] is False
+    assert outcome(client, "A-0002", outcome="NO_ANSWER",
+                   called_at="2026-09-29T13:00:00+00:00").get_json()["effect"] == calls.STOP
+    assert list(store.suppression()) == []  # the redundant Suppression entry never landed
+    data = candidate(client, "A-0002").get_json()
+    assert data["candidate"] is None and data["reason"] == "call_stop"
+
+
+def test_no_candidate_until_the_offer_is_approved_through_the_route(built, monkeypatch):
+    store = a_store()
+    client = make_cand(built, store, monkeypatch, settings={**OFFER, "offer_approved": False})
+    outcome(client, "A-0002", outcome="INTERESTED")
+    data = candidate(client, "A-0002").get_json()
+    assert data["candidate"] is None and data["reason"] == "offer_not_approved"
+
+
+def test_an_older_call_candidate_does_not_claim_today(built, monkeypatch):
+    store = a_store()
+    client = make_cand(built, store, monkeypatch, now=at("2026-10-06 09:00"))  # days after the call
+    outcome(client, "A-0002", outcome="NO_ANSWER", called_at="2026-09-28T13:00:00+00:00")
+    cand = candidate(client, "A-0002").get_json()["candidate"]
+    assert "today" not in cand["body"].lower()
 
 
 def test_showing_a_candidate_writes_nothing_and_does_not_authorise_anything(built, monkeypatch):

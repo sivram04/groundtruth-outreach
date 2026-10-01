@@ -6,13 +6,19 @@ not persisted: it is composed on demand from already-saved facts so the founder 
 evidence and decide what to do by hand.
 
 What it is grounded in: the saved call outcome and note (`outreach/calls.py`), the company's own evidence
-on the lead row (the cited offering quote), the handbook-approved offer (the product name and CTA from
-settings), and tied to the current Drive handbook's content hash. The handbook has no post-call template,
-so the wording is composed here per outcome, never drawn from a model.
+on the lead row (the cited offering quote), and the offer the founder approved in settings (the product
+name and CTA). The wording is composed here in code per outcome - the handbook has no post-call template
+and its text is not read; the current Drive handbook's name and content hash are recorded only so the
+candidate is tied to a handbook version.
 
 Rules, by the founder's direction:
   * A candidate is offered only for NO_ANSWER, INTERESTED and CALLBACK. DO_NOT_CONTACT, NOT_INTERESTED and
     WRONG_NUMBER get none.
+  * The effective call decision is honoured, not just the latest outcome: a sticky do-not-contact (STOP)
+    blocks a candidate even after a later no-answer, whether or not the redundant Suppression write landed.
+  * The founder must have approved the offer wording (`offer_approved`) before it is shown.
+  * "today" is said only when the saved call is on the current New York date; an older call is worded so it
+    stays true without a timing claim.
   * After NO_ANSWER the wording never claims a conversation happened.
   * No wording ever invents what the recipient said.
   * A CALLBACK uses only the callback time the founder recorded, never an inferred one.
@@ -22,7 +28,7 @@ Rules, by the founder's direction:
 import re
 
 from outreach import calls, drafting
-from outreach.business_days import NEW_YORK
+from outreach.business_days import NEW_YORK, new_york_date
 
 # The call outcomes that warrant a post-call outreach candidate.
 CANDIDATE_OUTCOMES = (calls.NO_ANSWER, calls.INTERESTED, calls.CALLBACK)
@@ -69,6 +75,11 @@ def _callback_text(callback_at):
     return when.astimezone(NEW_YORK).strftime("%Y-%m-%d %H:%M ET") if when else ""
 
 
+def _ny_date(iso):
+    when = calls._parse(iso)
+    return when.astimezone(NEW_YORK).date() if when else None
+
+
 def _sender_values(settings):
     values = {key: str(settings.get(key.lower(), "")).strip() for key in drafting.SIGNATURE_FIELDS}
     values["SENDER_PHONE"] = str(settings.get("sender_phone", "")).strip()
@@ -76,20 +87,30 @@ def _sender_values(settings):
 
 
 def offer_configured(settings):
-    """Whether the handbook-approved offer fields a candidate needs are present (non-placeholder)."""
+    """Whether the offer fields a candidate needs are present (non-placeholder)."""
     values = _sender_values(settings)
     return all(values[key] for key in drafting.SIGNATURE_FIELDS)
 
 
-def candidate(lead, call, settings, *, handbook):
+def offer_approved(settings):
+    """Whether the founder has approved the offer wording - the same flag the initial email requires."""
+    return settings.get("offer_approved") is True
+
+
+def candidate(lead, call, settings, *, handbook, now, effect=calls.CONTINUE):
     """A post-call email candidate for review, or raise `NotEligible` with a reason.
 
-    `call` is a `latest_call(...)` dict. `handbook` is the current Drive handbook (its content hash ties the
-    candidate to a version); a candidate is never built without it. Composes the subject, body and the
-    evidence to show; sends and persists nothing."""
+    `call` is a `latest_call(...)` dict. `effect` is the lead's EFFECTIVE call decision
+    (`calls.outreach_effect` over all its events): a STOP (sticky do-not-contact, or not-interested) blocks a
+    candidate even when the latest outcome is eligible, whether or not the Suppression write landed. `now` is
+    the current time, so "today" is said only when the saved call is on the current New York date.
+    `handbook` ties the candidate to a handbook version (its text is not read). Composes the subject, body and
+    the evidence to show; sends and persists nothing."""
     outcome = call.get("outcome", "")
     if not eligible_outcome(outcome):
         raise NotEligible("outcome_not_eligible")
+    if effect == calls.STOP:
+        raise NotEligible("call_stop")  # the effective decision is stop, not whatever was recorded last
     email = str(lead.get("BEST EMAIL", "")).strip()
     if not email:
         raise NotEligible("no_email")
@@ -97,6 +118,8 @@ def candidate(lead, call, settings, *, handbook):
         raise NotEligible("handbook_unavailable")
     if not offer_configured(settings):
         raise NotEligible("offer_not_configured")
+    if not offer_approved(settings):
+        raise NotEligible("offer_not_approved")
 
     values = _sender_values(settings)
     first = drafting.verified_first_name(lead)
@@ -105,6 +128,9 @@ def candidate(lead, call, settings, *, handbook):
     evidence = _evidence(lead)
     cta = str(settings.get("cta_question", "")).strip()
     callback_text = _callback_text(call.get("callback_at", "")) if outcome == calls.CALLBACK else ""
+    # "today" only when the saved call is on the current New York date; otherwise word it without a timing claim.
+    called_day = _ny_date(call.get("called_at", ""))
+    is_today = called_day is not None and called_day == new_york_date(now)
 
     # The one line that references the company uses the company's OWN words (verbatim, from its site), so
     # nothing is invented. It is included only when that evidence exists.
@@ -113,16 +139,19 @@ def candidate(lead, call, settings, *, handbook):
 
     paragraphs = []
     if outcome == calls.NO_ANSWER:
-        # Never claim a conversation happened.
-        paragraphs.append(f"I tried to reach you by phone today but could not get through.")
+        # Never claim a conversation happened; claim "today" only when it is true.
+        paragraphs.append("I tried to reach you by phone today but could not get through." if is_today
+                          else "I tried to reach you by phone but could not get through.")
         if evidence_line:
             paragraphs.append(evidence_line)
         paragraphs.append(f"I would still welcome the chance to show you how {product} could help {company}.")
         paragraphs.append(cta or "Is there a better time to reach you?")
         subject = f"Tried to reach you — {product}"
     elif outcome == calls.INTERESTED:
-        paragraphs.append(f"Thank you for taking the time to speak with me today, and for your interest in "
-                          f"{product}.")
+        paragraphs.append((f"Thank you for taking the time to speak with me today, and for your interest in "
+                           f"{product}.") if is_today else
+                          (f"Thank you for taking the time to speak with me, and for your interest in "
+                           f"{product}."))
         if evidence_line:
             paragraphs.append(evidence_line)
         paragraphs.append(f"I would love to set up a short next step so you can see how it could help "
@@ -130,7 +159,7 @@ def candidate(lead, call, settings, *, handbook):
         paragraphs.append(cta or "Would a brief call next week suit you?")
         subject = f"Following up after our call — {product}"
     else:  # CALLBACK
-        paragraphs.append("Thanks for the call today.")
+        paragraphs.append("Thanks for the call today." if is_today else "Thanks for the call.")
         if callback_text:
             paragraphs.append(f"I have a note to follow up with you at {callback_text}.")
         if evidence_line:

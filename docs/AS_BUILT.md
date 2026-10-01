@@ -1491,11 +1491,30 @@ Sheet — and how often the checks refuse it — is unknown.
   clock-advance overdue transition is covered by the controlled-clock route tests (the local harness runs on a fixed
   real clock). **Synthetic only; `enable_calls` off in deploy; no live Sheet, no send, no deploy.**
 
+- **2026-10-01 (calls: post-call candidate — four review gaps)** — a review
+  (`docs/testing/post-call-review-2026-10-01.md`) found four user-visible gaps, now fixed; the read-only
+  candidate design, manual editing, no-email, opt-out and unavailable states are preserved. **(1) Effective
+  decision, not latest outcome:** the endpoint computes `calls.outreach_effect(events)` and refuses
+  (`call_stop`) when it is STOP, and `post_call.candidate` takes that `effect` too — a DO_NOT_CONTACT then a
+  later NO_ANSWER yields no candidate even when the redundant Suppression write failed (the ordinary
+  `suppression.covers` check is kept). **(2) Offer approval required:** `post_call.offer_approved` requires
+  the existing `offer_approved` flag (raises `offer_not_approved`); the wording is no longer called
+  "handbook-approved" — it is composed in code from settings, with the handbook's name/hash recorded only to
+  tie it to a version (its text is not read). **(3) No false "today":** the builder takes `now` and says
+  "today" only when the saved call's New York date is the current one, wording an older call without a timing
+  claim (NO_ANSWER/INTERESTED/CALLBACK). **(4) Stale candidate withdrawn:** `PostCallCandidate` takes a
+  `reloadKey` (from the lead's call history length, effect and task id) and re-fetches when it changes, so a
+  parent refresh after a CallPanel save withdraws or replaces the candidate. **Verified, no network:** Python
+  **958 passed**, frontend **92 passed**, typecheck and build clean. **Browser-verified** (local harness):
+  a NO_ANSWER candidate on the lead page → record DO_NOT_CONTACT through the CallPanel → the post-call section
+  disappears with no manual reload; gaps 1-3 are proved by the route/pure tests. **Synthetic only; no
+  sending, no Gmail draft, no deploy, no live Sheet.**
+
 - **2026-10-01 (calls: post-call email candidate)** — when the founder records a call for a lead with an
   email, they can inspect a post-call email candidate (edit or discard it) beside its evidence. New pure
   module `outreach/post_call.py` composes it from the latest saved call outcome and note, the company's own
-  cited words on the lead row, the handbook-approved offer (settings), tied to the current Drive handbook's
-  content hash. **Separate from the initial email and the follow-up sequence**, and **candidate-only: no
+  cited words on the lead row, the offer the founder approved in settings, with the current Drive handbook's
+  name and content hash recorded to tie it to a version (its text is not read). **Separate from the initial email and the follow-up sequence**, and **candidate-only: no
   sending, no Gmail draft, no persistence.** A flag-gated endpoint `GET /api/calls/<lead>/candidate` (under
   `enable_calls`) builds it on demand; `PostCallCandidate` on the lead page shows it with editable subject/
   body, a Discard action, and "what this is based on" (outcome, note, company evidence, handbook). **Rules:**

@@ -10,9 +10,13 @@ import type { CallCandidateResult } from "../types";
  *  `load` is injectable for tests. */
 export function PostCallCandidate({
   leadId,
+  reloadKey = "",
   load = loadCallCandidate,
 }: {
   leadId: string;
+  /** A value that changes whenever this lead's call state changes (a new outcome, a stop, a snooze), so the
+   *  candidate is re-fetched and a stale editable draft is withdrawn or replaced after a parent refresh. */
+  reloadKey?: string;
   load?: typeof loadCallCandidate;
 }) {
   const [result, setResult] = useState<CallCandidateResult | null>(null);
@@ -40,7 +44,7 @@ export function PostCallCandidate({
     return () => {
       live = false;
     };
-  }, [leadId, load]);
+  }, [leadId, reloadKey, load]);
 
   if (error) {
     return (

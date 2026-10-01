@@ -125,7 +125,10 @@ export function LeadPage({ data, id, onChanged }: { data: Snapshot; id: string; 
             effectSaid={lead.call_effect_said}
             onChanged={onChanged ?? (() => {})}
           />
-          <PostCallCandidate leadId={lead.id} />
+          <PostCallCandidate
+            leadId={lead.id}
+            reloadKey={`${lead.call_history?.length ?? 0}|${lead.call_effect ?? ""}|${lead.call_task?.id ?? ""}`}
+          />
         </>
       )}
 

@@ -29,16 +29,33 @@ describe("the post-call candidate", () => {
     expect(screen.queryByDisplayValue(/Tried to reach you/)).toBeNull();
   });
 
-  it("renders nothing for a phone-only lead or an ineligible outcome", async () => {
-    const { container } = render(
-      <PostCallCandidate leadId="A-0001" load={load({ candidate: null, reason: "no_email" })} />,
-    );
-    await vi.waitFor(() => expect(container.querySelector(".card")).toBeNull());
-    cleanup();
-    const other = render(
-      <PostCallCandidate leadId="A-0002" load={load({ candidate: null, reason: "outcome_not_eligible" })} />,
-    );
-    await vi.waitFor(() => expect(other.container.querySelector(".card")).toBeNull());
+  it("renders nothing for a phone-only lead, an ineligible outcome, or a call stop", async () => {
+    for (const reason of ["no_email", "outcome_not_eligible", "call_stop"]) {
+      const { container } = render(
+        <PostCallCandidate leadId="A-0002" load={load({ candidate: null, reason })} />,
+      );
+      await vi.waitFor(() => expect(container.querySelector(".card")).toBeNull());
+      cleanup();
+    }
+  });
+
+  it("withdraws a stale candidate when the call state changes, and loads a new one", async () => {
+    // A parent refresh (after a CallPanel save) changes reloadKey; the component must re-fetch, so an old
+    // editable candidate is withdrawn on a later stop, and a new eligible call loads its own candidate.
+    const first = cand({ subject: "Tried to reach you — Lakshyaa" });
+    const load = vi
+      .fn()
+      .mockResolvedValueOnce({ candidate: first })
+      .mockResolvedValueOnce({ candidate: null, reason: "call_stop" })
+      .mockResolvedValue({ candidate: cand({ outcome: "INTERESTED", subject: "Following up after our call — Lakshyaa" }) });
+    const { rerender } = render(<PostCallCandidate leadId="A-0002" reloadKey="1" load={load} />);
+    await vi.waitFor(() => expect(screen.getByDisplayValue("Tried to reach you — Lakshyaa")).toBeTruthy());
+
+    rerender(<PostCallCandidate leadId="A-0002" reloadKey="2" load={load} />);  // a later DO_NOT_CONTACT
+    await vi.waitFor(() => expect(screen.queryByDisplayValue(/Tried to reach you/)).toBeNull());
+
+    rerender(<PostCallCandidate leadId="A-0002" reloadKey="3" load={load} />);  // a new eligible call
+    await vi.waitFor(() => expect(screen.getByDisplayValue("Following up after our call — Lakshyaa")).toBeTruthy());
   });
 
   it("explains a suppressed lead rather than offering an email", async () => {

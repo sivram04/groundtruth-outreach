@@ -42,6 +42,7 @@ SETTINGS = {
     "product_name": "Lakshyaa", "sender_name": "A Founder", "founder_title": "Founder",
     "sender_website": "https://lakshyaa.example", "postal_address": "1 Example St, Columbus OH 43215",
     "sender_phone": "614-555-0100", "cta_question": "Would a short call next week work?",
+    "offer_approved": True,
 }
 STUB_HANDBOOK = {"content_hash": "local-handbook", "name": "Handbook (local)"}
 
