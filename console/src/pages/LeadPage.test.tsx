@@ -43,12 +43,14 @@ describe("postCallReloadKey", () => {
     ).not.toBe(base);
   });
 
-  it("changes on every snapshot refresh (read_at), to catch in-place handbook/offer edits", () => {
-    const base = postCallReloadKey(lead(), snap());
-    expect(postCallReloadKey(lead(), snap({ read_at: "2026-10-01 09:05 ET" }))).not.toBe(base);
+  it("changes on every refresh via the generation counter, even within the same clock minute", () => {
+    // read_at is only minute-precision, so two refreshes in the same minute share it; the generation
+    // counter (incremented on every successful load) still forces a re-check of the candidate.
+    const base = postCallReloadKey(lead(), snap(), 1);
+    expect(postCallReloadKey(lead(), snap(), 2)).not.toBe(base); // same read_at, next generation
   });
 
-  it("is stable when nothing (including read_at) changes", () => {
-    expect(postCallReloadKey(lead(), snap())).toBe(postCallReloadKey(lead(), snap()));
+  it("is stable when nothing (generation, read_at, or the listed facts) changes", () => {
+    expect(postCallReloadKey(lead(), snap(), 3)).toBe(postCallReloadKey(lead(), snap(), 3));
   });
 });

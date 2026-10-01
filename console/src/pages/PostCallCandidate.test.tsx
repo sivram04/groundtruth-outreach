@@ -60,6 +60,25 @@ describe("the post-call candidate", () => {
     expect(screen.queryByDisplayValue("My own subject")).toBeNull();
   });
 
+  it("treats a changed handbook hash as a changed candidate, even if the text is identical", async () => {
+    // Identical subject/body across the refresh, but the handbook hash changes: the underlying candidate
+    // changed, so the founder's edit must not be preserved under the new basis.
+    let n = 0;
+    const load = vi.fn(() => {
+      n += 1;
+      return Promise.resolve({
+        candidate: cand({ subject: "Tried to reach you — Lakshyaa", handbook_hash: n === 1 ? "h1" : "h2" }),
+      });
+    });
+    const { rerender } = render(<PostCallCandidate leadId="A-0002" reloadKey="1" load={load} />);
+    await vi.waitFor(() => expect(screen.getByDisplayValue("Tried to reach you — Lakshyaa")).toBeTruthy());
+    fireEvent.change(screen.getByDisplayValue("Tried to reach you — Lakshyaa"), { target: { value: "My edit" } });
+    rerender(<PostCallCandidate leadId="A-0002" reloadKey="2" load={load} />);
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(screen.queryByDisplayValue("My edit")).toBeNull());
+    expect(screen.getByDisplayValue("Tried to reach you — Lakshyaa")).toBeTruthy();
+  });
+
   it("withdraws a stale candidate when the call state changes, and loads a new one", async () => {
     // A parent refresh (after a CallPanel save) changes reloadKey; the component must re-fetch, so an old
     // editable candidate is withdrawn on a later stop, and a new eligible call loads its own candidate.

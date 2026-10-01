@@ -43,3 +43,42 @@ effect refactor. The three fixes themselves were **not** reproduced in the brows
 controlled clock, no way to inject a Suppression-write failure, and no out-of-band handbook/offer change — so
 they are proved by the network-disabled route, component and pure tests above. No sending, no Gmail draft, no
 deploy, no live Sheet.
+
+## Independent recheck of `e52c221` (2026-10-01)
+
+In network-disabled containers, 55 focused Python tests and 18 focused frontend tests passed. Code review
+supports the partial-suppression UI handling and the midnight due-date pin. The in-place freshness claim is
+still incomplete:
+
+1. `console_model.build` formats `read_at` to **minute** precision (`%Y-%m-%d %H:%M ET`). Two snapshot
+   refreshes in the same minute return the same `postCallReloadKey` when all other listed fields are unchanged.
+   `PostCallCandidate` therefore does not re-fetch after a same-minute handbook edit at the same URL or a
+   still-approved offer-wording edit. The added test changes `read_at` by five minutes; it misses this case.
+2. `PostCallCandidate.serverSig` compares only lead ID, subject and body. If a re-fetch does happen and the
+   handbook hash or cited evidence changes while the generated text remains identical, the founder's edits
+   are preserved under the newly displayed basis. The candidate result already includes `handbook_hash` and
+   evidence. Treating these as an unchanged candidate is narrower than the stated “underlying candidate
+   unchanged” condition. This is a code-path finding; no browser reproduction was attempted.
+
+The previous review's chat partial-success and due-date findings are addressed at the tested scope. No
+product code or live service was changed by this recheck.
+
+## Remediation of the recheck (2026-10-01, product-code change)
+
+Both residual sub-gaps in finding 1 are closed. Containers available: Python **980 passed**, frontend
+**105 passed**, typecheck and build clean.
+
+1. **Re-fetch no longer depends on `read_at` minute precision.** `App` now keeps a `generation` counter that
+   increments on every successful snapshot load and passes it to `LeadPage`; `postCallReloadKey` folds it in,
+   so the candidate is re-fetched on every refresh even two within the same clock minute. *Regression:*
+   `LeadPage.test.tsx` — the key changes when `generation` increments with `read_at` and all listed facts
+   unchanged, and is stable when `generation` is unchanged.
+2. **The signature is the full basis.** `PostCallCandidate`'s "unchanged candidate" signature now includes
+   `handbook_hash` and the cited `evidence`, not just lead id + subject + body. A re-fetch whose handbook
+   version or evidence changed is treated as a changed candidate (the founder's edits are replaced), matching
+   the "underlying candidate unchanged" condition. *Regression:* `PostCallCandidate.test.tsx` — identical
+   subject/body with a changed handbook hash discards the edit.
+
+These are internal refresh-timing and signature refinements, verified by the network-disabled frontend
+component tests and the unit key test; they were not browser-reproduced (the harness cannot make a
+same-minute in-place handbook edit). No sending, no Gmail draft, no deploy, no live Sheet.

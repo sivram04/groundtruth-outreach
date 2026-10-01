@@ -9,14 +9,16 @@ import { CallPanel } from "./CallPanel";
 import { NotFound } from "./NotFound";
 import { PostCallCandidate } from "./PostCallCandidate";
 
-/** A value that changes on every snapshot refresh (via `read_at`), so the open lead page re-checks its
- *  post-call candidate whenever the snapshot is re-read — which catches in-place changes the snapshot cannot
- *  fingerprint, such as the handbook being edited at the same URL or approved offer wording changing while
- *  approval stays true (the candidate endpoint rebuilds from the live handbook and settings). The call
- *  fields, suppression, offer flag and handbook URL are kept too for clarity. `PostCallCandidate` preserves
- *  the founder's edits when the re-fetched candidate is unchanged, and withdraws it when it is gone. */
-export function postCallReloadKey(lead: Lead, data: Snapshot): string {
+/** A value that changes on every snapshot refresh, so the open lead page re-checks its post-call candidate
+ *  whenever the snapshot is re-read — which catches in-place changes the snapshot cannot fingerprint, such as
+ *  the handbook being edited at the same URL or approved offer wording changing while approval stays true
+ *  (the candidate endpoint rebuilds from the live handbook and settings). `generation` increments on every
+ *  successful load, so this is reliable even within one clock minute (read_at is only minute precision). The
+ *  call fields, suppression, offer flag and handbook URL are kept too for clarity. `PostCallCandidate`
+ *  preserves the founder's edits when the re-fetched candidate is unchanged, and withdraws it when gone. */
+export function postCallReloadKey(lead: Lead, data: Snapshot, generation = 0): string {
   return [
+    generation,
     data.read_at ?? "",
     lead.call_history?.length ?? 0,
     lead.call_effect ?? "",
@@ -27,7 +29,17 @@ export function postCallReloadKey(lead: Lead, data: Snapshot): string {
   ].join("|");
 }
 
-export function LeadPage({ data, id, onChanged }: { data: Snapshot; id: string; onChanged?: () => void }) {
+export function LeadPage({
+  data,
+  id,
+  onChanged,
+  generation = 0,
+}: {
+  data: Snapshot;
+  id: string;
+  onChanged?: () => void;
+  generation?: number;
+}) {
   const lead = data.leads.find((item) => item.id === id);
   if (!lead) return <NotFound what={`There is no lead ${id}.`} />;
   const account = data.links.gmail_account || data.signed_in_as;
@@ -144,7 +156,7 @@ export function LeadPage({ data, id, onChanged }: { data: Snapshot; id: string; 
             effectSaid={lead.call_effect_said}
             onChanged={onChanged ?? (() => {})}
           />
-          <PostCallCandidate leadId={lead.id} reloadKey={postCallReloadKey(lead, data)} />
+          <PostCallCandidate leadId={lead.id} reloadKey={postCallReloadKey(lead, data, generation)} />
         </>
       )}
 

@@ -18,6 +18,9 @@ interface State {
   data: Snapshot | null;
   error: LoadError | null;
   loading: boolean;
+  // Increments on every successful snapshot load, so a page can force a re-fetch of derived data on each
+  // refresh regardless of how coarse any timestamp in the snapshot is (read_at is only minute precision).
+  generation: number;
 }
 
 const TITLES: Record<string, string> = {
@@ -30,7 +33,7 @@ const TITLES: Record<string, string> = {
   missing: "Not found",
 };
 
-function page(route: Route, data: Snapshot, onImported: () => void) {
+function page(route: Route, data: Snapshot, onImported: () => void, generation: number) {
   switch (route.page) {
     case "dashboard":
       return <Dashboard data={data} onChanged={onImported} />;
@@ -39,7 +42,7 @@ function page(route: Route, data: Snapshot, onImported: () => void) {
     case "leads":
       return <Leads key={route.query.toString()} data={data} query={route.query} />;
     case "lead":
-      return <LeadPage data={data} id={route.id} onChanged={onImported} />;
+      return <LeadPage data={data} id={route.id} onChanged={onImported} generation={generation} />;
     case "review":
       return <Review leadId={route.id} from={data.approvals?.sender || data.links.gmail_account} />;
     case "sources":
@@ -93,16 +96,16 @@ function remember(shown: boolean) {
 
 export function App({ load = loadSnapshot, ask }: { load?: () => Promise<Snapshot>; ask?: typeof askAssistant }) {
   const route = useRoute();
-  const [state, setState] = useState<State>({ data: null, error: null, loading: true });
+  const [state, setState] = useState<State>({ data: null, error: null, loading: true, generation: 0 });
   const [assistantShown, setAssistantShown] = useState(remembered);
 
   const refresh = useCallback(() => {
     setState((current) => ({ ...current, loading: true }));
     load().then(
-      (data) => setState({ data, error: null, loading: false }),
+      (data) => setState((current) => ({ data, error: null, loading: false, generation: current.generation + 1 })),
       (error: unknown) =>
         setState((current) => ({
-          data: current.data,
+          ...current,
           error: error instanceof LoadError ? error : new LoadError("Something went wrong reading the Sheet. Try again."),
           loading: false,
         })),
@@ -165,7 +168,7 @@ export function App({ load = loadSnapshot, ask }: { load?: () => Promise<Snapsho
             </div>
           )}
           <Warnings warnings={data.warnings} />
-          {page(route, data, refresh)}
+          {page(route, data, refresh, state.generation)}
         </>
       ) : error ? (
         <Failed error={error} onRetry={refresh} />

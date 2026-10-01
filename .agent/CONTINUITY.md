@@ -70,6 +70,27 @@
 
 ## [DISCOVERIES]
 
+- 2026-10-01 [FIX] Recheck of e52c221 found finding 1 still incomplete 2 ways; both closed. (a) read_at is
+  minute-precision → same-minute refreshes shared postCallReloadKey → no re-fetch. App now keeps a
+  `generation` counter (incremented each successful load), threaded page()→LeadPage→postCallReloadKey(lead,
+  data, generation), so the candidate re-fetches on EVERY refresh regardless of the clock. (b)
+  PostCallCandidate serverSig now = leadId+subject+body+handbook_hash+JSON(evidence) (was leadId+subject+body),
+  so a changed handbook version/evidence with identical text is treated as a changed candidate (edits
+  replaced, not preserved under a new basis). Python 980, frontend 105 (LeadPage.test.tsx generation key;
+  PostCallCandidate.test.tsx identical-text-changed-hash discards edit) + tsc/build. Test gotcha: a
+  mockResolvedValueOnce→mockResolvedValue sequence misaligned across rerenders; use a call-indexed
+  vi.fn(()=>...) for deterministic per-call values. Not browser-reproduced (harness can't make a same-minute
+  in-place handbook edit). Synthetic only; enable_calls off in deploy; committed, not pushed.
+
+- 2026-10-01T14:03:19Z [TOOL] Independent recheck of e52c221: 55 focused Python
+  and 18 focused frontend tests PASS in network-disabled containers. [CODE] The
+  candidate refresh remains incomplete: `read_at` has minute precision, so
+  same-minute refreshes keep the same key; `serverSig` omits handbook hash and
+  cited evidence, so edits can survive a changed source basis with identical
+  subject/body. Partial STOP warning and midnight due-date pin are supported by
+  code and focused tests. Evidence: docs/testing/chat-call-review-2026-10-01.md.
+  No product code or live service changed in this recheck.
+
 - 2026-10-01 [FIX] Chat-call review (docs/testing/chat-call-review-2026-10-01.md) three findings closed;
   interpreter stays read-only, confirm via POST /api/calls/<lead>/outcome. (1) IN-PLACE freshness:
   postCallReloadKey now includes data.read_at → lead page re-fetches the candidate on EVERY snapshot refresh

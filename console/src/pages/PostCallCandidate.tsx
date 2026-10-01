@@ -40,7 +40,11 @@ export function PostCallCandidate({
           setDiscarded(false);
           return;
         }
-        const sig = `${leadId}\n${r.candidate.subject}\n${r.candidate.body}`;
+        // The full basis, not just the generated text: the handbook version and the cited evidence are part
+        // of "the underlying candidate", so a change in either adopts the new candidate (edits are not kept
+        // under a changed basis) even if the composed subject/body happen to be identical.
+        const c = r.candidate;
+        const sig = `${leadId}\n${c.subject}\n${c.body}\n${c.handbook_hash}\n${JSON.stringify(c.evidence)}`;
         if (sig !== serverSig.current) {
           // A new or changed basis (a different lead, or in-place handbook/offer wording): adopt it and
           // drop any stale edits.

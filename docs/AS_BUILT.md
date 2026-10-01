@@ -1491,6 +1491,18 @@ Sheet — and how often the checks refuse it — is unknown.
   clock-advance overdue transition is covered by the controlled-clock route tests (the local harness runs on a fixed
   real clock). **Synthetic only; `enable_calls` off in deploy; no live Sheet, no send, no deploy.**
 
+- **2026-10-01 (calls: candidate freshness recheck follow-up)** — an independent recheck found finding 1
+  still incomplete two ways; both closed. **(a)** `read_at` is only minute-precision, so two refreshes in the
+  same minute shared a `postCallReloadKey` and no re-fetch happened — `App` now keeps a `generation` counter
+  (incremented on every successful snapshot load) threaded to `LeadPage` and folded into the key, so the
+  candidate is re-fetched on every refresh regardless of the clock. **(b)** `PostCallCandidate`'s
+  "unchanged candidate" signature now includes `handbook_hash` and the cited `evidence` (not just lead id +
+  subject + body), so a re-fetch whose handbook version or evidence changed is treated as a changed candidate
+  and the founder's edits are replaced. **Verified, no network:** Python 980, frontend 105 (`LeadPage.test.tsx`
+  generation key; `PostCallCandidate.test.tsx` identical-text-changed-hash discards the edit), typecheck and
+  build clean. Internal refresh-timing/signature refinements, not browser-reproduced (the harness cannot make
+  a same-minute in-place handbook edit). Synthetic only; no sending, no Gmail draft, no deploy, no live Sheet.
+
 - **2026-10-01 (calls: chat-logging + candidate freshness, review follow-up)** — a review
   (`docs/testing/chat-call-review-2026-10-01.md`) found three gaps; all closed, interpreter stays read-only
   and the confirm stays routed through `POST /api/calls/<lead>/outcome`. **(1) In-place handbook/offer
