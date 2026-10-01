@@ -38,12 +38,14 @@ export function CallLogChat({
   const [callbackAt, setCallbackAt] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [warning, setWarning] = useState("");
   const [saved, setSaved] = useState("");
 
   function read(refine: { lead_id?: string; callback_at?: string } = {}) {
     if (busy || !note.trim()) return;
     setBusy(true);
     setError("");
+    setWarning("");
     setSaved("");
     interpret(note, refine).then(
       (p) => {
@@ -61,19 +63,30 @@ export function CallLogChat({
     if (busy || !p.lead || !p.outcome) return;
     setBusy(true);
     setError("");
+    setWarning("");
     record(p.lead.lead_id, {
       outcome: p.outcome,
       note: p.note,
+      called_at: p.called_at || undefined, // pin the call time so the saved due matches the preview
       callback_at: p.callback_at || undefined,
       submission_id: p.submission_id, // the proposal's own id: a retry after a lost response makes no duplicate
     }).then(
-      () => {
+      (result) => {
         setBusy(false);
+        onChanged(); // the call itself was recorded either way, so refresh the queue
+        if (result?.suppression_written === false || result?.warning) {
+          // A partial success (the call's stop was recorded but its Suppression entry was not). Keep the
+          // proposal and its submission id so Retry re-attempts the suppression write without a second call.
+          setWarning(
+            result.warning ||
+              "The call was recorded, but its suppression entry was not written. The email suppression list may be incomplete until you retry.",
+          );
+          return;
+        }
         setSaved(`Saved for ${p.lead?.company || p.lead?.lead_id}.`);
         setProposal(null);
         setNote("");
         setCallbackAt("");
-        onChanged();
       },
       (e: unknown) => {
         setBusy(false); // keep the proposal so Confirm retries with the same submission id
@@ -198,6 +211,18 @@ export function CallLogChat({
               <X size={15} aria-hidden="true" /> Cancel
             </button>
           </div>
+        </div>
+      )}
+
+      {warning && proposal?.status === "ready" && (
+        <div className="callout amber" role="alert">
+          <div className="callout-text">
+            <strong>The call was saved. One step did not finish.</strong>
+            <span className="block small">{warning}</span>
+          </div>
+          <button type="button" className="secondary" disabled={busy} onClick={() => confirm(proposal)}>
+            <Phone size={15} aria-hidden="true" /> Retry the suppression write
+          </button>
         </div>
       )}
 

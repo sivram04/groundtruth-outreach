@@ -79,6 +79,28 @@ describe("chat call logging", () => {
     await vi.waitFor(() => expect(screen.getByText(/permanent stop on outreach/)).toBeTruthy());
   });
 
+  it("shows a partial-success warning and repairs the suppression write without a second call", async () => {
+    // The real partial-success response shape: HTTP 200, recorded true, suppression_written false, warning.
+    const interpret = vi.fn().mockResolvedValue({ ...READY, outcome: "DO_NOT_CONTACT", do_not_contact: true });
+    const record = vi
+      .fn()
+      .mockResolvedValueOnce({ recorded: true, task: null, history: [], effect: "STOP",
+                               suppression_written: false, warning: "the suppression list could not be written" })
+      .mockResolvedValue({ recorded: true, task: null, history: [], effect: "STOP", suppression_written: true });
+    const onChanged = vi.fn();
+    render(<CallLogChat onChanged={onChanged} interpret={interpret} record={record} />);
+    type("Bluebird, do not contact");
+    fireEvent.click(screen.getByRole("button", { name: /Read it/ }));
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: /Confirm and save/ })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /Confirm and save/ }));
+    await vi.waitFor(() => expect(screen.getByText(/suppression list could not be written/)).toBeTruthy());
+    expect(screen.queryByText(/^Saved for/)).toBeNull(); // not a clean "Saved"
+    fireEvent.click(screen.getByRole("button", { name: /Retry the suppression write/ }));
+    await vi.waitFor(() => expect(record).toHaveBeenCalledTimes(2));
+    expect(record.mock.calls[1]![1].submission_id).toBe("chat-abc"); // same submission, no second call
+    await vi.waitFor(() => expect(screen.queryByText(/suppression list could not be written/)).toBeNull());
+  });
+
   it("keeps the proposal and submission id to retry after a failed confirm", async () => {
     const interpret = vi.fn().mockResolvedValue(READY);
     const record = vi

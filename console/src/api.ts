@@ -342,7 +342,7 @@ async function callPost(path: string, payload: Record<string, unknown>, fetcher:
  *  server records one row even when the UI omits the call time and a response is lost. */
 export function recordCallOutcome(
   leadId: string,
-  outcome: { outcome: string; note?: string; callback_at?: string; submission_id?: string },
+  outcome: { outcome: string; note?: string; called_at?: string; callback_at?: string; submission_id?: string },
   fetcher: typeof fetch = fetch,
 ): Promise<CallResult> {
   return callPost(`/api/calls/${encodeURIComponent(leadId)}/outcome`, outcome, fetcher);

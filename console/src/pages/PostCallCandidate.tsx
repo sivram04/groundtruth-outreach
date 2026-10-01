@@ -1,5 +1,5 @@
 import { Mail, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CallError, loadCallCandidate } from "../api";
 import { Card, ExternalLink } from "../components";
 import type { CallCandidateResult } from "../types";
@@ -24,20 +24,32 @@ export function PostCallCandidate({
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [discarded, setDiscarded] = useState(false);
+  // The pristine subject+body (with the lead) of the last fetched candidate. A re-fetch that returns the
+  // same pristine candidate keeps the founder's edits; a different one (or none) replaces or withdraws it.
+  const serverSig = useRef("");
 
   useEffect(() => {
     let live = true;
-    setResult(null);
     setError("");
-    setDiscarded(false);
     load(leadId).then(
       (r) => {
         if (!live) return;
         setResult(r);
-        if (r.candidate) {
+        if (!r.candidate) {
+          serverSig.current = ""; // withdrawn: the editable candidate is gone (renders a note or nothing)
+          setDiscarded(false);
+          return;
+        }
+        const sig = `${leadId}\n${r.candidate.subject}\n${r.candidate.body}`;
+        if (sig !== serverSig.current) {
+          // A new or changed basis (a different lead, or in-place handbook/offer wording): adopt it and
+          // drop any stale edits.
+          serverSig.current = sig;
           setSubject(r.candidate.subject);
           setBody(r.candidate.body);
+          setDiscarded(false);
         }
+        // else: the basis is unchanged — keep the founder's edits and discard state as they are.
       },
       (e: unknown) => live && setError(e instanceof CallError ? e.message : "The candidate could not be loaded."),
     );

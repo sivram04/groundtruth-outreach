@@ -228,6 +228,23 @@ def test_interpret_asks_for_an_explicit_callback_time(built):
     assert ready["status"] == "ready" and ready["outcome"] == "CALLBACK" and "2026-10-02" in ready["due_text"]
 
 
+def test_the_previewed_due_date_is_the_saved_due_date_across_new_york_midnight(built):
+    # Interpret just before New York midnight, confirm just after it: because the proposal pins the call
+    # time, the saved task's due date equals the one previewed (not a fresh, one-day-later computation).
+    store = a_store()
+    now = {"t": at("2026-09-28 23:59")}  # Monday night ET
+    client = make(built, store, now=lambda: now["t"])
+    p = interpret(client, note="called Bluebird Electric, no answer").get_json()
+    assert p["status"] == "ready" and p["due"] == "2026-10-01"  # Mon + 3 business days
+    now["t"] = at("2026-09-29 00:30")  # now it is Tuesday ET
+    saved = outcome(client, "A-0002", outcome=p["outcome"], note=p["note"], called_at=p["called_at"],
+                    submission_id=p["submission_id"]).get_json()
+    assert saved["task"]["due"] == p["due"] == "2026-10-01"  # the preview, not Tuesday + 3 (2026-10-02)
+    # a confirm WITHOUT the pinned call time would have drifted to the later day
+    drift = calls.next_due(calls.NO_ANSWER, at("2026-09-29 00:30").isoformat(), no_answer_business_days=3)[0]
+    assert drift == "2026-10-02" and drift != p["due"]
+
+
 def test_interpret_supports_a_phone_only_lead(built):
     store = a_store()
     client = make(built, store)

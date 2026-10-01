@@ -90,3 +90,11 @@ def test_do_not_contact_is_flagged_as_a_stop():
     p = call_log_chat.interpret("Dana at Bluebird Electric asked to opt out, do not contact", LEADS, now=MON)
     assert p["status"] == "ready" and p["outcome"] == calls.DO_NOT_CONTACT
     assert p["effect"] == calls.STOP and p["do_not_contact"] is True
+
+
+def test_a_ready_proposal_pins_the_call_time_so_the_saved_due_matches_the_preview():
+    p = call_log_chat.interpret("Called Bluebird Electric, no answer", LEADS, now=MON)
+    assert p["called_at"]  # the interpretation clock, carried so the confirm computes the same due
+    # the due the preview shows is computed from that same call time, not a fresh one
+    due, _kind = calls.next_due(calls.NO_ANSWER, p["called_at"], no_answer_business_days=3)
+    assert due == p["due"]

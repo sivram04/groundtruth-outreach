@@ -117,6 +117,8 @@ export interface CallProposal {
   leads?: CallProposalLead[];
   due?: string;
   due_text?: string;
+  /** The call time the preview was computed from; the confirm posts it so the saved due matches. */
+  called_at?: string;
   callback_at?: string;
   effect?: string;
   do_not_contact?: boolean;

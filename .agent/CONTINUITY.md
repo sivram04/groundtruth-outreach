@@ -70,6 +70,32 @@
 
 ## [DISCOVERIES]
 
+- 2026-10-01 [FIX] Chat-call review (docs/testing/chat-call-review-2026-10-01.md) three findings closed;
+  interpreter stays read-only, confirm via POST /api/calls/<lead>/outcome. (1) IN-PLACE freshness:
+  postCallReloadKey now includes data.read_at → lead page re-fetches the candidate on EVERY snapshot refresh
+  (catches a handbook edit at the same URL / offer wording change while approved stays true; the endpoint
+  rebuilds from live handbook+settings). PostCallCandidate keeps a serverSig ref (leadId+subject+body of the
+  last PRISTINE fetched candidate): same sig on refetch → PRESERVE the founder's edits; different → adopt
+  (discard edits); null → withdraw. (2) Chat partial success: CallLogChat.confirm reads the result; on
+  suppression_written:false/warning (HTTP 200) shows the warning, KEEPS proposal+submission_id, "Retry the
+  suppression write" re-posts the same submission_id (repairs suppression, no 2nd call) — matches CallPanel.
+  (3) Preview due == saved due: call_log_chat.interpret returns called_at (interpret clock); CallLogChat.confirm
+  posts it; outcome route computes the due from the same call time → no NY-midnight drift (also added called_at
+  to recordCallOutcome's TS type). Python 980, frontend 104 + tsc/build (Docker Desktop had to be restarted:
+  `& "C:\Program Files\Docker\Docker\Docker Desktop.exe"` then wait ~60s). Browser: regression smoke only (chat
+  interpret→confirm→task with matching due; candidate still renders). The 3 fixes NOT browser-reproduced — the
+  harness has no controlled clock, no suppression-write-failure injection, no out-of-band handbook/offer change;
+  proved by container route/component/pure tests. Synthetic only; enable_calls off in deploy; committed, not pushed.
+
+- 2026-10-01T09:44:48-04:00 [CODE] Local review of ba10c11 found three remaining
+  chat/candidate gaps: same-URL handbook or still-approved offer edits leave the
+  candidate reload key unchanged; CallLogChat hides a partial STOP suppression
+  append and clears the retry identity; no-answer preview/confirm across a New York
+  date boundary can change the due date. Evidence:
+  docs/testing/chat-call-review-2026-10-01.md. [TOOL] Container checks were
+  attempted but Docker Desktop Linux Engine was unavailable; fresh runtime status
+  is UNVERIFIED. No product code or live service changed.
+
 - 2026-10-01 [BUILD] Chat-based call logging (flag-gated enable_calls). New PURE outreach/call_log_chat.py
   (deterministic, read-only, no model): detect_outcome (phrase lists, STOP wins), match_leads (company/
   contact tokens; over-match → choose, which is safe), interpret(note, leads, now, rule, chosen_lead_id,

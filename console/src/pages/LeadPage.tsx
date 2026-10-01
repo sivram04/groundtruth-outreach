@@ -9,11 +9,15 @@ import { CallPanel } from "./CallPanel";
 import { NotFound } from "./NotFound";
 import { PostCallCandidate } from "./PostCallCandidate";
 
-/** A value that changes whenever a fact the post-call candidate depends on changes, so the open lead page
- *  re-checks the candidate after a snapshot refresh — not only when the call fields change, but also when
- *  suppression (an external opt-out), offer approval, or the handbook changes. */
+/** A value that changes on every snapshot refresh (via `read_at`), so the open lead page re-checks its
+ *  post-call candidate whenever the snapshot is re-read — which catches in-place changes the snapshot cannot
+ *  fingerprint, such as the handbook being edited at the same URL or approved offer wording changing while
+ *  approval stays true (the candidate endpoint rebuilds from the live handbook and settings). The call
+ *  fields, suppression, offer flag and handbook URL are kept too for clarity. `PostCallCandidate` preserves
+ *  the founder's edits when the re-fetched candidate is unchanged, and withdraws it when it is gone. */
 export function postCallReloadKey(lead: Lead, data: Snapshot): string {
   return [
+    data.read_at ?? "",
     lead.call_history?.length ?? 0,
     lead.call_effect ?? "",
     lead.call_task?.id ?? "",

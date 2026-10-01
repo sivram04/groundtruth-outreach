@@ -13,6 +13,7 @@ function lead(over: Partial<Lead> = {}): Lead {
 
 function snap(over: Partial<Snapshot> = {}): Snapshot {
   return {
+    read_at: "2026-10-01 09:00 ET",
     approvals: { offer: true } as Snapshot["approvals"],
     links: { sheet: "", handbook: "https://docs/doc-1/edit", gmail_account: "" },
     ...over,
@@ -42,7 +43,12 @@ describe("postCallReloadKey", () => {
     ).not.toBe(base);
   });
 
-  it("is stable when nothing the candidate depends on changes", () => {
+  it("changes on every snapshot refresh (read_at), to catch in-place handbook/offer edits", () => {
+    const base = postCallReloadKey(lead(), snap());
+    expect(postCallReloadKey(lead(), snap({ read_at: "2026-10-01 09:05 ET" }))).not.toBe(base);
+  });
+
+  it("is stable when nothing (including read_at) changes", () => {
     expect(postCallReloadKey(lead(), snap())).toBe(postCallReloadKey(lead(), snap()));
   });
 });

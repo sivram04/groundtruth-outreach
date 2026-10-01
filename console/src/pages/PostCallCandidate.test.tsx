@@ -39,6 +39,27 @@ describe("the post-call candidate", () => {
     }
   });
 
+  it("preserves the founder's edits on a refresh that returns the same candidate, replaces on a changed one", async () => {
+    const same = cand({ subject: "Tried to reach you — Lakshyaa" });
+    const load = vi
+      .fn()
+      .mockResolvedValueOnce({ candidate: same })
+      .mockResolvedValueOnce({ candidate: same }) // a refresh with the same basis
+      .mockResolvedValue({ candidate: cand({ subject: "Following up after our call — Lakshyaa" }) });
+    const { rerender } = render(<PostCallCandidate leadId="A-0002" reloadKey="1" load={load} />);
+    await vi.waitFor(() => expect(screen.getByDisplayValue("Tried to reach you — Lakshyaa")).toBeTruthy());
+    // the founder edits the subject
+    fireEvent.change(screen.getByDisplayValue("Tried to reach you — Lakshyaa"), { target: { value: "My own subject" } });
+    // a refresh with the SAME underlying candidate keeps the edit
+    rerender(<PostCallCandidate leadId="A-0002" reloadKey="2" load={load} />);
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    expect(screen.getByDisplayValue("My own subject")).toBeTruthy();
+    // a refresh whose candidate changed replaces the edit
+    rerender(<PostCallCandidate leadId="A-0002" reloadKey="3" load={load} />);
+    await vi.waitFor(() => expect(screen.getByDisplayValue("Following up after our call — Lakshyaa")).toBeTruthy());
+    expect(screen.queryByDisplayValue("My own subject")).toBeNull();
+  });
+
   it("withdraws a stale candidate when the call state changes, and loads a new one", async () => {
     // A parent refresh (after a CallPanel save) changes reloadKey; the component must re-fetch, so an old
     // editable candidate is withdrawn on a later stop, and a new eligible call loads its own candidate.

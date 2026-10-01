@@ -1491,6 +1491,27 @@ Sheet — and how often the checks refuse it — is unknown.
   clock-advance overdue transition is covered by the controlled-clock route tests (the local harness runs on a fixed
   real clock). **Synthetic only; `enable_calls` off in deploy; no live Sheet, no send, no deploy.**
 
+- **2026-10-01 (calls: chat-logging + candidate freshness, review follow-up)** — a review
+  (`docs/testing/chat-call-review-2026-10-01.md`) found three gaps; all closed, interpreter stays read-only
+  and the confirm stays routed through `POST /api/calls/<lead>/outcome`. **(1) In-place handbook/offer
+  freshness:** `postCallReloadKey` now includes `data.read_at`, so the lead page re-fetches its candidate on
+  every snapshot refresh (catching an in-place handbook edit at the same URL, or offer wording changing while
+  approval stays true — the endpoint rebuilds from the live handbook/settings); `PostCallCandidate` keeps a
+  signature of the last pristine candidate so a refresh that returns the same candidate **preserves the
+  founder's edits**, a changed one replaces them, and a now-ineligible one withdraws it. **(2) Chat partial
+  success:** `CallLogChat.confirm` reads the result and, on `suppression_written:false`/`warning`, shows the
+  warning, keeps the proposal + submission id, and offers "Retry the suppression write" (same submission id →
+  repairs the Suppression entry with no second call), matching `CallPanel`. **(3) Preview due = saved due:**
+  `call_log_chat.interpret` returns `called_at` and `CallLogChat.confirm` posts it, so the outcome route
+  computes the task date from the same call time — a preview before New York midnight and a confirm after it
+  no longer disagree. **Verified, no network:** Python **980 passed** (a controlled-clock interpret→confirm
+  across NY midnight; `called_at` pinning), frontend **104 passed** (reloadKey incl. read_at; preserve/replace/
+  withdraw; the real partial-success shape with a submission-id-stable retry), typecheck and build clean. A
+  browser regression smoke confirmed the chat flow and candidate still work; the three fixes themselves were
+  not browser-reproduced (the harness has no controlled clock, no suppression-write-failure injection, and no
+  out-of-band handbook/offer change) and rest on the container tests. **Synthetic only; no sending, no Gmail
+  draft, no deploy, no live Sheet.**
+
 - **2026-10-01 (calls: chat-based call logging)** — the founder can log a call by typing a short note
   ("Called Dana at Bluebird today, no answer; remind me to call again") on the dashboard. New pure module
   `outreach/call_log_chat.py` (deterministic, read-only, no model) detects the outcome, matches the lead by

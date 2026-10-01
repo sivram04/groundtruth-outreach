@@ -13,7 +13,7 @@ Two safety rules are built in:
 
 import re
 import uuid
-from datetime import date
+from datetime import date, timezone
 
 from outreach import calls
 from outreach.business_days import NEW_YORK
@@ -126,11 +126,16 @@ def interpret(note, leads, *, now, rule=calls.DEFAULT_NO_ANSWER_BUSINESS_DAYS, c
                 "lead": _lead_view(lead_id, leads[lead_id])}
 
     due, due_text = _due_text(outcome, now, rule=rule, callback_at=callback_at)
+    # The call time is pinned to this interpretation so the date previewed is the date saved: the confirm
+    # posts this `called_at`, and the outcome route computes the same due from it - a preview before New York
+    # midnight and a confirm after it can no longer disagree.
+    called_at = now.astimezone(timezone.utc).isoformat()
     return {
         "status": "ready",
         "lead": _lead_view(lead_id, leads[lead_id]),
         "outcome": outcome,
         "note": note,
+        "called_at": called_at,
         "callback_at": callback_at or "",
         "due": due,
         "due_text": due_text,
