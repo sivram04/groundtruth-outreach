@@ -70,6 +70,17 @@
 
 ## [DISCOVERIES]
 
+- 2026-09-30 [FIX] Call-history contract aligned: job_draft._call_effect now matches sheet.Store.call_events
+  for all three cases — absent tab = no calls (CONTINUE); valid header + no events = no calls; present tab
+  WITHOUT the required header (incl. an empty headerless tab) = unreadable → block (fail closed). Removed
+  _call_effect's `if not values: return CONTINUE` early return so the header check governs. Regressions:
+  test_sheet_append.py::test_call_events_contract_absent_valid_header_and_missing_header (Store, 3 cases) +
+  test_draft_pipeline.py (valid-header-no-events still CREATED; present headerless tab → DraftBlocked, no
+  Gmail create). Python 928. NEXT MILESTONE NOT STARTED (usage limit): dashboard call queue — overdue-first/
+  due-today/upcoming buckets, reuse task identity + Complete/Snooze/Cancel, unavailable state when call
+  history unreadable. build already emits call_tasks (overdue-first) + calls_overdue; needs a `when` bucket
+  per task, a `calls_unreadable` flag from the snapshot, a dashboard component, and a browser journey.
+
 - 2026-09-30 [FIX] Call-task recheck (docs/testing/calls-review-2026-09-30.md "Independent recheck" of
   829c309): three enforcement-boundary gaps closed, earlier fixes preserved. (1) STOP/HOLD now enforced at
   job_draft.create (the REAL initial Gmail-draft boundary the worker create route calls; drafts.plan is only
@@ -238,6 +249,14 @@
   review handbook stays in `docs/`.
 
 ## [OUTCOMES]
+
+- 2026-10-01T00:05:25Z [TOOL] Rechecked 0a85b45: 196 targeted Python and 8
+  CallPanel tests pass offline. Three prior reproduced gaps addressed locally;
+  real-route partial-suppression retry leaves one call and one suppression row.
+  One narrow discrepancy: existing blank Call log is refused by Store but treated
+  CONTINUE by job_draft._call_effect. Align header contract, then advance dashboard
+  due/overdue call queue. Evidence: docs/testing/calls-review-2026-09-30.md.
+  No product/live changes; build/browser/full-suite not rerun by this reviewer.
 
 - 2026-09-30T23:42:59Z [TOOL] Rechecked 829c309: 115 targeted Python and 6 CallPanel
   tests pass offline. Original retry/sticky-DNC fixes improved, but synthetic

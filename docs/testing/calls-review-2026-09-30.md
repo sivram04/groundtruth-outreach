@@ -1,5 +1,36 @@
 # Independent call-task review
 
+## Independent verification of 0a85b45
+
+2026-10-01T00:05:25Z [TOOL] Rechecked current commit `0a85b45` in
+network-disabled containers with current source mounted read-only:
+`test_calls.py`, `test_console_calls.py`, `test_followup.py`, `test_drafts.py`,
+`test_draft_pipeline.py`: **196 passed in 4.66s**; `CallPanel.test.tsx`:
+**8 passed**. No full-suite, build or browser rerun by this reviewer.
+
+The previously reproduced valid-approval STOP/HOLD bypass and missing-task-id
+fallback are addressed in these local tests. The warning now renders, and the
+component preserves submission identity for Retry the rest. An additional real
+Flask-route probe using the existing synthetic call fixtures failed the first
+suppression append, restored it, and repeated the same submission: first response
+`suppression_written:false`, second `true`, one call row, one suppression row,
+effect STOP. No live Gmail or Sheets were contacted.
+
+One narrow reader-contract discrepancy remains: seed `FakeSheets.tabs['Call log']`
+as an existing empty list. `Store(api).call_events()` refuses the missing header,
+but `job_draft._call_effect(api, 'A-0001')` returns CONTINUE at `if not values`.
+This differs from the claimed shared header contract. Distinguish an absent tab
+(allowed no-call history), a valid header with zero rows (allowed), and a present
+tab without its header (blocked). This probe tested the readers, not a further
+Gmail creation attempt. Correct with a focused regression; no wider redesign is
+needed.
+
+Accept the fixes for the three specifically reproduced gaps under these local
+conditions. Live behavior remains unverified. After that small contract alignment,
+the next useful milestone is the dashboard's due/overdue call queue, already listed
+as missing in MVP_DELIVERY.md. Review evidence/continuity only changed here; left
+uncommitted. Product code, services and feature flags untouched.
+
 2026-09-30T22:45:34Z [TOOL] Reviewed commit
 `52bebbd7a552e3ebaaf77178f5615351dfadc4cf`. Scope: the new call-task milestone,
 not import architecture or the full MVP. Product code was not changed.
@@ -193,3 +224,23 @@ live Sheet, no send, no deploy; synthetic verification only.
    UI and the partial-success warning needs a suppression failure the synthetic harness
    cannot inject, so these are covered by component-render, parser and server-route
    tests rather than a browser run.
+
+## Call-history contract aligned (2026-09-30, product-code change)
+
+`job_draft._call_effect` and `sheet.Store.call_events` now agree on the three cases: an **absent** Call
+log tab is no call history (CONTINUE / []); a **valid header with no event rows** is no call history; a
+**present tab without the required header** (including an empty, headerless tab) is unreadable and blocks
+drafting (fail closed). `_call_effect` previously returned CONTINUE for a present-but-headerless tab while
+`Store.call_events` raised; the early `if not values: return CONTINUE` is removed so the header check
+governs (an empty tab has no header → block). *Regressions:* `test_sheet_append.py::test_call_events_contract_absent_valid_header_and_missing_header`
+(Store, all three cases); `test_draft_pipeline.py` — a valid header with no events still reaches CREATED,
+and a present headerless tab raises `DraftBlocked` with **no** Gmail create. Containers, no network: Python
+**928 passed**. Still flag-gated; synthetic only.
+
+## Next milestone (NOT started): dashboard call queue
+
+Scoped but not implemented in this change (usage limit): overdue-first / due-today / upcoming buckets on
+the dashboard, reusing the existing task identity and Complete/Snooze/Cancel API, with an unavailable
+state when call history is unreadable. `console_model.build` already emits `call_tasks` (overdue-first)
+and `calls_overdue`; the queue needs a `when` bucket per task, a `calls_unreadable` flag surfaced from the
+snapshot, a dashboard component, and a browser journey.

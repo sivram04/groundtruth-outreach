@@ -75,9 +75,10 @@ def _call_effect(api, lead_id):
     except Exception:
         # The tab exists but cannot be read: fail closed rather than treat it as no restriction.
         raise DraftBlocked("the call log could not be read; no draft is created") from None
-    if not values:
-        return calls.CONTINUE  # the tab is empty: no call decisions
-    header = values[0]
+    # The tab exists, so it must carry the required header - a valid header with no event rows is "no
+    # call history" (CONTINUE), but a present tab WITHOUT the header is unreadable and blocks drafting,
+    # exactly as sheet.Store.call_events does (an empty present tab has no header, so it blocks too).
+    header = values[0] if values else []
     if header[:len(CALLS_HEADER)] != CALLS_HEADER:
         raise DraftBlocked("the call log's columns were changed; no draft is created")
     rows = [{h: (row[i] if i < len(row) else "") for i, h in enumerate(header) if h}

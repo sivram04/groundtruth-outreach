@@ -402,6 +402,25 @@ def test_a_lead_with_no_call_history_still_drafts(monkeypatch):
     assert result["status"] == "CREATED" and len(created) == 1
 
 
+def test_a_valid_call_log_header_with_no_events_still_drafts(monkeypatch):
+    # A present Call log with its header but no event rows is "no call history", not a block.
+    created, api, written, digest = _create_with_call_log(monkeypatch, seed=[])  # header only
+    result = job_draft.create("A-0001", digest, written=written, settings=settings(),
+                              api=api, gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert result["status"] == "CREATED" and len(created) == 1
+
+
+def test_a_present_call_log_without_its_header_blocks_drafting(monkeypatch):
+    # An existing Call log tab that carries no required header is unreadable: block (align with
+    # sheet.Store.call_events, which refuses the same case), never draft.
+    created, api, written, digest = _create_with_call_log(monkeypatch, seed=[])
+    api.tabs["Call log"] = []  # the tab exists but has no header row at all
+    with pytest.raises(job_draft.DraftBlocked, match="call log"):
+        job_draft.create("A-0001", digest, written=written, settings=settings(),
+                         api=api, gmail=Mailbox(), handbook=BOOK, pages=SITE)
+    assert created == []
+
+
 # --- the human evidence-review gate (acceptance-contract option B) --------------------------
 # The word-overlap validator cannot certify that a claim is faithful; the two measured false
 # accepts prove it. So no approved draft may become a Gmail draft without a valid, current,

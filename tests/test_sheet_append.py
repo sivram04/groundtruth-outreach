@@ -11,7 +11,7 @@ import threading
 
 import pytest
 
-from outreach.sheet import CLAIMS_TAB, DestinationMismatch, Store
+from outreach.sheet import CALLS_HEADER, CLAIMS_TAB, DestinationMismatch, Store
 
 A_HEADER = ["Company", "Decision maker", "BEST EMAIL", "Website", "Phone", "Lead ID"]
 B_HEADER = ["Company", "Decision maker", "BEST EMAIL", "Website", "Lead ID"]
@@ -133,6 +133,21 @@ def test_lead_columns_returns_the_tabs_own_header():
     assert store.lead_columns("B") == B_HEADER
     with pytest.raises(RuntimeError):
         store.lead_columns("Z")
+
+
+def test_call_events_contract_absent_valid_header_and_missing_header():
+    # The call-history contract (which job_draft._call_effect must match): an absent tab is no calls;
+    # a valid header with no events is no calls; a present tab without the required header is unreadable.
+    assert Store(api=FakeSheets()).call_events() == []  # no Call log tab at all
+    api = FakeSheets()
+    api.tabs["Call log"] = [list(CALLS_HEADER)]  # header only, no events
+    assert Store(api=api).call_events() == []
+    api.tabs["Call log"] = []  # present tab with no header row
+    with pytest.raises(RuntimeError):
+        Store(api=api).call_events()
+    api.tabs["Call log"] = [["Wrong", "Header"]]
+    with pytest.raises(RuntimeError):
+        Store(api=api).call_events()
 
 
 def test_append_leads_writes_the_row_with_its_own_id_in_one_operation():
