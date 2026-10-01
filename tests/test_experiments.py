@@ -16,6 +16,21 @@ def ev(lead_id, event, step="", match="ADDRESS", detail="", when=AFTER, thread="
             sequence.OCCURRED: when, "Thread ID": thread}
 
 
+def drafted(lead_id, action, step="INITIAL", when=AFTER, tracked=True):
+    """A DRAFTED event as sync records it: the draft action lives in the Event key 'draft:<action>'."""
+    detail = f"draft {action}" + (", tracked" if tracked else "")
+    return {"Lead ID": lead_id, "Event": sequence.DRAFTED, "Step": step, "Match": "DRAFT",
+            "Detail": detail, sequence.OCCURRED: when, "Thread ID": "t", "Event key": f"draft:{action}"}
+
+
+def opened(lead_id, action, step="INITIAL", when=AFTER):
+    """An OPEN as tracking_job.hit_event records it: Match TRACKER, BLANK thread, the draft action in
+    Detail ('draft <action>')."""
+    return {"Lead ID": lead_id, "Event": sequence.OPEN, "Step": step, "Match": "TRACKER",
+            "Detail": f"draft {action}", sequence.OCCURRED: when, "Thread ID": "",
+            "Event key": f"hit:{action}-open"}
+
+
 def call(lead_id, kind="OUTCOME", when=AFTER):
     return {"Lead ID": lead_id, "Kind": kind, "Called at (UTC)": when}
 
@@ -120,13 +135,13 @@ def _leads():
 def test_report_counts_outcomes_after_assignment_with_explicit_denominators():
     state = _two_variant_state()
     events = [
-        ev("A-0001", sequence.DRAFTED, "INITIAL", "DRAFT", "draft x, tracked"),
-        ev("A-0001", sequence.SENT, "INITIAL", "DRAFT"),
-        ev("A-0001", sequence.REPLIED),
-        ev("A-0001", sequence.OPEN, "INITIAL"),
-        ev("A-0001", sequence.SENT, "FOLLOWUP_1", "DRAFT"),
-        ev("A-0002", sequence.SENT, "INITIAL", "ADDRESS"),
-        ev("A-0002", sequence.OPT_OUT),
+        drafted("A-0001", "act1", when="2026-09-28 09:30:00"),
+        ev("A-0001", sequence.SENT, "INITIAL", "DRAFT", when="2026-09-28 10:00:00"),
+        ev("A-0001", sequence.REPLIED, when="2026-09-28 12:00:00"),
+        opened("A-0001", "act1", when="2026-09-28 11:00:00"),  # tracker open: blank thread, draft action
+        ev("A-0001", sequence.SENT, "FOLLOWUP_1", "DRAFT", when="2026-09-28 13:00:00"),
+        ev("A-0002", sequence.SENT, "INITIAL", "ADDRESS", when="2026-09-28 10:00:00"),
+        ev("A-0002", sequence.OPT_OUT, when="2026-09-28 11:00:00"),
     ]
     report = experiments.report(state, _leads(), events, [call("A-0001")], [])
     short, long = report["variants"]
@@ -138,9 +153,61 @@ def test_report_counts_outcomes_after_assignment_with_explicit_denominators():
     assert _metric(short, "followups")["count"] == 1 and _metric(short, "followups")["label"] == "Follow-up emails sent"
     assert _metric(short, "calls")["count"] == 1
     assert _metric(long, "opt_outs")["count"] == 1
-    assert _metric(short, "opens")["estimate"] is True
-    assert _metric(short, "opens")["denominator_label"] == "tracked sends"
+    opens = _metric(short, "opens")
+    assert opens["count"] == 1 and opens["estimate"] is True
+    assert opens["denominator"] == 1 and opens["denominator_label"] == "tracked sends"
     assert report["excluded"] == {"before_assignment": 0, "undated": 0, "unattributable": 0}
+
+
+def test_a_tracked_open_after_a_qualifying_send_is_counted():
+    # The reviewer's case: one post-assignment tracked draft + sent email, then its tracker open (blank
+    # thread, draft action in Detail). The open links to the qualifying send by its draft action.
+    state = _two_variant_state(assigned_at="2026-09-28 09:00:00")
+    events = [drafted("A-0001", "act1", when="2026-09-28 09:30:00"),
+              ev("A-0001", sequence.SENT, "INITIAL", "DRAFT", when="2026-09-28 10:00:00"),
+              opened("A-0001", "act1", when="2026-09-28 11:00:00")]
+    report = experiments.report(state, _leads(), events, [], [])
+    short = report["variants"][0]
+    assert _metric(short, "sent")["count"] == 1
+    assert _metric(short, "opens")["count"] == 1 and _metric(short, "opens")["denominator"] == 1
+    assert short["excluded"]["unattributable"] == 0
+
+
+def test_a_tracked_open_with_no_qualifying_send_is_unattributable():
+    # A tracked draft + an open, but the send predates assignment (no qualifying send): the open is not
+    # a result of the test.
+    state = _two_variant_state(assigned_at="2026-10-01 09:00:00")
+    events = [drafted("A-0001", "act1", when="2026-09-30 08:00:00", tracked=True),
+              ev("A-0001", sequence.SENT, "INITIAL", "DRAFT", when="2026-09-30 10:00:00"),
+              opened("A-0001", "act1", when="2026-10-02 11:00:00")]
+    report = experiments.report(state, _leads(), events, [], [])
+    short = report["variants"][0]
+    assert _metric(short, "sent")["count"] == 0 and _metric(short, "opens")["count"] == 0
+    assert short["excluded"]["unattributable"] == 1  # the open; the send/draft are before assignment
+
+
+def test_an_open_for_a_different_draft_is_not_attributed():
+    # There is a qualifying send, but the open names a draft action that is not a post-assignment tracked
+    # initial draft (e.g. an earlier draft), so it does not link.
+    state = _two_variant_state(assigned_at="2026-09-28 09:00:00")
+    events = [drafted("A-0001", "act1", when="2026-09-28 09:30:00"),
+              ev("A-0001", sequence.SENT, "INITIAL", "DRAFT", when="2026-09-28 10:00:00"),
+              opened("A-0001", "other-action", when="2026-09-28 11:00:00")]
+    report = experiments.report(state, _leads(), events, [], [])
+    assert _metric(report["variants"][0], "opens")["count"] == 0
+    assert report["variants"][0]["excluded"]["unattributable"] == 1
+
+
+def test_a_reply_needs_a_nonempty_matching_thread():
+    # Two blank thread ids are not proof of a link: a reply with no thread is not attributed, even when
+    # the qualifying send also has no thread.
+    state = _two_variant_state(assigned_at="2026-09-28 09:00:00")
+    events = [ev("A-0001", sequence.SENT, "INITIAL", "DRAFT", when="2026-09-28 10:00:00", thread=""),
+              ev("A-0001", sequence.REPLIED, when="2026-09-28 11:00:00", thread="")]
+    report = experiments.report(state, _leads(), events, [], [])
+    assert _metric(report["variants"][0], "sent")["count"] == 1   # the send still counts
+    assert _metric(report["variants"][0], "replies")["count"] == 0  # the blank-thread reply does not
+    assert report["variants"][0]["excluded"]["unattributable"] == 1
 
 
 def test_a_reply_after_assignment_to_a_pre_assignment_send_is_not_counted():

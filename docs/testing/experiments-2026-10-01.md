@@ -56,7 +56,7 @@ available** when no recorded signal exists:
 | Calls made | assigned | leads with a recorded call outcome |
 | Follow-up emails sent | confirmed sent | counts follow-up sends, not call tasks |
 | Meetings | confirmed sent | **not available** unless a real recorded meeting event exists |
-| Opens | tracked sends | labelled **(est.)** — an estimate |
+| Opens | tracked sends | labelled **(est.)** — an estimate; a tracker open is linked by its draft action to a qualifying post-assignment tracked send, not by thread |
 
 - **This is observed activity by assigned group, not A/B performance** (`basis: "observed_activity"`).
   Variant content does not yet change any email and no exposure is recorded, so the two groups are not
@@ -149,6 +149,29 @@ thread excluded; the observed-activity framing) and `test_console_experiments.py
 pre-assignment-send case through the real snapshot). Verified no-network: Python **1055**, frontend
 **117**, typecheck + build; and a real loopback-HTTP run confirming the excluded reply and the
 observed-activity framing.
+
+## Third recheck remediation (2026-10-01)
+
+A further recheck found that the thread-only linkage wrongly excluded a real tracked open.
+
+1. **Tracked opens were excluded.** `tracking_job.hit_event` records an OPEN with `Match: "TRACKER"`,
+   a **blank** Thread ID, and the **draft action** in `Detail` (`"draft <action>"`). The thread rule
+   therefore never matched, so a genuine open after a qualifying send was counted as unattributable
+   (reproduced: one post-assignment tracked draft + sent email + its tracker open gave 1 sent, 0 opens,
+   1 unattributable). A tracker hit is now linked by the **draft-action evidence**, the same evidence
+   `tracking_job`/`sequence` already use: the open's draft action must name one of the lead's
+   post-assignment **tracked INITIAL drafts** (whose action lives in the DRAFTED event's key,
+   `draft:<action>`), and the open must fall after the qualifying send (the existing send-time /
+   preview rule). Reproduced fixed through `GET /api/snapshot`: 1 sent, **1 open**, 0 unattributable.
+2. **Thread-based events require a nonempty matching thread.** A Gmail reply, opt-out or follow-up send
+   counts only when it shares a **nonempty** thread id with the qualifying send — two blank thread ids
+   are no longer treated as a link.
+
+Regressions: `test_experiments.py` (a tracked open after a qualifying send counted; an open with no
+qualifying send excluded; an open naming a different draft excluded; a reply with a blank thread not
+counted) and `test_console_experiments.py` (a tracked open counted through the real snapshot). Verified
+no-network: Python **1060**, frontend **117**, typecheck + build; and a real loopback-HTTP run
+confirming the tracked open is counted.
 
 ## Not done / out of scope
 

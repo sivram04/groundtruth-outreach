@@ -212,6 +212,31 @@ def test_a_reply_to_a_pre_assignment_send_is_excluded_in_the_snapshot(built):
     assert report["comparison"]["comparable"] is False and report["comparison"]["winner"] is None
 
 
+def test_a_tracked_open_is_counted_in_the_snapshot(built):
+    # A post-assignment tracked draft + sent email, then a tracker open as tracking_job.hit_event writes
+    # it (Match TRACKER, blank thread, the draft action in Detail). The open links by its draft action to
+    # the qualifying send and is counted — not excluded by the thread rule.
+    store = MemoryStore(
+        [lead("A-0001"),
+         lead("A-0002", **{"BEST EMAIL": "pat@acme.test", "Their email": "pat@acme.test"}),
+         lead("A-0003", **{"BEST EMAIL": "robin@north.test", "Their email": "robin@north.test"})],
+        events=[_event("A-0001", sequence.DRAFTED, "INITIAL", at("2026-09-28 09:30"),
+                       "sam@example-electric.test", "DRAFT", "t1", "", "draft draft-1, tracked",
+                       key="draft:act1"),
+                _event("A-0001", sequence.SENT, "INITIAL", at("2026-09-28 10:00"),
+                       "sam@example-electric.test", "DRAFT", "t1", "m1", ""),
+                _event("A-0001", sequence.OPEN, "INITIAL", at("2026-09-28 11:00"),
+                       "", "TRACKER", "", "", "draft act1", key="hit:open1")],
+        lead_columns=COLUMNS)
+    client = make(built, store, now=at("2026-09-28 09:00"))
+    define(client, experiment="Subject test", variant_a="Short", variant_b="Long")
+    assign(client, experiment="Subject test")
+    report = snapshot(client)["experiments"]
+    opens = sum(next(m for m in v["metrics"] if m["key"] == "opens")["count"] for v in report["variants"])
+    assert _sent_total(report) == 1 and opens == 1
+    assert report["excluded"]["unattributable"] == 0
+
+
 def test_calls_are_unavailable_in_the_snapshot_when_the_call_log_cannot_be_read(built):
     class ToggleCalls(MemoryStore):
         fail_calls = False

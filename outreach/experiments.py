@@ -200,17 +200,26 @@ def safe_to_assign(row, *, suppressed, call_effect):
 
 
 # A downstream email outcome is caused by a send, not by the assignment alone, so it counts only when
-# it can be linked to a QUALIFYING post-assignment send (the same thread, after that send). A reply to
-# an email that was sent before the lead joined the test is not a result of the test.
-DOWNSTREAM = (sequence.REPLIED, sequence.OPT_OUT, sequence.OPEN, MEETING, POSITIVE_REPLY)
+# it can be linked to a QUALIFYING post-assignment send. Thread-based outcomes (a Gmail reply, an
+# opt-out) must share a NONEMPTY thread id with that send — two blank thread ids are not proof of a
+# link. A tracker hit (an open) carries no thread; it is linked by the draft action in its Detail back
+# to a qualifying post-assignment tracked draft (the same evidence `tracking_job`/`sequence` use),
+# after the send. A reply to an email that was sent before the lead joined the test is not a result.
+THREAD_DOWNSTREAM = (sequence.REPLIED, sequence.OPT_OUT, MEETING, POSITIVE_REPLY)
+
+
+def _draft_action(detail):
+    """The draft action a tracker hit names, from its Detail ('draft <action>, ...'), else ""."""
+    first = str(detail or "").split(",")[0].strip()
+    return first[len("draft "):] if first.startswith("draft ") else ""
 
 
 def _lead_signals(lead_ids, by_event, by_call, assigned_at):
     """Per-lead booleans/counts from events that can be attributed to the experiment. An outcome counts
-    only when it is reliably at or after the lead's assignment AND — if it is a downstream email outcome
-    (a reply, opt-out, open, follow-up, meeting, positive reply) — it links to a qualifying
-    post-assignment send: the same thread, after that send. Everything else is tallied as excluded
-    (before the assignment, undated, or unattributable), never counted as a result.
+    only when it is reliably at or after the lead's assignment AND it links to a qualifying
+    post-assignment send: a thread-based outcome (reply, opt-out, follow-up send) by a NONEMPTY shared
+    thread; a tracker open by the draft action naming a post-assignment tracked initial draft, after the
+    send. Everything else is tallied excluded (before assignment, undated, or unattributable).
     """
     signals = {}
     for lead_id in lead_ids:
@@ -218,30 +227,39 @@ def _lead_signals(lead_ids, by_event, by_call, assigned_at):
         events = by_event.get(lead_id, [])
         before = undated = unattributable = 0
 
-        # The qualifying send: the earliest INITIAL confident send recorded at or after assignment.
-        # Its thread is what a downstream outcome must belong to.
+        # The qualifying send: the earliest INITIAL confident send at or after assignment (its thread is
+        # what a thread-based outcome must share), and the draft actions of this lead's post-assignment
+        # tracked INITIAL drafts (what a tracker open must name).
         qualifying_time, qualifying_thread = None, None
+        qualifying_draft_actions = set()
         for event in events:
-            if (event.get("Event") == sequence.SENT and event.get("Step") == sequence.INITIAL
-                    and event.get("Match") in sequence.CONFIDENT):
-                when = _parse_time(event.get(sequence.OCCURRED, ""))
-                if assigned is not None and when is not None and when >= assigned:
-                    if qualifying_time is None or when < qualifying_time:
-                        qualifying_time, qualifying_thread = when, event.get("Thread ID", "")
+            step = event.get("Step")
+            when = _parse_time(event.get(sequence.OCCURRED, ""))
+            after = assigned is not None and when is not None and when >= assigned
+            if (event.get("Event") == sequence.SENT and step == sequence.INITIAL
+                    and event.get("Match") in sequence.CONFIDENT and after):
+                if qualifying_time is None or when < qualifying_time:
+                    qualifying_time, qualifying_thread = when, event.get("Thread ID", "")
+            if event.get("Event") == sequence.DRAFTED and step == sequence.INITIAL and after:
+                key = event.get("Event key", "")
+                action = key.split(":", 1)[1] if key.startswith("draft:") else ""
+                if action and sequence.TRACKED in [p.strip() for p in str(event.get("Detail", "")).split(",")]:
+                    qualifying_draft_actions.add(action)
         has_qualifying = qualifying_time is not None
 
         counted = {"sent": False, "drafted": False, "replied": False, "opted_out": False,
-                   "opened": False, "meeting": False, "positive": False, "tracked": False,
-                   "followups_sent": 0}
+                   "opened": False, "meeting": False, "positive": False,
+                   "tracked": has_qualifying and bool(qualifying_draft_actions), "followups_sent": 0}
         for event in events:
             kind = event.get("Event")
             is_initial = (kind == sequence.SENT and event.get("Step") == sequence.INITIAL
                           and event.get("Match") in sequence.CONFIDENT)
             is_followup = kind == sequence.SENT and event.get("Step") in sequence.FOLLOWUPS
-            is_draft = kind in (sequence.DRAFTED, sequence.FOLLOWUP_DRAFTED)
-            is_downstream = kind in DOWNSTREAM or is_followup
-            if not (is_initial or is_draft or is_downstream):
-                continue  # not a metric-contributing event; it is neither counted nor excluded here
+            is_draft = kind == sequence.DRAFTED
+            is_open = kind == sequence.OPEN
+            is_thread_downstream = kind in THREAD_DOWNSTREAM or is_followup
+            if not (is_initial or is_draft or is_open or is_thread_downstream):
+                continue  # not a metric-contributing event; neither counted nor excluded here
             when = _parse_time(event.get(sequence.OCCURRED, ""))
             if assigned is None or when is None:
                 undated += 1
@@ -249,24 +267,29 @@ def _lead_signals(lead_ids, by_event, by_call, assigned_at):
             if when < assigned:
                 before += 1
                 continue
-            if is_downstream and (not has_qualifying or when < qualifying_time
-                                  or event.get("Thread ID", "") != qualifying_thread):
-                unattributable += 1  # after assignment, but not linked to a qualifying send
-                continue
+            if is_thread_downstream:
+                thread = event.get("Thread ID", "")
+                if (not has_qualifying or when < qualifying_time
+                        or not thread or thread != qualifying_thread):
+                    unattributable += 1  # no qualifying send, or no nonempty shared thread
+                    continue
+            if is_open:
+                if (not has_qualifying or when < qualifying_time
+                        or _draft_action(event.get("Detail", "")) not in qualifying_draft_actions):
+                    unattributable += 1  # not linked to a qualifying post-assignment tracked draft
+                    continue
             if is_initial:
                 counted["sent"] = True
             if is_followup:
                 counted["followups_sent"] += 1
             if kind == sequence.DRAFTED:
                 counted["drafted"] = True
-            if is_draft and sequence.TRACKED in [p.strip() for p in str(event.get("Detail", "")).split(",")]:
-                counted["tracked"] = True
+            if is_open:
+                counted["opened"] = True
             if kind == sequence.REPLIED:
                 counted["replied"] = True
             if kind == sequence.OPT_OUT:
                 counted["opted_out"] = True
-            if kind == sequence.OPEN:
-                counted["opened"] = True
             if kind == MEETING:
                 counted["meeting"] = True
             if kind == POSITIVE_REPLY:
