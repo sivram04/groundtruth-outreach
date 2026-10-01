@@ -158,8 +158,8 @@ export interface ExperimentVariant {
   assigned: number;
   /** Assigned leads now on the Suppression list (context only; null when the list is unreadable). */
   suppressed: number | null;
-  /** Recorded events not counted because they predate the assignment or cannot be dated against it. */
-  excluded?: { before_assignment: number; undated: number };
+  /** Recorded events not counted: before the assignment, undated, or not linkable to a qualifying send. */
+  excluded?: { before_assignment: number; undated: number; unattributable: number };
   lead_ids: string[];
   metrics: VariantMetric[];
 }
@@ -169,11 +169,13 @@ export interface ExperimentVariant {
 export interface ExperimentReport {
   name: string;
   defined: boolean;
+  /** "observed_activity": not A/B performance — variant content does not yet change any email. */
+  basis?: string;
   variants: ExperimentVariant[];
-  comparison: { winner: string | null; can_compare: boolean; min_sends_to_compare: number; note: string };
+  comparison: { winner: string | null; comparable: boolean; note: string };
   notes: string[];
-  /** Totals of events excluded from results because they predate assignment or cannot be dated. */
-  excluded?: { before_assignment: number; undated: number };
+  /** Totals of events excluded: before assignment, undated, or not linkable to a qualifying send. */
+  excluded?: { before_assignment: number; undated: number; unattributable: number };
   calls_unreadable: boolean;
   suppression_unreadable: boolean;
 }

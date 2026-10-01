@@ -28,17 +28,18 @@ function metrics(counts: Partial<Record<string, number>>): VariantMetric[] {
 const REPORT: ExperimentReport = {
   name: "Subject test",
   defined: true,
+  basis: "observed_activity",
   variants: [
-    { index: 0, name: "Short", assigned: 3, suppressed: 0, excluded: { before_assignment: 2, undated: 0 }, lead_ids: ["A-0001"], metrics: metrics({ assigned: 3, sent: 2, replies: 1, opens: 1, tracked: 1 }) },
-    { index: 1, name: "Long", assigned: 2, suppressed: 1, excluded: { before_assignment: 0, undated: 0 }, lead_ids: ["A-0002"], metrics: metrics({ assigned: 2, sent: 1, opt_outs: 1 }) },
+    { index: 0, name: "Short", assigned: 3, suppressed: 0, excluded: { before_assignment: 1, undated: 0, unattributable: 1 }, lead_ids: ["A-0001"], metrics: metrics({ assigned: 3, sent: 2, replies: 1, opens: 1, tracked: 1 }) },
+    { index: 1, name: "Long", assigned: 2, suppressed: 1, excluded: { before_assignment: 0, undated: 0, unattributable: 0 }, lead_ids: ["A-0002"], metrics: metrics({ assigned: 2, sent: 1, opt_outs: 1 }) },
   ],
-  comparison: { winner: null, can_compare: false, min_sends_to_compare: 30, note: "Too few confirmed sends to compare: each variant needs at least 30." },
+  comparison: { winner: null, comparable: false, note: "This is observed activity by the assigned group, not A/B performance: the variant's content does not yet change any email and no exposure is recorded, so the two groups are not comparable." },
   notes: [
-    "Only outcomes recorded at or after a lead was assigned are counted here.",
-    "Opens are an estimate and are labelled so.",
-    "2 recorded event(s) are excluded from these results: 2 happened before the lead was assigned, and 0 could not be dated against the assignment.",
+    "Observed activity by assigned group — not A/B performance.",
+    "Only outcomes recorded at or after a lead was assigned are counted, and a downstream outcome counts only when it links to a send made after the lead was assigned.",
+    "2 recorded event(s) are excluded: 1 happened before the lead was assigned, 1 could not be linked to a send made after assignment, and 0 could not be dated against the assignment.",
   ],
-  excluded: { before_assignment: 2, undated: 0 },
+  excluded: { before_assignment: 1, undated: 0, unattributable: 1 },
   calls_unreadable: false,
   suppression_unreadable: false,
 };
@@ -79,10 +80,12 @@ describe("the A/B tests page", () => {
     expect(screen.getByText(/2 not eligible/)).toBeTruthy();
   });
 
-  it("shows the report with honest labels and never a winner", () => {
+  it("frames the report as observed activity, not A/B performance, and never a winner", () => {
     render(<Experiments data={snap()} define={vi.fn()} assign={vi.fn()} />);
-    expect(screen.getByText("No winner declared")).toBeTruthy();
-    expect(screen.getByText(/Too few confirmed sends to compare/)).toBeTruthy();
+    expect(screen.getByText("Observed activity by assigned group")).toBeTruthy();
+    expect(screen.getByText("Not A/B performance")).toBeTruthy();
+    expect(screen.getByText(/not comparable/)).toBeTruthy();
+    expect(screen.getByText(/does not yet change any email/)).toBeTruthy();
     expect(screen.getAllByText("Short").length).toBeGreaterThan(0);
     expect(screen.getByText("Long")).toBeTruthy();
     // Positive replies and meetings have no recorded signal, so they read "not available", not 0.
@@ -91,9 +94,8 @@ describe("the A/B tests page", () => {
     expect(screen.getAllByText(/\(est\.\)/).length).toBeGreaterThan(0);
     // The suppressed-but-assigned context row.
     expect(screen.getByText(/Assigned, now suppressed/)).toBeTruthy();
-    // Outcomes recorded before assignment are excluded and said so, not counted.
-    expect(screen.getByText(/excluded from these results/)).toBeTruthy();
-    expect(screen.getByText(/at or after a lead was assigned/)).toBeTruthy();
+    // Unattributable and pre-assignment outcomes are excluded and said so, not counted.
+    expect(screen.getByText(/could not be linked to a send made after assignment/)).toBeTruthy();
   });
 
   it("shows the calls metric as not available when the Call log cannot be read", () => {

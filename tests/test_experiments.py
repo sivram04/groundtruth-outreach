@@ -11,9 +11,9 @@ AFTER = "2026-09-28 10:00:00"        # an hour later — attributable to the exp
 BEFORE = "2026-09-27 17:00:00"       # the evening before — not a result of the experiment
 
 
-def ev(lead_id, event, step="", match="ADDRESS", detail="", when=AFTER):
+def ev(lead_id, event, step="", match="ADDRESS", detail="", when=AFTER, thread="t"):
     return {"Lead ID": lead_id, "Event": event, "Step": step, "Match": match, "Detail": detail,
-            sequence.OCCURRED: when}
+            sequence.OCCURRED: when, "Thread ID": thread}
 
 
 def call(lead_id, kind="OUTCOME", when=AFTER):
@@ -140,7 +140,51 @@ def test_report_counts_outcomes_after_assignment_with_explicit_denominators():
     assert _metric(long, "opt_outs")["count"] == 1
     assert _metric(short, "opens")["estimate"] is True
     assert _metric(short, "opens")["denominator_label"] == "tracked sends"
-    assert report["excluded"] == {"before_assignment": 0, "undated": 0}
+    assert report["excluded"] == {"before_assignment": 0, "undated": 0, "unattributable": 0}
+
+
+def test_a_reply_after_assignment_to_a_pre_assignment_send_is_not_counted():
+    # The reviewer's case: the initial email was sent before the lead was assigned, then its recipient
+    # replied on the same thread after assignment. There is no qualifying post-assignment send, so the
+    # reply is unattributable — not a result of the test.
+    state = _two_variant_state(assigned_at="2026-10-01 09:00:00")
+    events = [ev("A-0001", sequence.SENT, "INITIAL", "DRAFT", when="2026-09-30 10:00:00", thread="t"),
+              ev("A-0001", sequence.REPLIED, when="2026-10-02 10:00:00", thread="t")]
+    report = experiments.report(state, _leads(), events, [], [])
+    short = report["variants"][0]
+    assert _metric(short, "sent")["count"] == 0       # the send predates assignment
+    assert _metric(short, "replies")["count"] == 0    # the reply links only to that pre-assignment send
+    assert short["excluded"]["before_assignment"] == 1   # the send
+    assert short["excluded"]["unattributable"] == 1      # the reply
+    assert report["excluded"]["unattributable"] == 1
+
+
+def test_a_reply_linked_to_a_post_assignment_send_is_counted():
+    state = _two_variant_state(assigned_at="2026-09-28 09:00:00")
+    events = [ev("A-0001", sequence.SENT, "INITIAL", "DRAFT", when="2026-09-28 10:00:00", thread="t"),
+              ev("A-0001", sequence.REPLIED, when="2026-09-28 12:00:00", thread="t")]
+    report = experiments.report(state, _leads(), events, [], [])
+    short = report["variants"][0]
+    assert _metric(short, "sent")["count"] == 1 and _metric(short, "replies")["count"] == 1
+    assert short["excluded"]["unattributable"] == 0
+
+
+def test_a_reply_on_a_different_thread_than_the_qualifying_send_is_not_attributed():
+    state = _two_variant_state()  # assigned 2026-09-28 09:00
+    events = [ev("A-0001", sequence.SENT, "INITIAL", "DRAFT", when="2026-09-28 10:00:00", thread="t1"),
+              ev("A-0001", sequence.REPLIED, when="2026-09-28 11:00:00", thread="t2")]
+    report = experiments.report(state, _leads(), events, [], [])
+    assert _metric(report["variants"][0], "replies")["count"] == 0
+    assert report["variants"][0]["excluded"]["unattributable"] == 1
+
+
+def test_a_followup_on_a_pre_assignment_thread_is_not_counted():
+    state = _two_variant_state(assigned_at="2026-10-01 09:00:00")
+    events = [ev("A-0001", sequence.SENT, "INITIAL", "DRAFT", when="2026-09-30 10:00:00", thread="t"),
+              ev("A-0001", sequence.SENT, "FOLLOWUP_1", "DRAFT", when="2026-10-03 10:00:00", thread="t")]
+    report = experiments.report(state, _leads(), events, [], [])
+    assert _metric(report["variants"][0], "followups")["count"] == 0  # the thread has no qualifying send
+    assert report["variants"][0]["excluded"]["unattributable"] == 1
 
 
 def test_an_outcome_recorded_before_assignment_is_not_counted():
@@ -196,11 +240,15 @@ def test_a_recorded_meeting_event_after_assignment_makes_meetings_available():
     assert meetings["available"] is True and meetings["count"] == 1
 
 
-def test_no_winner_is_declared_and_small_samples_are_flagged():
+def test_the_report_is_observed_activity_not_ab_performance():
     report = experiments.report(_two_variant_state(), _leads(), [], [], [])
+    assert report["basis"] == "observed_activity"
     assert report["comparison"]["winner"] is None
-    assert report["comparison"]["can_compare"] is False
-    assert "Too few" in report["comparison"]["note"]
+    assert report["comparison"]["comparable"] is False
+    note = report["comparison"]["note"].lower()
+    assert "observed activity" in note and "not comparable" in note
+    assert "min_sends_to_compare" not in report["comparison"]  # no send threshold implies comparability
+    assert any("not A/B performance" in n for n in report["notes"])
 
 
 def test_calls_are_unavailable_not_zero_when_the_call_log_is_unreadable():

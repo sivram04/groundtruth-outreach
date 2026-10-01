@@ -67,7 +67,7 @@ export function Experiments({
     <>
       <PageHead
         title="A/B tests"
-        sub="Two named variants, a stable assignment per lead, and the results with honest denominators."
+        sub="Two named variants and a stable assignment per lead. Until a variant's content changes a draft and that exposure is recorded, this shows observed activity by assigned group, not A/B performance."
       />
 
       <Card title="Define the experiment" icon={FlaskConical}>
@@ -158,9 +158,9 @@ function Report({ report }: { report: ExperimentReport }) {
   const label = (variant: ExperimentVariant) => variant.name || `Variant ${variant.index + 1}`;
   const byKey = (variant: ExperimentVariant, key: string) => variant.metrics.find((m) => m.key === key);
   return (
-    <Card title="Results" icon={FlaskConical}>
+    <Card title="Observed activity by assigned group" icon={FlaskConical}>
       <SectionHead title={report.name}>
-        <Status tone="gray">No winner declared</Status>
+        <Status tone="gray">Not A/B performance</Status>
       </SectionHead>
       <div className="callout blue">
         <div className="callout-text small">{report.comparison.note}</div>

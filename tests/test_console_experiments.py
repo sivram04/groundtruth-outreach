@@ -188,6 +188,30 @@ def test_a_previously_emailed_leads_old_send_and_reply_are_not_counted(built):
     assert by_id["A-0001"]["variant"] in ("Short", "Long")
 
 
+def test_a_reply_to_a_pre_assignment_send_is_excluded_in_the_snapshot(built):
+    # Initial email sent 2026-09-30 (before assignment on 2026-10-01), then a reply on the same thread
+    # on 2026-10-02 (after assignment). The reply links only to a pre-assignment send, so the snapshot
+    # counts neither the send nor the reply, and labels the report observed activity, not A/B results.
+    store = MemoryStore(
+        [lead("A-0001"),
+         lead("A-0002", **{"BEST EMAIL": "pat@acme.test", "Their email": "pat@acme.test"}),
+         lead("A-0003", **{"BEST EMAIL": "robin@north.test", "Their email": "robin@north.test"})],
+        events=[_event("A-0001", sequence.SENT, "INITIAL", at("2026-09-30 10:00"),
+                       "sam@example-electric.test", "ADDRESS", "t1", "m1", "hand"),
+                _event("A-0001", sequence.REPLIED, "", at("2026-10-02 10:00"),
+                       "sam@example-electric.test", "THREAD", "t1", "m1r", "")],
+        lead_columns=COLUMNS)
+    client = make(built, store, now=at("2026-10-01 09:00"))
+    define(client, experiment="Subject test", variant_a="Short", variant_b="Long")
+    assign(client, experiment="Subject test")
+    report = snapshot(client)["experiments"]
+    assert _sent_total(report) == 0 and _replies_total(report) == 0
+    assert report["excluded"]["before_assignment"] == 1   # the pre-assignment send
+    assert report["excluded"]["unattributable"] == 1      # the reply, linked only to that send
+    assert report["basis"] == "observed_activity"
+    assert report["comparison"]["comparable"] is False and report["comparison"]["winner"] is None
+
+
 def test_calls_are_unavailable_in_the_snapshot_when_the_call_log_cannot_be_read(built):
     class ToggleCalls(MemoryStore):
         fail_calls = False

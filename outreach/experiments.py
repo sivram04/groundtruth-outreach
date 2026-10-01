@@ -41,11 +41,6 @@ KIND_ASSIGN = "ASSIGN"
 MEETING = "MEETING"
 POSITIVE_REPLY = "POSITIVE_REPLY"
 
-# Below this many confirmed sends per variant, the report refuses to compare the two at all. Above
-# it, it still does not declare a winner — a rate gap is not a significance test. This threshold is
-# this system's choice, stated on screen, not a founder decision.
-MIN_SENDS_TO_COMPARE = 30
-
 
 def _hash(*parts):
     return hashlib.sha256("\x1f".join(str(p) for p in parts).encode("utf-8")).hexdigest()[:16]
@@ -204,55 +199,93 @@ def safe_to_assign(row, *, suppressed, call_effect):
             and call_effect not in (calls.STOP, calls.HOLD))
 
 
+# A downstream email outcome is caused by a send, not by the assignment alone, so it counts only when
+# it can be linked to a QUALIFYING post-assignment send (the same thread, after that send). A reply to
+# an email that was sent before the lead joined the test is not a result of the test.
+DOWNSTREAM = (sequence.REPLIED, sequence.OPT_OUT, sequence.OPEN, MEETING, POSITIVE_REPLY)
+
+
 def _lead_signals(lead_ids, by_event, by_call, assigned_at):
-    """Per-lead booleans/counts worked out ONLY from events that can be attributed to the experiment —
-    those that occurred at or after the lead's assignment. An event before the assignment, or one
-    whose time (or the assignment's time) cannot be read, is NOT counted and is tallied as excluded, so
-    a lead emailed before it joined the test never adds a result that the test could not have caused.
+    """Per-lead booleans/counts from events that can be attributed to the experiment. An outcome counts
+    only when it is reliably at or after the lead's assignment AND — if it is a downstream email outcome
+    (a reply, opt-out, open, follow-up, meeting, positive reply) — it links to a qualifying
+    post-assignment send: the same thread, after that send. Everything else is tallied as excluded
+    (before the assignment, undated, or unattributable), never counted as a result.
     """
     signals = {}
     for lead_id in lead_ids:
         assigned = _parse_time(assigned_at.get(lead_id))
-        kept, excluded_before, excluded_undated = [], 0, 0
+        events = by_event.get(lead_id, [])
+        before = undated = unattributable = 0
 
-        def _after(when_text):
-            """True if `when_text` is reliably at/after the assignment; counts an exclusion otherwise."""
-            nonlocal excluded_before, excluded_undated
-            when = _parse_time(when_text)
+        # The qualifying send: the earliest INITIAL confident send recorded at or after assignment.
+        # Its thread is what a downstream outcome must belong to.
+        qualifying_time, qualifying_thread = None, None
+        for event in events:
+            if (event.get("Event") == sequence.SENT and event.get("Step") == sequence.INITIAL
+                    and event.get("Match") in sequence.CONFIDENT):
+                when = _parse_time(event.get(sequence.OCCURRED, ""))
+                if assigned is not None and when is not None and when >= assigned:
+                    if qualifying_time is None or when < qualifying_time:
+                        qualifying_time, qualifying_thread = when, event.get("Thread ID", "")
+        has_qualifying = qualifying_time is not None
+
+        counted = {"sent": False, "drafted": False, "replied": False, "opted_out": False,
+                   "opened": False, "meeting": False, "positive": False, "tracked": False,
+                   "followups_sent": 0}
+        for event in events:
+            kind = event.get("Event")
+            is_initial = (kind == sequence.SENT and event.get("Step") == sequence.INITIAL
+                          and event.get("Match") in sequence.CONFIDENT)
+            is_followup = kind == sequence.SENT and event.get("Step") in sequence.FOLLOWUPS
+            is_draft = kind in (sequence.DRAFTED, sequence.FOLLOWUP_DRAFTED)
+            is_downstream = kind in DOWNSTREAM or is_followup
+            if not (is_initial or is_draft or is_downstream):
+                continue  # not a metric-contributing event; it is neither counted nor excluded here
+            when = _parse_time(event.get(sequence.OCCURRED, ""))
             if assigned is None or when is None:
-                excluded_undated += 1
-                return False
+                undated += 1
+                continue
             if when < assigned:
-                excluded_before += 1
-                return False
-            return True
+                before += 1
+                continue
+            if is_downstream and (not has_qualifying or when < qualifying_time
+                                  or event.get("Thread ID", "") != qualifying_thread):
+                unattributable += 1  # after assignment, but not linked to a qualifying send
+                continue
+            if is_initial:
+                counted["sent"] = True
+            if is_followup:
+                counted["followups_sent"] += 1
+            if kind == sequence.DRAFTED:
+                counted["drafted"] = True
+            if is_draft and sequence.TRACKED in [p.strip() for p in str(event.get("Detail", "")).split(",")]:
+                counted["tracked"] = True
+            if kind == sequence.REPLIED:
+                counted["replied"] = True
+            if kind == sequence.OPT_OUT:
+                counted["opted_out"] = True
+            if kind == sequence.OPEN:
+                counted["opened"] = True
+            if kind == MEETING:
+                counted["meeting"] = True
+            if kind == POSITIVE_REPLY:
+                counted["positive"] = True
 
-        for event in by_event.get(lead_id, []):
-            if _after(event.get(sequence.OCCURRED, "")):
-                kept.append(event)
-        outcomes = [c for c in by_call.get(lead_id, []) if c.get("Kind") == "OUTCOME"]
-        calls_kept = [c for c in outcomes
-                      if _after(c.get("Called at (UTC)") or c.get("Recorded at (UTC)", ""))]
+        called = False
+        for outcome in by_call.get(lead_id, []):
+            if outcome.get("Kind") != "OUTCOME":
+                continue
+            when = _parse_time(outcome.get("Called at (UTC)") or outcome.get("Recorded at (UTC)", ""))
+            if assigned is None or when is None:
+                undated += 1
+            elif when < assigned:
+                before += 1
+            else:
+                called = True
 
-        kinds = [e.get("Event") for e in kept]
-        signals[lead_id] = {
-            "drafted": sequence.DRAFTED in kinds,
-            "sent": any(e.get("Event") == sequence.SENT and e.get("Step") == sequence.INITIAL
-                        and e.get("Match") in sequence.CONFIDENT for e in kept),
-            "replied": sequence.REPLIED in kinds,
-            "opted_out": sequence.OPT_OUT in kinds,
-            "followups_sent": sum(1 for e in kept if e.get("Event") == sequence.SENT
-                                  and e.get("Step") in sequence.FOLLOWUPS),
-            "tracked": any(e.get("Event") in (sequence.DRAFTED, sequence.FOLLOWUP_DRAFTED)
-                           and sequence.TRACKED in [p.strip() for p in str(e.get("Detail", "")).split(",")]
-                           for e in kept),
-            "opened": sequence.OPEN in kinds,
-            "meeting": MEETING in kinds,
-            "positive": POSITIVE_REPLY in kinds,
-            "called": bool(calls_kept),
-            "excluded_before": excluded_before,
-            "excluded_undated": excluded_undated,
-        }
+        signals[lead_id] = {**counted, "called": called, "excluded_before": before,
+                            "excluded_undated": undated, "excluded_unattributable": unattributable}
     return signals
 
 
@@ -291,7 +324,8 @@ def _variant_metrics(lead_ids, signals, suppressed, *, meetings_recorded, positi
     positives = sum(1 for s in sig if s["positive"])
     meetings = sum(1 for s in sig if s["meeting"])
     excluded = {"before_assignment": sum(s["excluded_before"] for s in sig),
-                "undated": sum(s["excluded_undated"] for s in sig)}
+                "undated": sum(s["excluded_undated"] for s in sig),
+                "unattributable": sum(s["excluded_unattributable"] for s in sig)}
 
     metrics = [
         _metric("assigned", "Assigned", assigned, assigned, "assigned"),
@@ -355,7 +389,7 @@ def report(state, leads, events, call_events, entries, *, now=None):
             email = channels.email_of(leads.get(lead_id, {}))
             suppressed_of[lead_id] = bool(email and suppression_contract.covers(entries, email))
 
-    variants_out, sends, total_excluded = [], [], {"before_assignment": 0, "undated": 0}
+    variants_out, total_excluded = [], {"before_assignment": 0, "undated": 0, "unattributable": 0}
     for index in (0, 1):
         lead_ids = [lid for lid in all_assigned if assignments[lid] == index]
         suppressed = (None if suppressed_unknown
@@ -368,39 +402,42 @@ def report(state, leads, events, call_events, entries, *, now=None):
         variants_out.append({"index": index, "name": name or f"Variant {index + 1}",
                              "assigned": assigned, "suppressed": suppressed,
                              "excluded": excluded, "lead_ids": lead_ids, "metrics": metrics})
-        sends.append(sent)
-        total_excluded["before_assignment"] += excluded["before_assignment"]
-        total_excluded["undated"] += excluded["undated"]
+        for key in total_excluded:
+            total_excluded[key] += excluded[key]
 
-    can_compare = all(s >= MIN_SENDS_TO_COMPARE for s in sends)
+    # This is OBSERVED ACTIVITY BY ASSIGNED GROUP, not A/B performance. Variant content does not yet
+    # affect any draft and no exposure is recorded, so the two groups are not an A/B comparison — and a
+    # number of sends would not make them one. No winner is declared.
     comparison = {
-        "winner": None, "can_compare": can_compare, "min_sends_to_compare": MIN_SENDS_TO_COMPARE,
-        "note": ("Each variant has enough confirmed sends to compare, but no winner is declared: a "
-                 "difference in these rates is not a statistical significance test."
-                 if can_compare else
-                 f"Too few confirmed sends to compare: each variant needs at least "
-                 f"{MIN_SENDS_TO_COMPARE}. The counts above are shown without a verdict."),
+        "winner": None, "comparable": False,
+        "note": ("This is observed activity by the assigned group, not A/B performance: the variant's "
+                 "content does not yet change any email and no exposure is recorded, so the two groups "
+                 "are not comparable. Reaching a number of sends would not make them comparable."),
     }
     notes = [
-        "Only outcomes recorded at or after a lead was assigned are counted here, so an email sent or "
-        "a reply received before the lead joined the test is not a result of it.",
+        "Observed activity by assigned group — not A/B performance. Until a variant's content actually "
+        "changes a draft and that exposure is recorded, these are not the results of a test.",
+        "Only outcomes recorded at or after a lead was assigned are counted, and a downstream outcome "
+        "(a reply, open, opt-out or follow-up) counts only when it links to a send made after the lead "
+        "was assigned — a reply to an email sent earlier is not a result of the test.",
         "Confirmed sent means a send was recorded, not that it was delivered; a bounce is the only "
         "delivery signal and is counted against the lead, not here.",
         "Opens are an estimate and are labelled so.",
         "A lead's variant never changes once assigned, so a refresh or a follow-up cannot move it.",
     ]
-    excluded_total = total_excluded["before_assignment"] + total_excluded["undated"]
+    excluded_total = sum(total_excluded.values())
     if excluded_total:
         notes.append(
-            f"{excluded_total} recorded event(s) are excluded from these results: "
-            f"{total_excluded['before_assignment']} happened before the lead was assigned, and "
-            f"{total_excluded['undated']} could not be dated against the assignment.")
+            f"{excluded_total} recorded event(s) are excluded: "
+            f"{total_excluded['before_assignment']} happened before the lead was assigned, "
+            f"{total_excluded['unattributable']} could not be linked to a send made after assignment, "
+            f"and {total_excluded['undated']} could not be dated against the assignment.")
     if calls_unreadable:
         notes.append("The Call log could not be read, so calls are shown as not available, never 0.")
     if suppressed_unknown:
         notes.append("The Suppression list could not be read, so suppressed-but-assigned counts are "
                      "not shown.")
     return {"name": state["name"], "defined": state["defined"],
-            "variants": variants_out, "comparison": comparison, "notes": notes,
-            "excluded": total_excluded,
+            "basis": "observed_activity", "variants": variants_out, "comparison": comparison,
+            "notes": notes, "excluded": total_excluded,
             "calls_unreadable": calls_unreadable, "suppression_unreadable": suppressed_unknown}

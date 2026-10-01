@@ -58,9 +58,10 @@ available** when no recorded signal exists:
 | Meetings | confirmed sent | **not available** unless a real recorded meeting event exists |
 | Opens | tracked sends | labelled **(est.)** — an estimate |
 
-- **No winner is ever declared.** Below `MIN_SENDS_TO_COMPARE` (30) per variant the report says the
-  samples are too few to compare; above it, it still declines to pick a winner, because a rate gap
-  here is not a significance test. `comparison.winner` is always null.
+- **This is observed activity by assigned group, not A/B performance** (`basis: "observed_activity"`).
+  Variant content does not yet change any email and no exposure is recorded, so the two groups are not
+  comparable (`comparison.comparable` is false, `winner` always null), and **reaching a number of sends
+  does not make them comparable** — the report says so and no send threshold is used.
 - Positive replies and meetings read **"not available"**, not a misleading `0`, because the pipeline
   records no such signal yet; they become available the moment such events exist (the report already
   recognises `MEETING` / `POSITIVE_REPLY` events).
@@ -119,6 +120,35 @@ through the real snapshot; calls unavailable in the snapshot; a suppressed lead 
 not assigned; an unreadable safety source refusing the whole assignment). Verified no-network: Python
 **1050**, frontend **117**, typecheck + build; and a real loopback-HTTP run confirming the excluded
 pre-assignment outcomes and the fail-closed assignment.
+
+## Second recheck remediation (2026-10-01)
+
+A further recheck found one more attribution case and asked for a framing change.
+
+1. **A reply (or other downstream outcome) after assignment, to a send made before assignment, was
+   counted.** A downstream email outcome — a reply, opt-out, open, or follow-up send — is caused by a
+   send, not by assignment alone, so it now counts **only when it links to a qualifying post-assignment
+   send**: the same thread, after that send. The report finds each lead's qualifying send (the earliest
+   INITIAL confident send recorded at or after assignment) and attributes downstream outcomes to it. An
+   after-assignment reply whose only send predates assignment, or is on a different thread, is now a
+   third kind of exclusion, **`unattributable`** (shown alongside `before_assignment` and `undated`),
+   never a result. Reproduced through `GET /api/snapshot` (send 2026-09-30, assigned 2026-10-01, reply
+   2026-10-02 on the same thread): sent and replies totals 0, `excluded.before_assignment == 1`,
+   `excluded.unattributable == 1`.
+2. **The report is labelled observed activity by assigned group, not A/B performance.** Until a
+   variant's content actually changes a draft and that exposure is recorded, the two groups are not an
+   A/B comparison. `report.basis` is `"observed_activity"`; `comparison.comparable` is false and
+   `winner` null; the note says the groups are not comparable and that **reaching a number of sends
+   would not make them comparable** (the previous send-threshold "can_compare" language and
+   `MIN_SENDS_TO_COMPARE` are removed). The console page is titled "Observed activity by assigned group"
+   with a "Not A/B performance" marker.
+
+Regressions: `test_experiments.py` (reply-after-assignment-to-a-pre-assignment-send; a reply linked to
+a post-assignment send counted; a reply on a different thread excluded; a follow-up on a pre-assignment
+thread excluded; the observed-activity framing) and `test_console_experiments.py` (the reply-to-a-
+pre-assignment-send case through the real snapshot). Verified no-network: Python **1055**, frontend
+**117**, typecheck + build; and a real loopback-HTTP run confirming the excluded reply and the
+observed-activity framing.
 
 ## Not done / out of scope
 
