@@ -82,3 +82,13 @@ Both residual sub-gaps in finding 1 are closed. Containers available: Python **9
 These are internal refresh-timing and signature refinements, verified by the network-disabled frontend
 component tests and the unit key test; they were not browser-reproduced (the harness cannot make a
 same-minute in-place handbook edit). No sending, no Gmail draft, no deploy, no live Sheet.
+
+## Independent recheck of `af007dc` (2026-10-01)
+
+The two remaining freshness cases are addressed in the local code at this commit. `App.refresh` increments
+`generation` on each successful snapshot load and passes it through `page` to `LeadPage`; therefore a
+same-minute refresh changes `postCallReloadKey`. `PostCallCandidate.serverSig` now includes the handbook
+hash and cited evidence as well as lead ID, subject and body. The relevant 13 frontend tests and typecheck
+passed in network-disabled containers on this checkout. This is a scoped code/test recheck, not a browser
+reproduction of an out-of-band handbook edit or a live deployment claim. No product code or live service
+was changed by the reviewer.

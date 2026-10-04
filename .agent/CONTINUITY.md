@@ -70,6 +70,163 @@
 
 ## [DISCOVERIES]
 
+- 2026-10-01 [FIX] A/B 3rd recheck (of 0e43645): tracked-open linkage. The 2nd recheck's thread-only rule
+  excluded a real tracked open, because tracking_job.hit_event writes OPEN with Match "TRACKER", a BLANK
+  Thread ID, and the draft action in Detail ("draft <action>") (repro: post-assignment tracked draft +
+  sent + open => 1 sent, 0 opens, 1 unattributable). Fix in experiments._lead_signals: a tracker open is
+  linked by DRAFT-ACTION evidence — the open's action (parsed from Detail) must name a post-assignment
+  TRACKED INITIAL draft (action from the DRAFTED event key "draft:<action>"), and be after the qualifying
+  send (existing send-time/preview rule). Thread-based outcomes (REPLIED/OPT_OUT/MEETING/POSITIVE/followup
+  send) now require a NONEMPTY shared thread id (two blanks are not a link). tracked (opens denominator) =
+  qualifying send exists AND had a post-assignment tracked initial draft. Added _draft_action() helper;
+  THREAD_DOWNSTREAM constant; OPEN handled separately from thread events. No report-shape change => frontend
+  untouched. Repro fixed through GET /api/snapshot: 1 sent, 1 open, 0 unattributable. Regressions:
+  test_experiments.py (tracked-open-counted, open-no-qualifying, open-different-draft, reply-nonempty-thread)
+  + test_console_experiments.py (tracked open through the real snapshot); test helpers drafted()/opened()
+  build realistic tracker events (DRAFTED key draft:<action>; OPEN Match TRACKER, blank thread, Detail
+  "draft <action>"). Verified no-network: Python 1060, frontend 117 + tsc/build; real loopback-HTTP
+  confirmed. Committed only my code/tests + MVP_DELIVERY + evidence doc; AS_BUILT + CONTINUITY left
+  UNCOMMITTED (another agent's entries). Variants still not connected to drafting.
+
+- 2026-10-01 [FIX] A/B 2nd recheck (of 8493d7b): one more attribution case + a framing change. (1)
+  DOWNSTREAM LINKAGE: a reply/opt-out/open/follow-up recorded AFTER assignment but to a send made BEFORE
+  assignment was counted. A downstream email outcome now counts ONLY when it links to a QUALIFYING
+  post-assignment send (earliest INITIAL confident send at/after assignment): same thread, after that send.
+  experiments._lead_signals computes the qualifying send per lead (time + Thread ID) and attributes
+  downstream outcomes to it; otherwise the event is a new exclusion kind `unattributable` (beside
+  before_assignment, undated). DOWNSTREAM = REPLIED/OPT_OUT/OPEN/MEETING/POSITIVE_REPLY + FOLLOWUP sends.
+  (2) OBSERVED ACTIVITY framing: report.basis="observed_activity"; comparison={winner:None, comparable:False,
+  note "...not A/B performance...not comparable...reaching a number of sends would not make them
+  comparable"}; removed can_compare/MIN_SENDS_TO_COMPARE (don't imply a send threshold => comparable).
+  Console page retitled "Observed activity by assigned group" + "Not A/B performance" marker; types updated
+  (comparison shape, basis, excluded.unattributable). Reproduced through GET /api/snapshot (send 09-30,
+  assigned 10-01, reply 10-02 same thread => sent/replies 0, excluded before 1 + unattributable 1).
+  Regressions: test_experiments.py (reply-to-pre-assignment-send, linked-reply counted, different-thread,
+  followup-on-pre-assignment-thread, observed-activity) + test_console_experiments.py (reply case through
+  the real snapshot) + Experiments.test.tsx (framing). Verified no-network: Python 1055, frontend 117 +
+  tsc/build; real loopback-HTTP confirmed. Committed only my code/tests + MVP_DELIVERY + evidence doc;
+  AS_BUILT + CONTINUITY left UNCOMMITTED (another agent's entries). Variants still not connected to drafting.
+
+- 2026-10-01 [FIX] A/B recheck (of a2e427a): three correctness gaps closed, regressed through the real
+  snapshot/API (docs/testing/experiments-2026-10-01.md "Recheck remediation"). (1) TIME-BASED ATTRIBUTION:
+  outcomes before a lead's assignment were counted (reviewer's case: assigned Oct 1, send+reply Sep 30, both
+  counted). experiments.read now keeps assigned_at; report/_lead_signals count an event/call ONLY when its
+  time is reliably >= the assignment time; anything earlier, or undated, or with an unreadable assignment
+  time, is NOT counted and is tallied excluded (variants[].excluded + report.excluded: before_assignment /
+  undated) with a note. Covers previously-emailed leads (still assigned; old outcomes excluded). (2) CALLS
+  UNAVAILABLE not 0 when the Call log is unreadable (available:false, no count). (3) ASSIGNMENT SAFETY:
+  /api/experiments/assign now assigns only leads NOT suppressed and NOT in a call STOP/HOLD state
+  (experiments.safe_to_assign reads suppression.covers + calls.outreach_effect); if the Suppression list OR
+  the Call log is unreadable it refuses the whole assignment (502, nobody assigned — fail closed, an
+  unreadable safety source is never permission). Regressions in test_experiments.py (23) +
+  test_console_experiments.py (15) + Experiments.test.tsx (7). Verified no-network: Python 1050, frontend
+  117 + tsc/build; real loopback-HTTP (previously-emailed lead → sent/replies totals 0, excluded 2, still
+  assigned; unreadable suppression → 502). Committed only my code/tests + MVP_DELIVERY + the evidence doc;
+  AS_BUILT + CONTINUITY updated in the working tree, left UNCOMMITTED (another agent's entries). Variants
+  still not connected to drafting; nothing live/signed-in/deployed.
+
+- 2026-10-01 [BUILD] A/B tests + variant-level reporting (MVP #9; local, flag-gated enable_experiments, OFF
+  by default + deploy; docs/testing/experiments-2026-10-01.md). New pure outreach/experiments.py: the
+  founder defines two named variants and assigns eligible leads; variant_index = sha256(experiment ∥
+  lead_id) & 1 (deterministic, never random); ASSIGN Record ID = hash(experiment, lead_id) only, so a
+  re-assign is the SAME row (skipped on append) and a lead can never be under two variants; read() takes the
+  EARLIEST assignment and groups by a stable INDEX, so a rename changes only the label, never the lead.
+  report() = every metric with an explicit denominator (assigned/drafted/confirmed-sent[≠delivery]/replies/
+  opt-outs/calls/follow-up-emails-sent/opens[est.]); positive replies + meetings read "not available" (no
+  recorded signal yet, not a misleading 0; recognised automatically if MEETING/POSITIVE_REPLY events ever
+  appear); NO winner ever declared (MIN_SENDS_TO_COMPARE=30 flags small samples; above it still declines — a
+  rate gap ≠ significance). Persistence: append-only "A/B tests" tab (sheet.py AB_TAB/AB_HEADER,
+  Store.ab_records/append_ab_records, refuses changed columns, dedups by Record ID; MemoryStore mirrors).
+  Routes POST /api/experiments/define + /assign under enable_experiments (a test keeps the default app's
+  routes; _deployed doesn't pass the flag). console_model threads ab_records/experiments_enabled, adds each
+  lead's variant/experiment/variant_index + the experiments report + experiments_unreadable. Frontend:
+  Experiments.tsx page (define/assign + report with honest labels), nav+page gated by experiments_enabled,
+  variant chip on Leads/Lead. NOT connected to drafting (variant = name only; no copy; no email changed;
+  Drive handbook/offer untouched). Verified no-network: Python 1040 (13 + 8 new; demo snapshot.json
+  regenerated — RW mount, not :ro), frontend 116 (6 new) + tsc/build; real loopback-HTTP through the real
+  Flask + Store: define→assign (3 assigned, 2 ineligible, winner null, each lead carries its variant)→second
+  assign moves nobody (byte-identical). Concurrency: AS_BUILT + this file hold another agent's uncommitted
+  entries, so I committed only my code/tests + MVP_DELIVERY + the experiments evidence doc; AS_BUILT +
+  CONTINUITY updated in the working tree, left UNCOMMITTED. NOT done: variant→drafting wiring (waits on
+  handbook/offer), recording positive-reply/meeting signals, any live/signed-in run.
+
+- 2026-10-01 [FIX] Playbook recheck follow-up (closes the 78e47e0 recheck's two gaps; docs/testing/
+  playbook-2026-10-01.md "Remediation of the 78e47e0 recheck"). (1) Review ≠ selection: playbook_select.py
+  now binds a purpose (REVIEW/SELECT) into the HMAC; /api/playbook/review mints a REVIEW token only (proof
+  of review, NOT selection/approval); new POST /api/playbook/select verifies it and mints a SELECT token;
+  /preview requires the SELECT token → a reviewed-but-never-selected version is refused (403), as are a
+  review token at /preview, forged, changed text, other founder, expired. Non-durable (secret dies on
+  restart), not wired to production drafting. Playbook.tsx: Select button calls selectPlaybook (a server
+  step), selectionToken state, preview sends it. (2) Size bound BEFORE parsing: every route sets
+  request.max_content_length = MAX_BYTES before request.files/get_json → 413 (too_large on /review), even
+  with no usable Content-Length; /select & /preview also cap text at MAX_CHARS. Tests: test_playbook_select
+  (purpose REVIEW≠SELECT), test_console_playbook (review→select→preview accepted; review-token-at-preview
+  403; oversized multipart w/ and w/o Content-Length → 413; oversized select/preview JSON → 413). Verified
+  no-network: Python 1019 (39 focused), frontend 110, tsc+build; real loopback-HTTP harness confirmed all
+  seven boundaries. Durable selection recorded separately: docs/decisions/playbook-durable-selection-
+  2026-10-01.md. Same concurrency note as below: AS_BUILT + this file carry another agent's uncommitted
+  entries, so my commit is only my code/tests + MVP_DELIVERY + the playbook evidence doc + the decision
+  note; AS_BUILT + CONTINUITY updated in the working tree but left UNCOMMITTED.
+
+- 2026-10-01T19:13:31Z [TOOL] Independent recheck of 78e47e0: 32 focused Python
+  and 4 Playbook frontend tests PASS in network-disabled containers. [CODE]
+  Token proves review of exact text, but is minted before the founder's Select
+  click; the API does not prove selection. Upload's bounded file read occurs
+  after multipart parsing, with no route-level request-body limit. Evidence:
+  docs/testing/playbook-2026-10-01.md. Local read-only scope; no product/live
+  change in this recheck. [RESOLVED by the FIX above.]
+
+- 2026-10-01 [FIX] Playbook preview boundary (recheck of 7f5d99b, docs/testing/playbook-2026-10-01.md). (1)
+  Preview now needs VERIFIABLE selection evidence: new outreach/playbook_select.py mints an HMAC token
+  (per-process secret) over content_hash|email|exp (30 min); /review returns it; /preview recomputes the
+  hash from posted text + founder from session and 403s unless the token verifies → no bypass by posting
+  arbitrary text+hash, changed text 403, other founder fails, dies on restart (local, time-bounded, NOT
+  durable). (2) Size bounds before parsing: /review reads MAX_BYTES+1 (5MB) then 422 too_large (mirrors
+  import); /preview 413 on request body > MAX_BYTES and text > MAX_CHARS (60k) before hash/render. Added a
+  real-PDF-with-text extraction test (hand-built minimal PDF w/ correct xref, pypdf extracts it). Python
+  1012, frontend 109 + tsc/build; real-HTTP harness: review→token→preview 200 "Hi Dana,", forged→403,
+  none→400, changed→403. Note: AS_BUILT + this file carry another agent's uncommitted Ohio-census/reviewer
+  entries, so my commit includes only my code/tests + MVP_DELIVERY + the playbook evidence doc; AS_BUILT +
+  CONTINUITY are updated in the working tree but left UNCOMMITTED to preserve the other agent's work.
+
+- 2026-10-01T18:53:41Z [TOOL] Independent local recheck of 7f5d99b: 22 focused
+  Python and 4 frontend Playbook tests PASS in network-disabled containers.
+  [CODE] Preview accepts an arbitrary caller-supplied text/matching-hash pair
+  with no server proof of review/selection; upload uses unbounded `read()` before
+  its 5 MB check and preview has no text-size bound. The Sheets cell limit is
+  a constraint on that storage choice, not proof durable selection is impossible
+  with the existing Drive handbook architecture. Evidence:
+  docs/testing/playbook-2026-10-01.md. No product code/live service changed.
+
+- 2026-10-01 [BUILD] Playbook PDF/DOCX upload → review → select-by-hash → candidate preview (flag-gated
+  enable_playbook, off by default + deploy; local, read-only; no Gmail/send; Drive handbook stays production).
+  New outreach/playbook_extract.py (pypdf + python-docx, imported inside fns like importer; rejects
+  empty/too_large>5MB/unsupported/malformed/no_text(image-only)/too_long>60k) + outreach/playbook.py
+  (review(text) → initial-email + follow-ups (reuse followup.templates) + timing (business-day ints) + offer
+  values + missing/ambiguous; content_hash = immutable version id, same normalize as handbook_drive). Console
+  under enable_playbook: POST /api/playbook/review (multipart → extract → review) + /preview (text+hash →
+  followup.render(1); 409 if content_hash(text)!=selected → changed file must be re-reviewed). Snapshot gains
+  playbook_enabled; Layout nav + router "playbook" page + App case gated by it. Frontend Playbook.tsx shows
+  extracted text as PLAIN DATA (<pre>, never dangerouslySetInnerHTML, never instructions). requirements.txt
+  += pypdf==5.*, python-docx==1.* → HAD TO REBUILD outreach-tests image (docker build -f deploy/test.Dockerfile
+  -t outreach-tests .) so the libs are present; regenerated console/src/demo/snapshot.json for the new key
+  (test_console_api asserts exact snapshot == fx.snapshot()). Python 1002, frontend 109 + tsc/build. Real API
+  (harness, enable_playbook=True): real .docx → review (initial/fu1/fu2, timing [3,7]) → preview "Hi Dana,"
+  no problems → changed-file 409; page renders w/ nav link. **DURABLE SELECTION BLOCKER (documented, not
+  built):** a Google Sheets cell ≤ 50,000 chars but a playbook may be 60,000 → can't persist the handbook
+  text in one cell safely → selection is per-session (client holds text+hash, server re-verifies); don't claim
+  durable selection. Not verified: real text-PDF unit extraction (no PDF writer in tests — DOCX covers text,
+  PDF covers errors incl. a real blank PDF → no_text); browser-DOM file upload (component + real-API cover it).
+  Evidence docs/testing/playbook-2026-10-01.md. Synthetic only; committed, not pushed.
+
+- 2026-10-01T10:33:00-04:00 [TOOL] Independently rechecked af007dc in local
+  network-disabled containers: 13 focused frontend tests and typecheck PASS.
+  [CODE] App increments generation on every successful snapshot load and passes
+  it to LeadPage's candidate key; candidate signature now includes handbook hash
+  and evidence. The two previously reported freshness cases are addressed at
+  this code/test scope. No browser out-of-band edit or live deployment was
+  verified. Evidence: docs/testing/chat-call-review-2026-10-01.md.
+
 - 2026-10-01 [FIX] Recheck of e52c221 found finding 1 still incomplete 2 ways; both closed. (a) read_at is
   minute-precision → same-minute refreshes shared postCallReloadKey → no re-fetch. App now keeps a
   `generation` counter (incremented each successful load), threaded page()→LeadPage→postCallReloadKey(lead,
