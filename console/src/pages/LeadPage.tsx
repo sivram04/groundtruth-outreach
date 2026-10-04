@@ -8,6 +8,7 @@ import type { Lead } from "../types";
 import { CallPanel } from "./CallPanel";
 import { NotFound } from "./NotFound";
 import { PostCallCandidate } from "./PostCallCandidate";
+import { ReplyCandidate } from "./ReplyCandidate";
 
 /** A value that changes on every snapshot refresh, so the open lead page re-checks its post-call candidate
  *  whenever the snapshot is re-read — which catches in-place changes the snapshot cannot fingerprint, such as
@@ -159,6 +160,10 @@ export function LeadPage({
           />
           <PostCallCandidate leadId={lead.id} reloadKey={postCallReloadKey(lead, data, generation)} />
         </>
+      )}
+
+      {data.reply_enabled && (
+        <ReplyCandidate leadId={lead.id} reloadKey={postCallReloadKey(lead, data, generation)} />
       )}
 
       <Card title="Emails" icon={Mail}>

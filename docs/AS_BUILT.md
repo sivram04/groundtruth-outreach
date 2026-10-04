@@ -1372,6 +1372,25 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-10-04 (MVP #6: reply-draft candidate + booking link, lead-page wiring)** — after a lead writes
+  back, the lead page can offer a suggested reply for the founder to read, edit or copy into the thread in
+  Gmail. Built exactly like the post-call candidate (`outreach/reply.py`, `console/src/pages/ReplyCandidate.tsx`):
+  read-only, never sends, never creates a Gmail draft, never persists. It is grounded in the recorded inbound
+  reply (`outreach/sync.py` Events), the company's own cited words, and the approved offer; it **never states
+  what the reply said** (we do not parse the inbound text). A booking link is a new settings key
+  `booking_link`, included only when it is a real `https://` URL (placeholders and schemeless strings are
+  refused); without one the CTA falls back to the approved question. Blocked by call STOP (sticky
+  do-not-contact / not interested), suppression, no email, a missing/unapproved offer, or no handbook; a HOLD
+  does not block (a reply is the founder handling the lead by hand). An OPT_OUT or BOUNCED anywhere in the
+  thread, or an AUTO_REPLY as the only inbound, yields no candidate. Flag-gated `enable_reply`, **off by
+  default and in deploy**; the route `GET /api/reply/<lead_id>/candidate` reads only and fails closed when the
+  Events tab, Call log, Suppression list or handbook cannot be read. Verified offline in network-disabled
+  containers: Python **1090** (21 unit in `tests/test_reply.py`, 9 route in `tests/test_console_reply.py`),
+  frontend **123** (6 in `ReplyCandidate.test.tsx`) + tsc + build. **Not done:** an actual in-thread Gmail
+  draft create from the candidate (still review-gated, a later step); a browser run against the live API; the
+  founder's real booking URL in settings. Tests cover each guard; a full deliberate-break sweep was not run
+  this increment. No deployment, no live Sheet, nothing sent.
+
 - **2026-10-01 (A/B 3rd recheck: tracked-open linkage by draft action; nonempty-thread rule)** — the
   thread-only linkage from the 2nd recheck wrongly excluded a real tracked open. `tracking_job.hit_event`
   records an OPEN with Match "TRACKER", a BLANK Thread ID, and the draft action in Detail ("draft

@@ -2270,6 +2270,7 @@
     "A-0013",
     "A-0014"
   ],
+  "reply_enabled": false,
   "signed_in_as": "admin@lakshyaa.ai",
   "suppression_count": 2,
   "suppression_unreadable": false,

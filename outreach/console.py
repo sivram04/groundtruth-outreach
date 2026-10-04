@@ -33,7 +33,7 @@ from werkzeug.exceptions import RequestEntityTooLarge
 
 from outreach import (assistant, call_log_chat, calls, channels, console_auth, console_model,
                       experiments, followup, importer, job_draft, playbook, playbook_extract,
-                      playbook_select, post_call, review, suppression)
+                      playbook_select, post_call, reply, review, suppression, sync)
 from outreach.sheet import LEAD_TABS, DestinationMismatch, Store
 
 DEFAULT_STATIC = Path(__file__).resolve().parent.parent / "console" / "dist"
@@ -67,7 +67,7 @@ MAX_IMPORT_BYTES = 2_000_000
 def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings, clock=_now,
                static_dir=None, handbook_doc_id="", review_store=None, enable_review=False,
                review_signer=None, enable_import=False, enable_calls=False, enable_playbook=False,
-               enable_experiments=False):
+               enable_experiments=False, enable_reply=False):
     """The console. `store`, `settings` and `clock` are called once per data request, and a test
     passes stand-ins for them. `verifier` None means not configured: every request is refused.
 
@@ -144,6 +144,7 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
         data["import_enabled"] = enable_import
         data["playbook_enabled"] = enable_playbook
         data["experiments_enabled"] = enable_experiments
+        data["reply_enabled"] = enable_reply
         return data, None
 
     @app.get("/api/snapshot")
@@ -619,6 +620,57 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                 callback_at=str(body.get("callback_at", "")).strip() or None)
             log.info("call-note interpreted for %s: %s", g.email, proposal.get("status"))
             return jsonify(proposal)
+
+    if enable_reply:
+        # A reply-draft candidate (#6) for a lead that wrote back. READ-ONLY: it never sends, never
+        # creates a Gmail draft, never writes. Flag-gated and off in deployment. Grounded in the recorded
+        # reply, the company's cited words and the approved offer; it never states what the reply said.
+        @app.get("/api/reply/<lead_id>/candidate")
+        def reply_candidate(lead_id):
+            """Returns {candidate} or {candidate:null, reason, unavailable?}. Fails closed: an unreadable
+            Events tab, Call log or Suppression list yields no candidate, never an unguarded one."""
+            chosen = _chosen_settings()
+            with reading:
+                try:
+                    st = store()
+                    leads = st.leads()
+                except Exception:
+                    log.exception("the Sheet could not be read for a reply candidate")
+                    return refuse(502, "The Sheet could not be read just now.")
+                if lead_id not in leads:
+                    return refuse(404, "There is no such lead.")
+                row = leads[lead_id]
+                try:
+                    events = [e for e in sync.unique(st.events()) if e.get("Lead ID") == lead_id]
+                except Exception:
+                    log.exception("the Events tab could not be read for a reply candidate")
+                    return jsonify(candidate=None, unavailable=True, reason="events_unreadable")
+                try:
+                    call_events = [e for e in st.call_events() if e.get("Lead ID") == lead_id]
+                except Exception:
+                    # Unreadable call history must not silently permit outreach: a STOP could be hidden.
+                    log.exception("the Call log could not be read for a reply candidate")
+                    return jsonify(candidate=None, unavailable=True, reason="call_log_unreadable")
+                try:
+                    entries = st.suppression()
+                except suppression.Unreadable:
+                    return jsonify(candidate=None, unavailable=True, reason="suppression_unreadable")
+            inbound = reply.latest_inbound(events)
+            if inbound is None:
+                return jsonify(candidate=None, reason="no_reply")
+            effect = calls.outreach_effect(call_events)
+            email = channels.email_of(row)
+            suppressed = bool(email) and suppression.covers(entries, email)
+            book, _why = job_draft._handbook(chosen)
+            if book is None:  # grounded in the current handbook, or not offered at all
+                return jsonify(candidate=None, unavailable=True, reason="handbook_unavailable")
+            try:
+                cand = reply.candidate(row, inbound, chosen, handbook=book, effect=effect,
+                                       suppressed=suppressed)
+            except reply.NotEligible as exc:
+                return jsonify(candidate=None, reason=exc.reason)
+            log.info("reply candidate shown for %s to %s", lead_id, g.email)
+            return jsonify(candidate=cand)
 
     if enable_experiments:
         # Defining an experiment and assigning leads writes to the Sheet (the A/B tests tab), so this is

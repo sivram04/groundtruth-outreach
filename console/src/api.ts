@@ -9,6 +9,7 @@ import type {
   PlaybookPreview,
   PlaybookSelection,
   PlaybookUpload,
+  ReplyCandidateResult,
   Snapshot,
 } from "./types";
 
@@ -537,6 +538,31 @@ export async function loadCallCandidate(
     throw new CallError("The post-call candidate could not be loaded.");
   }
   return body as CallCandidateResult;
+}
+
+/** Load the reply-draft candidate for a lead (inspect / edit / discard) after it wrote back. Reads only;
+ *  the server never sends, drafts to Gmail, or persists. Returns the candidate or a reason it is not offered. */
+export async function loadReplyCandidate(
+  leadId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<ReplyCandidateResult> {
+  let response: Response;
+  try {
+    response = await fetcher(`/api/reply/${encodeURIComponent(leadId)}/candidate`, {
+      headers: { Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+  } catch {
+    throw new CallError("The console could not be reached. Check the connection and try again.");
+  }
+  if (response.status === 401) throw new LoadError(SIGN_IN_ENDED, true);
+  const isJson = (response.headers.get("Content-Type") ?? "").includes("application/json");
+  const body: unknown = isJson ? await response.json().catch(() => null) : null;
+  if (!response.ok || !body || typeof body !== "object" || !("candidate" in body)) {
+    throw new CallError("The reply candidate could not be loaded.");
+  }
+  return body as ReplyCandidateResult;
 }
 
 /** Complete, snooze or cancel a lead's call task. `task_id` is required and names the exact task the

@@ -45,6 +45,20 @@
 
 ## [PROGRESS]
 
+- 2026-10-04 [CODE] MVP #6 reply-draft candidate + booking link, wired onto the lead page. `outreach/reply.py`
+  (pure, like `post_call.py`): after a lead writes back, a review-only suggested reply grounded in the recorded
+  reply, the company's cited words and the approved offer; NEVER states what the reply said (inbound text is not
+  parsed). Booking link = new settings key `booking_link` (real https only). Blocked by call STOP / suppression /
+  no email / no offer / no handbook; opt-out/bounce/auto-reply give none; HOLD does not block. Route
+  `GET /api/reply/<lead_id>/candidate` (flag `enable_reply`, OFF by default and in deploy), reads only, fails
+  closed on unreadable Events/Call log/Suppression/handbook. Frontend `ReplyCandidate.tsx` on the lead page.
+  Offline-verified in network-disabled containers: Python 1090, frontend 123 + tsc + build. NOT done: in-thread
+  Gmail draft create from the candidate (review-gated, later), a browser run against the live API, and the
+  founder's real booking URL. Tests cover each guard; no full deliberate-break sweep this increment. Nothing
+  deployed, nothing sent. Separately, a live read-only probe confirmed the founder token works (scopes:
+  gmail.compose, gmail.readonly, spreadsheets, drive.readonly) -> drive.readonly means the test handbook must be
+  created by the founder, not the agent; the live Sheet has no Call log or A/B tab yet.
+
 - 2026-09-28 [CODE] Stage 4 built locally: `outreach/sync.py` (Gmail read-only -> Events,
   Suppression, lead summary columns), `outreach/followup.py` (the handbook's own follow-up
   wording, drafted in the original thread), `mailbox.py`, `sequence.py`, `business_days.py`.

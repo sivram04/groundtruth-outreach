@@ -99,6 +99,29 @@ export interface CallCandidateResult {
   unavailable?: boolean;
 }
 
+/** A reply-draft candidate (#6): a suggested reply after a lead wrote back. Review only; it never states
+ *  what the lead's reply said. `booking_link` is "" unless a real URL is configured. */
+export interface ReplyCandidate {
+  to: string;
+  subject: string;
+  body: string;
+  booking_link: string;
+  evidence: { quote: string; url: string } | null;
+  thread_id: string;
+  in_reply_to: string;
+  replied_at: string;
+  handbook_hash: string;
+  handbook_name: string;
+}
+
+/** GET /api/reply/<lead>/candidate: the candidate, or null with a reason (and `unavailable` when the
+ *  events tab, call log, suppression list or handbook could not be read). */
+export interface ReplyCandidateResult {
+  candidate: ReplyCandidate | null;
+  reason?: string;
+  unavailable?: boolean;
+}
+
 /** A review of an uploaded playbook's text (outreach/playbook.py). */
 export interface PlaybookReview {
   content_hash: string;
@@ -351,6 +374,8 @@ export interface Snapshot {
   import_enabled?: boolean;
   /** Whether the playbook upload/review/preview flow is switched on (off by default and in deploy). */
   playbook_enabled?: boolean;
+  /** Whether the reply-draft candidate (#6) is switched on for this server (off by default and in deploy). */
+  reply_enabled?: boolean;
   /** Whether the A/B test flow is switched on for this server (off by default and in deploy). */
   experiments_enabled?: boolean;
   /** The current experiment's variant-level report, or null when none is defined/assigned. */

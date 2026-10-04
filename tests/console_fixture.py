@@ -201,6 +201,7 @@ def snapshot():
     data["signed_in_as"] = "admin@lakshyaa.ai"
     data["import_enabled"] = False  # the static demo has no server to import through
     data["playbook_enabled"] = False  # likewise, the playbook upload needs a server
+    data["reply_enabled"] = False  # the reply-draft candidate needs a server too
     return data
 
 
