@@ -565,6 +565,37 @@ export async function loadReplyCandidate(
   return body as ReplyCandidateResult;
 }
 
+/** Create the reviewed reply as an in-thread Gmail DRAFT (the founder sends it by hand). Throws CallError
+ *  with the server's reason when the draft is refused (a call stop, suppression, drafts disabled, a draft
+ *  already in the thread, …). The server never sends. */
+export async function createReplyDraft(
+  leadId: string,
+  subject: string,
+  body: string,
+  fetcher: typeof fetch = fetch,
+): Promise<{ created: boolean; draft_id: string; thread_id: string }> {
+  let response: Response;
+  try {
+    response = await fetcher(`/api/reply/${encodeURIComponent(leadId)}/draft`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      body: JSON.stringify({ subject, body }),
+    });
+  } catch {
+    throw new CallError("The console could not be reached. Check the connection and try again.");
+  }
+  if (response.status === 401) throw new LoadError(SIGN_IN_ENDED, true);
+  const isJson = (response.headers.get("Content-Type") ?? "").includes("application/json");
+  const payload: unknown = isJson ? await response.json().catch(() => null) : null;
+  if (!response.ok) {
+    const said =
+      payload && typeof payload === "object" && "error" in payload ? String((payload as { error: unknown }).error) : "";
+    throw new CallError(said || "The reply draft could not be created.");
+  }
+  return payload as { created: boolean; draft_id: string; thread_id: string };
+}
+
 /** Complete, snooze or cancel a lead's call task. `task_id` is required and names the exact task the
  *  founder was shown, so an action can never fall back to whatever task is open now: a stale id is
  *  refused (409) and a missing one is refused (400), and neither touches a newer task. */

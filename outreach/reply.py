@@ -31,9 +31,11 @@ Rules, kept deliberately conservative:
     in the original thread (that draft step is separate and still review-gated; nothing here sends).
 """
 
+import hashlib
+import os
 import re
 
-from outreach import calls, drafting, sequence
+from outreach import calls, drafting, gmail_drafts, sequence
 
 # Inbound events that mean "the lead wrote back" vs ones that must block a reply candidate.
 REPLY_EVENT = sequence.REPLIED
@@ -108,6 +110,77 @@ class NotEligible(Exception):
     def __init__(self, reason):
         super().__init__(reason)
         self.reason = reason
+
+
+class ReplyBlocked(Exception):
+    """An in-thread reply draft cannot be created; `reason` says why. Nothing was written."""
+
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
+
+
+MAX_SUBJECT = 300
+MAX_BODY = 20000
+
+
+def reply_action_id(lead_id, thread, message_id):
+    """A stable action id for a reply in one thread, so a repeat on the same inbound is the same action."""
+    return hashlib.sha256(f"reply:{lead_id}:{thread}:{message_id}".encode()).hexdigest()[:32]
+
+
+def _thread_has_draft(gmail, thread):
+    """Whether a Gmail draft already sits in this thread (so a reply draft is not created twice)."""
+    listed = gmail.users().drafts().list(userId="me").execute().get("drafts", [])
+    return any((d.get("message") or {}).get("threadId", "") == thread for d in listed)
+
+
+def create(lead, inbound, subject, body, *, settings, gmail, effect=calls.CONTINUE, suppressed=False):
+    """Create ONE in-thread Gmail reply draft from the founder's reviewed (possibly edited) subject and
+    body. DRAFT ONLY - it never sends; the founder presses Send in Gmail. Raises `ReplyBlocked` and writes
+    nothing on any failure.
+
+    The candidate's guards are re-checked here at the write boundary (not trusted from when the candidate
+    was shown): a call STOP, suppression, no email, or no inbound reply all refuse. `ENABLE_GMAIL_DRAFTS`
+    must be "true" (the same hard env gate the initial-email path uses), so the flag alone never creates a
+    draft. No tracking is added to a reply. The draft is filed in the inbound reply's own thread; a thread
+    that already holds a draft is refused, so a repeat does not create a second one."""
+    if os.environ.get("ENABLE_GMAIL_DRAFTS") != "true":
+        raise ReplyBlocked("drafts_disabled")
+    if not inbound:
+        raise ReplyBlocked("no_reply")
+    if suppressed:
+        raise ReplyBlocked("suppressed")
+    if effect == calls.STOP:
+        raise ReplyBlocked("call_stop")
+    to = str(lead.get("BEST EMAIL", "")).strip()
+    if not to:
+        raise ReplyBlocked("no_email")
+    thread = str(inbound.get("thread", "")).strip()
+    if not thread:
+        raise ReplyBlocked("no_thread")
+    subject = str(subject or "").strip()
+    body = str(body or "").strip()
+    if not subject or not body:
+        raise ReplyBlocked("empty")
+    if len(subject) > MAX_SUBJECT or len(body) > MAX_BODY:
+        raise ReplyBlocked("too_long")
+    sender = str(settings.get("sender_email", "")).strip()
+    if not sender:
+        raise ReplyBlocked("no_sender")
+    mailbox = str(gmail.users().getProfile(userId="me").execute().get("emailAddress", "")).strip().lower()
+    if mailbox != sender.lower():
+        raise ReplyBlocked("mailbox_mismatch")
+    if _thread_has_draft(gmail, thread):
+        raise ReplyBlocked("draft_exists")
+    action_id = reply_action_id(lead.get("Lead ID", ""), thread, inbound.get("message_id", ""))
+    draft = gmail_drafts.create(gmail, to=to, from_address=sender, subject=subject, body=body,
+                                action_id=action_id, thread_id=thread)
+    draft_id = draft.get("id")
+    if not draft_id:
+        raise ReplyBlocked("no_draft_id")
+    return {"draft_id": draft_id, "action_id": action_id, "to": to,
+            "thread_id": draft.get("message", {}).get("threadId", thread)}
 
 
 def candidate(lead, inbound, settings, *, handbook, effect=calls.CONTINUE, suppressed=False):

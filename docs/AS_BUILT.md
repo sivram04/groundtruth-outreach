@@ -1385,11 +1385,18 @@ Sheet — and how often the checks refuse it — is unknown.
   thread, or an AUTO_REPLY as the only inbound, yields no candidate. Flag-gated `enable_reply`, **off by
   default and in deploy**; the route `GET /api/reply/<lead_id>/candidate` reads only and fails closed when the
   Events tab, Call log, Suppression list or handbook cannot be read. Verified offline in network-disabled
-  containers: Python **1090** (21 unit in `tests/test_reply.py`, 9 route in `tests/test_console_reply.py`),
-  frontend **123** (6 in `ReplyCandidate.test.tsx`) + tsc + build. **Not done:** an actual in-thread Gmail
-  draft create from the candidate (still review-gated, a later step); a browser run against the live API; the
-  founder's real booking URL in settings. Tests cover each guard; a full deliberate-break sweep was not run
-  this increment. No deployment, no live Sheet, nothing sent.
+  containers: Python **1100** (reply unit + route in `tests/test_reply.py`, `tests/test_console_reply.py`),
+  frontend **125** (`ReplyCandidate.test.tsx`) + tsc + build. **The in-thread draft create is now built:**
+  `reply.create(...)` and `POST /api/reply/<lead_id>/draft` turn the reviewed (possibly edited) subject/body
+  into one real Gmail **draft filed in the inbound reply's thread** — draft only, never sent (the founder
+  presses Send). It re-checks the guards at the write boundary (STOP / suppression / no reply / no email),
+  requires **`ENABLE_GMAIL_DRAFTS=true`** as well as `enable_reply` (the flag alone never writes a draft),
+  refuses a thread that already holds a draft, and adds **no tracking** to a reply (tracking stays a property
+  of initial outreach and the `tracking_check` self-test, so a reply's opens never pollute the initial
+  metrics). The lead page has a "Create draft in Gmail" button beside Discard. **Not done:** wiring a reply
+  draft's own opens/clicks into the metrics (needs a `tracking_job.actions` extension; deliberately out of
+  scope); a browser run against the live API; the founder's real booking URL in settings. Tests cover each
+  guard; a full deliberate-break sweep was not run this increment. No deployment, no live Sheet, nothing sent.
 
 - **2026-10-01 (A/B 3rd recheck: tracked-open linkage by draft action; nonempty-thread rule)** — the
   thread-only linkage from the 2nd recheck wrongly excluded a real tracked open. `tracking_job.hit_event`

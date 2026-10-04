@@ -1,6 +1,6 @@
-import { CalendarCheck, Reply, Trash2 } from "lucide-react";
+import { CalendarCheck, Mail, Reply, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { CallError, loadReplyCandidate } from "../api";
+import { CallError, createReplyDraft, loadReplyCandidate } from "../api";
 import { Card, ExternalLink } from "../components";
 import type { ReplyCandidateResult } from "../types";
 
@@ -12,18 +12,23 @@ export function ReplyCandidate({
   leadId,
   reloadKey = "",
   load = loadReplyCandidate,
+  create = createReplyDraft,
 }: {
   leadId: string;
   /** Changes whenever this lead's state changes (a new event, a call stop), so the candidate is re-fetched
    *  and a stale editable draft is withdrawn or replaced after a parent refresh. */
   reloadKey?: string;
   load?: typeof loadReplyCandidate;
+  create?: typeof createReplyDraft;
 }) {
   const [result, setResult] = useState<ReplyCandidateResult | null>(null);
   const [error, setError] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [discarded, setDiscarded] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [created, setCreated] = useState(false);
+  const [createError, setCreateError] = useState("");
   // The pristine basis of the last fetched candidate; a re-fetch with the same basis keeps the founder's
   // edits, a different one adopts the new candidate (edits are not kept under a changed basis).
   const serverSig = useRef("");
@@ -97,11 +102,27 @@ export function ReplyCandidate({
   }
 
   const cand = result.candidate;
+
+  function onCreate() {
+    setCreating(true);
+    setCreateError("");
+    create(leadId, subject, body).then(
+      () => {
+        setCreating(false);
+        setCreated(true);
+      },
+      (e: unknown) => {
+        setCreating(false);
+        setCreateError(e instanceof CallError ? e.message : "The draft could not be created.");
+      },
+    );
+  }
+
   return (
     <Card title="Reply draft" icon={Reply}>
       <p className="small muted">
-        A suggested reply to read, edit or copy into the thread after this lead wrote back. It is not sent and
-        creates no Gmail draft, and it does not repeat what their reply said — read their message in Gmail.
+        A suggested reply to read, edit, then create as a Gmail draft in this thread. It is never sent — you
+        press Send in Gmail — and it does not repeat what their reply said; read their message in Gmail.
       </p>
       <label className="block small muted" htmlFor="reply-subject">
         Subject
@@ -112,10 +133,23 @@ export function ReplyCandidate({
       </label>
       <textarea id="reply-body" className="import-text" rows={12} value={body} onChange={(e) => setBody(e.target.value)} />
       <div className="email-actions">
+        <button type="button" onClick={onCreate} disabled={creating || created}>
+          <Mail size={15} aria-hidden="true" /> {created ? "Draft created" : creating ? "Creating…" : "Create draft in Gmail"}
+        </button>
         <button type="button" className="secondary" onClick={() => setDiscarded(true)}>
           <Trash2 size={15} aria-hidden="true" /> Discard
         </button>
       </div>
+      {created && (
+        <div className="callout blue" role="status">
+          <div className="callout-text">The draft is in the thread in Gmail — open it there to review and send.</div>
+        </div>
+      )}
+      {createError && (
+        <div className="callout amber" role="alert">
+          <div className="callout-text">{createError}</div>
+        </div>
+      )}
 
       <h3>What this is based on</h3>
       <dl className="facts">

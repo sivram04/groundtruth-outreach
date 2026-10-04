@@ -5,6 +5,7 @@ real booking link only when one is configured."""
 import pytest
 
 from outreach import calls, drafting, reply, sequence
+from stage4_fakes import FakeGmail, SENDER
 
 HANDBOOK = {"content_hash": "hash-one", "name": "Handbook"}
 QUOTE = "We install electrical distribution systems for commercial buildings."
@@ -141,3 +142,75 @@ def test_offer_must_be_approved_and_configured():
     with pytest.raises(reply.NotEligible) as exc:
         reply.candidate(lead(), reply_inbound(), settings(product_name=""), handbook=HANDBOOK)
     assert exc.value.reason == "offer_not_configured"
+
+
+# --- reply.create: the in-thread Gmail draft (draft only, never sends) ---
+
+CREATE_SETTINGS = {"sender_email": SENDER}
+
+
+def _enable(monkeypatch):
+    monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
+
+
+def test_create_makes_an_in_thread_draft(monkeypatch):
+    _enable(monkeypatch)
+    gmail = FakeGmail()
+    made = reply.create(lead(), reply_inbound(), "Re: Lakshyaa", "Hi Sam,\n\nThank you.",
+                        settings=CREATE_SETTINGS, gmail=gmail)
+    assert made["draft_id"] and made["thread_id"] == "T1" and made["to"] == "sam@example.test"
+    assert len(gmail.created) == 1
+    created = gmail.created[0]
+    assert created["threadId"] == "T1"  # filed in the inbound reply's thread
+
+
+def test_create_is_refused_without_the_env_gate(monkeypatch):
+    monkeypatch.delenv("ENABLE_GMAIL_DRAFTS", raising=False)
+    gmail = FakeGmail()
+    with pytest.raises(reply.ReplyBlocked) as exc:
+        reply.create(lead(), reply_inbound(), "Re: x", "body", settings=CREATE_SETTINGS, gmail=gmail)
+    assert exc.value.reason == "drafts_disabled"
+    assert gmail.created == []  # nothing written
+
+
+@pytest.mark.parametrize("kw,reason", [
+    (dict(effect=calls.STOP), "call_stop"),
+    (dict(suppressed=True), "suppressed"),
+])
+def test_create_honours_the_guards(monkeypatch, kw, reason):
+    _enable(monkeypatch)
+    gmail = FakeGmail()
+    with pytest.raises(reply.ReplyBlocked) as exc:
+        reply.create(lead(), reply_inbound(), "Re: x", "body", settings=CREATE_SETTINGS, gmail=gmail, **kw)
+    assert exc.value.reason == reason
+    assert gmail.created == []
+
+
+def test_create_needs_an_inbound_and_a_nonempty_body(monkeypatch):
+    _enable(monkeypatch)
+    gmail = FakeGmail()
+    with pytest.raises(reply.ReplyBlocked) as exc:
+        reply.create(lead(), None, "Re: x", "body", settings=CREATE_SETTINGS, gmail=gmail)
+    assert exc.value.reason == "no_reply"
+    with pytest.raises(reply.ReplyBlocked) as exc:
+        reply.create(lead(), reply_inbound(), "Re: x", "   ", settings=CREATE_SETTINGS, gmail=gmail)
+    assert exc.value.reason == "empty"
+
+
+def test_create_refuses_a_mailbox_mismatch(monkeypatch):
+    _enable(monkeypatch)
+    gmail = FakeGmail(address="someone-else@elsewhere.test")
+    with pytest.raises(reply.ReplyBlocked) as exc:
+        reply.create(lead(), reply_inbound(), "Re: x", "body", settings=CREATE_SETTINGS, gmail=gmail)
+    assert exc.value.reason == "mailbox_mismatch"
+    assert gmail.created == []
+
+
+def test_create_does_not_make_a_second_draft_in_the_thread(monkeypatch):
+    _enable(monkeypatch)
+    gmail = FakeGmail()
+    reply.create(lead(), reply_inbound(), "Re: x", "body", settings=CREATE_SETTINGS, gmail=gmail)
+    with pytest.raises(reply.ReplyBlocked) as exc:
+        reply.create(lead(), reply_inbound(), "Re: x", "body again", settings=CREATE_SETTINGS, gmail=gmail)
+    assert exc.value.reason == "draft_exists"
+    assert len(gmail.created) == 1  # only the first

@@ -5,7 +5,7 @@ import pytest
 
 import console_fixture as fx  # noqa: F401  (ensures the app's static/build fixture path is importable)
 from outreach import calls, console, console_auth, job_draft, sequence
-from stage4_fakes import MemoryStore, at
+from stage4_fakes import FakeGmail, MemoryStore, SENDER, at
 from test_console_auth import ALLOWED, AUDIENCE, Keys, token
 
 HEADER = console_auth.HEADER
@@ -124,3 +124,55 @@ def test_unknown_lead_is_404(built, monkeypatch):
     store = a_store(events=[an_event(sequence.REPLIED, "2026-09-27T10:00:00Z")])
     client = make(built, store, monkeypatch)
     assert cand(client, "Z-9999").status_code == 404
+
+
+# --- POST /api/reply/<lead>/draft: create the in-thread Gmail draft (draft only) ---
+
+DRAFT_OFFER = {**OFFER, "sender_email": SENDER}
+
+
+def make_draft(built, store, monkeypatch, *, gmail, enable_env=True):
+    monkeypatch.setattr(job_draft, "_handbook",
+                        lambda s, handbook_arg=None, drive=None: (HANDBOOK, None))
+    if enable_env:
+        monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
+    else:
+        monkeypatch.delenv("ENABLE_GMAIL_DRAFTS", raising=False)
+    return console.create_app(
+        verifier=console_auth.Verifier(AUDIENCE, ALLOWED, fetch=Keys()), store=lambda: store,
+        settings=lambda: DRAFT_OFFER, clock=lambda: MON, static_dir=built,
+        enable_reply=True, gmail_client=lambda: gmail).test_client()
+
+
+def post_draft(client, lead="A-0002", **body):
+    return client.post(f"/api/reply/{lead}/draft", json=body, headers=signed())
+
+
+def test_the_draft_route_creates_an_in_thread_gmail_draft(built, monkeypatch):
+    store = a_store(events=[an_event(sequence.REPLIED, "2026-09-27T10:00:00Z")])
+    gmail = FakeGmail()
+    client = make_draft(built, store, monkeypatch, gmail=gmail)
+    r = post_draft(client, subject="Re: Lakshyaa", body="Hi Dana,\n\nThank you.")
+    data = r.get_json()
+    assert r.status_code == 200 and data["created"] and data["thread_id"] == "T1"
+    assert len(gmail.created) == 1 and gmail.created[0]["threadId"] == "T1"
+
+
+def test_the_draft_route_is_refused_without_the_env_gate(built, monkeypatch):
+    store = a_store(events=[an_event(sequence.REPLIED, "2026-09-27T10:00:00Z")])
+    gmail = FakeGmail()
+    client = make_draft(built, store, monkeypatch, gmail=gmail, enable_env=False)
+    r = post_draft(client, subject="Re: x", body="body")
+    assert r.status_code == 409 and "drafts_disabled" in r.get_json()["error"]
+    assert gmail.created == []  # the flag alone never writes a draft
+
+
+def test_the_draft_route_honours_a_call_stop(built, monkeypatch):
+    store = a_store(events=[an_event(sequence.REPLIED, "2026-09-27T10:00:00Z")])
+    store.append_call_events([calls.outcome_event("A-0002", calls.DO_NOT_CONTACT, "", MON.isoformat(),
+                                                  no_answer_business_days=3, now=MON)])
+    gmail = FakeGmail()
+    client = make_draft(built, store, monkeypatch, gmail=gmail)
+    r = post_draft(client, subject="Re: x", body="body")
+    assert r.status_code == 409 and "call_stop" in r.get_json()["error"]
+    assert gmail.created == []

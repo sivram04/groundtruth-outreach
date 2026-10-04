@@ -45,6 +45,21 @@
 
 ## [PROGRESS]
 
+- 2026-10-04 [CODE] MVP #6 in-thread draft create built. `reply.create(...)` + `POST /api/reply/<lead_id>/draft`
+  turn the reviewed/edited reply into ONE real Gmail draft filed in the inbound reply's thread - draft only,
+  never sent. Re-checks guards at the write boundary (STOP/suppression/no reply/no email), requires
+  `ENABLE_GMAIL_DRAFTS=true` AND `enable_reply` (flag alone never writes), refuses a thread that already holds
+  a draft, NO tracking on a reply (so a reply's opens never pollute initial metrics). Lead page has a "Create
+  draft in Gmail" button. Offline: Python 1100, frontend 125 + tsc + build. NOT done: reply opens/clicks into
+  metrics (out of scope - needs a tracking_job.actions extension), a live browser run. For the founder's LIVE
+  tracking/metrics self-test use the EXISTING harness `outreach/tracking_check.py`
+  (`ENABLE_GMAIL_DRAFTS=true python -m outreach.tracking_check --to you@otherinbox`): it drafts one tracked
+  email to the founder's own other inbox (refuses any lead/suppressed/sender address), records a DRAFTED(test)
+  event keyed `test:<action>` so `tracking_job` attributes the OPEN/CLICK. LIVE prerequisites to verify before
+  running: ENABLE_GMAIL_DRAFTS, the `tracking-signing-key` secret, `sender_website` must be a lakshyaa.ai https
+  link (only `lakshyaa.ai` is click-tracked; the open pixel works regardless), the tracker deployed/reachable
+  at t.lakshyaa.ai, and `tracking_job.run` draining the hit queue into Events that the dashboard reads.
+
 - 2026-10-04 [CODE] MVP #6 reply-draft candidate + booking link, wired onto the lead page. `outreach/reply.py`
   (pure, like `post_call.py`): after a lead writes back, a review-only suggested reply grounded in the recorded
   reply, the company's cited words and the approved offer; NEVER states what the reply said (inbound text is not

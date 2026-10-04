@@ -27,7 +27,7 @@ describe("the reply candidate", () => {
   it("shows the reply, its evidence and a discard action", async () => {
     render(<ReplyCandidate leadId="A-0002" load={load({ candidate: cand() })} />);
     await vi.waitFor(() => expect(screen.getByDisplayValue("Re: Lakshyaa")).toBeTruthy());
-    expect(screen.getByText(/not sent and creates no Gmail draft/)).toBeTruthy();
+    expect(screen.getByText(/never sent/)).toBeTruthy();
     expect(screen.getByText(/does not repeat what their reply said/)).toBeTruthy();
     expect(screen.getByText(/We install electrical systems/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Discard/ }));
@@ -67,6 +67,24 @@ describe("the reply candidate", () => {
       />,
     );
     await vi.waitFor(() => expect(screen.getByText(/unavailable right now/)).toBeTruthy());
+  });
+
+  it("creates the draft in Gmail and confirms it", async () => {
+    const create = vi.fn().mockResolvedValue({ created: true, draft_id: "d1", thread_id: "T1" });
+    render(<ReplyCandidate leadId="A-0002" load={load({ candidate: cand() })} create={create} />);
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: /Create draft in Gmail/ })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /Create draft in Gmail/ }));
+    await vi.waitFor(() => expect(screen.getByText(/in the thread in Gmail/)).toBeTruthy());
+    expect(create).toHaveBeenCalledWith("A-0002", cand().subject, cand().body);
+  });
+
+  it("shows the server's reason when the draft is refused", async () => {
+    const { CallError } = await import("../api");
+    const create = vi.fn().mockRejectedValue(new CallError("No reply draft was created (call_stop)."));
+    render(<ReplyCandidate leadId="A-0002" load={load({ candidate: cand() })} create={create} />);
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: /Create draft in Gmail/ })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /Create draft in Gmail/ }));
+    await vi.waitFor(() => expect(screen.getByText(/call_stop/)).toBeTruthy());
   });
 
   it("preserves the founder's edits on a same-basis refresh, replaces on a changed one", async () => {

@@ -34,6 +34,7 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from outreach import (assistant, call_log_chat, calls, channels, console_auth, console_model,
                       experiments, followup, importer, job_draft, playbook, playbook_extract,
                       playbook_select, post_call, reply, review, suppression, sync)
+from outreach import gmail_drafts
 from outreach.sheet import LEAD_TABS, DestinationMismatch, Store
 
 DEFAULT_STATIC = Path(__file__).resolve().parent.parent / "console" / "dist"
@@ -67,7 +68,7 @@ MAX_IMPORT_BYTES = 2_000_000
 def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings, clock=_now,
                static_dir=None, handbook_doc_id="", review_store=None, enable_review=False,
                review_signer=None, enable_import=False, enable_calls=False, enable_playbook=False,
-               enable_experiments=False, enable_reply=False):
+               enable_experiments=False, enable_reply=False, gmail_client=None):
     """The console. `store`, `settings` and `clock` are called once per data request, and a test
     passes stand-ins for them. `verifier` None means not configured: every request is refused.
 
@@ -671,6 +672,51 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                 return jsonify(candidate=None, reason=exc.reason)
             log.info("reply candidate shown for %s to %s", lead_id, g.email)
             return jsonify(candidate=cand)
+
+        @app.post("/api/reply/<lead_id>/draft")
+        def reply_draft(lead_id):
+            """Create the reviewed reply as an in-thread Gmail DRAFT for the founder to send by hand.
+            Writes a Gmail draft only - never sends. Re-checks the guards at the write boundary and also
+            requires ENABLE_GMAIL_DRAFTS=true (the flag alone never creates a draft). No tracking is added."""
+            body = request.get_json(silent=True) or {}
+            subject = str(body.get("subject", ""))
+            message = str(body.get("body", ""))
+            chosen = _chosen_settings()
+            with reading:
+                try:
+                    st = store()
+                    leads = st.leads()
+                except Exception:
+                    log.exception("the Sheet could not be read to create a reply draft")
+                    return refuse(502, "The Sheet could not be read just now. Nothing was changed.")
+                if lead_id not in leads:
+                    return refuse(404, "There is no such lead.")
+                row = leads[lead_id]
+                try:
+                    events = [e for e in sync.unique(st.events()) if e.get("Lead ID") == lead_id]
+                    call_events = [e for e in st.call_events() if e.get("Lead ID") == lead_id]
+                    entries = st.suppression()
+                except suppression.Unreadable:
+                    return refuse(502, "The suppression list could not be read; no draft was created.")
+                except Exception:
+                    log.exception("a safety source could not be read for a reply draft")
+                    return refuse(502, "A safety source could not be read; no draft was created.")
+            inbound = reply.latest_inbound(events)
+            effect = calls.outreach_effect(call_events)
+            email = channels.email_of(row)
+            suppressed = bool(email) and suppression.covers(entries, email)
+            client = (gmail_client or gmail_drafts.client)()
+            try:
+                made = reply.create(row, inbound, subject, message, settings=chosen, gmail=client,
+                                    effect=effect, suppressed=suppressed)
+            except reply.ReplyBlocked as exc:
+                # A guard refusal (stop/suppressed/no reply/draft exists/disabled) is a 409, not a 500.
+                return refuse(409, f"No reply draft was created ({exc.reason}).")
+            except Exception:
+                log.exception("a reply draft could not be created")
+                return refuse(502, "The reply draft could not be created just now. Nothing was sent.")
+            log.info("reply draft created for %s by %s (thread %s)", lead_id, g.email, made.get("thread_id"))
+            return jsonify(created=True, **made)
 
     if enable_experiments:
         # Defining an experiment and assigning leads writes to the Sheet (the A/B tests tab), so this is
