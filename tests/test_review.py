@@ -337,28 +337,28 @@ def test_a_malformed_latest_row_is_rejected_by_the_gate():
     assert exc.value.reason == review.MALFORMED
 
 
-def test_the_review_store_fails_closed_without_a_configured_spreadsheet(monkeypatch):
-    # No REVIEW_SPREADSHEET_ID and no injected id -> the store refuses rather than touching the
-    # leads Sheet (which the worker's founder OAuth could write). The gate therefore blocks.
-    monkeypatch.delenv("REVIEW_SPREADSHEET_ID", raising=False)
-    store = review.SheetReviewStore(api=Sheets({"Reviews": [HDR]}))  # no spreadsheet_id
-    with pytest.raises(review.ReviewsUnavailable):
-        store.get("A-0001")
-
-
-def test_the_review_store_uses_the_configured_separate_spreadsheet(monkeypatch):
-    monkeypatch.setenv("REVIEW_SPREADSHEET_ID", "reviews-sheet-123")
-    store = review.SheetReviewStore(api=Sheets({"Reviews": [HDR]}))
-    assert store._sid() == "reviews-sheet-123"  # the separate review spreadsheet, never the leads Sheet
-
-
-def test_the_review_store_builds_its_client_as_the_service_account_not_the_founder_oauth(monkeypatch):
-    # With no injected api, the store must build through sheet.review_api() (the service-account
-    # client), never sheet._api() (the shared founder OAuth), so write-exclusivity holds.
+def test_the_review_store_defaults_to_the_leads_sheet_and_founder_oauth(monkeypatch):
+    # With no REVIEW_SPREADSHEET_ID (the simple, no-shared-drive setup) the Reviews tab lives on the
+    # leads Sheet, written through the founder OAuth client; forgery resistance is the signing key.
     from outreach import sheet
+    monkeypatch.delenv("REVIEW_SPREADSHEET_ID", raising=False)
+    monkeypatch.setattr(sheet, "SHEET_ID", "leads-sheet-xyz")
+    monkeypatch.setattr(sheet, "_api", lambda: "FOUNDER-CLIENT")
+    monkeypatch.setattr(sheet, "review_api", lambda: pytest.fail("used the SA client without a review sheet"))
+    store = review.SheetReviewStore()  # nothing injected
+    assert store._sid() == "leads-sheet-xyz"
+    assert store._service() == "FOUNDER-CLIENT"
+
+
+def test_a_configured_review_spreadsheet_uses_the_service_account_client(monkeypatch):
+    # With REVIEW_SPREADSHEET_ID (the shared-drive design) the store uses a separate spreadsheet and
+    # the service-account client (write-exclusivity), never the founder OAuth.
+    from outreach import sheet
+    monkeypatch.setenv("REVIEW_SPREADSHEET_ID", "reviews-sheet-123")
     monkeypatch.setattr(sheet, "review_api", lambda: "SA-CLIENT")
-    monkeypatch.setattr(sheet, "_api", lambda: pytest.fail("the review store used the founder OAuth client"))
-    store = review.SheetReviewStore(spreadsheet_id="sid")  # no api injected
+    monkeypatch.setattr(sheet, "_api", lambda: pytest.fail("used the founder OAuth for a dedicated review sheet"))
+    store = review.SheetReviewStore()
+    assert store._sid() == "reviews-sheet-123"
     assert store._service() == "SA-CLIENT"
 
 

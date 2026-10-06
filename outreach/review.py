@@ -477,23 +477,25 @@ class SheetReviewStore:
 
     def _service(self):
         if self._api is None:
+            import os
             from outreach import sheet
-            # The review store writes as this process's own service account, not the founder OAuth,
-            # so the console is the sole writer and the worker cannot forge or delete a decision.
-            self._api = sheet.review_api()
+            # Two modes. With a dedicated REVIEW_SPREADSHEET_ID (the shared-drive design), the store
+            # writes as this process's own service account, so the console is the sole writer and the
+            # worker cannot forge or delete a decision (write-exclusivity). Without it, the review
+            # store shares the leads Sheet through the founder OAuth, and forgery resistance rests on
+            # the signing key alone (the worker lacks the private key, so it cannot mint a valid
+            # signed decision) - the simpler setup, no shared drive.
+            self._api = (sheet.review_api() if os.environ.get("REVIEW_SPREADSHEET_ID", "").strip()
+                         else sheet._api())
         return self._api
 
     def _sid(self):
         if self._sheet_id is None:
             import os
-            sid = os.environ.get("REVIEW_SPREADSHEET_ID", "").strip()
-            # The review store must be a SEPARATE spreadsheet in the reviews shared drive, never the
-            # leads Sheet (which the founder OAuth can write). Unset -> fail closed, so the gate
-            # blocks rather than falling back to a writable-by-the-worker sheet.
-            if not sid:
-                raise ReviewsUnavailable(
-                    "no review spreadsheet is configured (set REVIEW_SPREADSHEET_ID)")
-            self._sheet_id = sid
+            from outreach import sheet
+            # The dedicated review spreadsheet if one is configured; otherwise the leads Sheet, where
+            # the Reviews tab lives alongside the leads.
+            self._sheet_id = os.environ.get("REVIEW_SPREADSHEET_ID", "").strip() or sheet.SHEET_ID
         return self._sheet_id
 
     def _values(self):
