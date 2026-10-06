@@ -202,6 +202,7 @@ def snapshot():
     data["import_enabled"] = False  # the static demo has no server to import through
     data["playbook_enabled"] = False  # likewise, the playbook upload needs a server
     data["reply_enabled"] = False  # the reply-draft candidate needs a server too
+    data["send_enabled"] = False  # approve-and-send needs a server and is off in the demo
     return data
 
 

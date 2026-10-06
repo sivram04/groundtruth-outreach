@@ -35,6 +35,7 @@ from outreach import (assistant, call_log_chat, calls, channels, console_auth, c
                       experiments, followup, importer, job_draft, playbook, playbook_extract,
                       playbook_select, post_call, reply, review, suppression, sync)
 from outreach import gmail_drafts
+from outreach import send as send_mod
 from outreach.sheet import LEAD_TABS, DestinationMismatch, Store
 
 DEFAULT_STATIC = Path(__file__).resolve().parent.parent / "console" / "dist"
@@ -68,7 +69,7 @@ MAX_IMPORT_BYTES = 2_000_000
 def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings, clock=_now,
                static_dir=None, handbook_doc_id="", review_store=None, enable_review=False,
                review_signer=None, enable_import=False, enable_calls=False, enable_playbook=False,
-               enable_experiments=False, enable_reply=False, gmail_client=None):
+               enable_experiments=False, enable_reply=False, enable_send=False, gmail_client=None):
     """The console. `store`, `settings` and `clock` are called once per data request, and a test
     passes stand-ins for them. `verifier` None means not configured: every request is refused.
 
@@ -146,6 +147,7 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
         data["playbook_enabled"] = enable_playbook
         data["experiments_enabled"] = enable_experiments
         data["reply_enabled"] = enable_reply
+        data["send_enabled"] = enable_send
         return data, None
 
     @app.get("/api/snapshot")
@@ -718,6 +720,38 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             log.info("reply draft created for %s by %s (thread %s)", lead_id, g.email, made.get("thread_id"))
             return jsonify(created=True, **made)
 
+    if enable_send:
+        # The ONE sanctioned send. "Approve and send" turns a draft this system already created into
+        # a real email, on the signed-in founder's click - the single exception to the no-send rule
+        # (outreach/send.py). Flag-gated and off in deployment by default; send.py also requires its
+        # own ENABLE_SEND, so the flag here alone never sends. One click sends exactly one email; a
+        # lead already sent (or in flight) is refused, so a repeat never sends twice. The approver is
+        # the IAP-verified identity (g.email), never a value the client supplies.
+        @app.post("/api/send/<lead_id>")
+        def approve_and_send(lead_id):
+            """Send the created draft for this lead on the founder's approval. Returns the sent
+            message id and thread id, or a refusal (404 unknown lead, 409 nothing to send / already
+            sent, 502 the Sheet or Gmail could not be reached)."""
+            with reading:
+                try:
+                    st = store()
+                    leads = st.leads()
+                except Exception:
+                    log.exception("the Sheet could not be read to send a draft")
+                    return refuse(502, "The Sheet could not be read just now. Nothing was sent.")
+                if lead_id not in leads:
+                    return refuse(404, "There is no such lead.")
+            client = (gmail_client or gmail_drafts.client)()
+            try:
+                result = send_mod.send_created_draft(lead_id, sent_by=g.email, api=st.api, gmail=client)
+            except send_mod.SendBlocked as exc:
+                return refuse(409, f"Nothing was sent ({exc}).")
+            except Exception:
+                log.exception("a draft could not be sent")
+                return refuse(502, "The email could not be sent just now.")
+            log.info("sent %s on approval by %s (message %s)", lead_id, g.email, result.get("message_id"))
+            return jsonify(**result)
+
     if enable_experiments:
         # Defining an experiment and assigning leads writes to the Sheet (the A/B tests tab), so this is
         # OFF by default and in deployment. It never sends, drafts, or touches a founder column, and it
@@ -919,7 +953,8 @@ def _deployed():
     return create_app(static_dir=os.environ.get("CONSOLE_STATIC_DIR") or None,
                       handbook_doc_id=os.environ.get("HANDBOOK_DOC_ID", ""),
                       enable_review=enable_review, review_store=review.store_from_env(),
-                      review_signer=review.configured_signer_from_env())
+                      review_signer=review.configured_signer_from_env(),
+                      enable_send=os.environ.get("ENABLE_SEND") == "true")
 
 
 app = _deployed()
