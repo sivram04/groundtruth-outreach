@@ -61,3 +61,19 @@ def founder_credentials() -> Credentials:
         token_uri="https://oauth2.googleapis.com/token",
         scopes=s["scopes"],
     )
+
+
+def self_sheets_credentials():
+    """Sheets credentials for THIS process's own identity - the service account on Cloud Run
+    (``outreach-console@`` for the console, ``outreach-worker@`` for the worker), the gcloud
+    sign-in on the founder's PC - and never the shared founder OAuth.
+
+    The review store writes with these so the console writes review decisions as a distinct
+    identity the worker lacks. The review spreadsheet is shared only with the console service
+    account as a writer; the worker service account and the founder account are readers. This is
+    what makes write-exclusivity real: a holder of the founder OAuth (the worker) cannot write,
+    delete or reorder a review row, so it cannot manufacture or hide a decision.
+    """
+    import google.auth
+    creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/spreadsheets"])
+    return creds

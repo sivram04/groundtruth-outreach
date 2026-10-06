@@ -337,6 +337,31 @@ def test_a_malformed_latest_row_is_rejected_by_the_gate():
     assert exc.value.reason == review.MALFORMED
 
 
+def test_the_review_store_fails_closed_without_a_configured_spreadsheet(monkeypatch):
+    # No REVIEW_SPREADSHEET_ID and no injected id -> the store refuses rather than touching the
+    # leads Sheet (which the worker's founder OAuth could write). The gate therefore blocks.
+    monkeypatch.delenv("REVIEW_SPREADSHEET_ID", raising=False)
+    store = review.SheetReviewStore(api=Sheets({"Reviews": [HDR]}))  # no spreadsheet_id
+    with pytest.raises(review.ReviewsUnavailable):
+        store.get("A-0001")
+
+
+def test_the_review_store_uses_the_configured_separate_spreadsheet(monkeypatch):
+    monkeypatch.setenv("REVIEW_SPREADSHEET_ID", "reviews-sheet-123")
+    store = review.SheetReviewStore(api=Sheets({"Reviews": [HDR]}))
+    assert store._sid() == "reviews-sheet-123"  # the separate review spreadsheet, never the leads Sheet
+
+
+def test_the_review_store_builds_its_client_as_the_service_account_not_the_founder_oauth(monkeypatch):
+    # With no injected api, the store must build through sheet.review_api() (the service-account
+    # client), never sheet._api() (the shared founder OAuth), so write-exclusivity holds.
+    from outreach import sheet
+    monkeypatch.setattr(sheet, "review_api", lambda: "SA-CLIENT")
+    monkeypatch.setattr(sheet, "_api", lambda: pytest.fail("the review store used the founder OAuth client"))
+    store = review.SheetReviewStore(spreadsheet_id="sid")  # no api injected
+    assert store._service() == "SA-CLIENT"
+
+
 def test_the_sheet_store_appends_a_row_and_confirms_it():
     api = Sheets({"Reviews": [HDR]})
     store = review.SheetReviewStore(api=api, spreadsheet_id="sid")

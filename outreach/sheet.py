@@ -84,6 +84,25 @@ def _api():
     return _SHEETS
 
 
+_REVIEW_SHEETS = None
+
+
+def review_api():
+    """The Sheets client for the review store only, built as THIS process's own identity (the
+    service account on Cloud Run), not the founder OAuth ``_api()`` uses for leads and Gmail.
+
+    Keeping the review store on a service-account client - the console's ``outreach-console@`` -
+    is what lets write-exclusivity hold: the console is the only writer of the review spreadsheet,
+    and the worker (which has only the founder OAuth) cannot write a review decision. Built once
+    per process and reused, like ``_api()``."""
+    global _REVIEW_SHEETS
+    if _REVIEW_SHEETS is None:
+        from outreach.google_auth import self_sheets_credentials
+        _REVIEW_SHEETS = build("sheets", "v4", credentials=self_sheets_credentials(),
+                               cache_discovery=False).spreadsheets()
+    return _REVIEW_SHEETS
+
+
 def now_utc():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 

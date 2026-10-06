@@ -478,13 +478,22 @@ class SheetReviewStore:
     def _service(self):
         if self._api is None:
             from outreach import sheet
-            self._api = sheet._api()
+            # The review store writes as this process's own service account, not the founder OAuth,
+            # so the console is the sole writer and the worker cannot forge or delete a decision.
+            self._api = sheet.review_api()
         return self._api
 
     def _sid(self):
         if self._sheet_id is None:
-            from outreach import sheet
-            self._sheet_id = sheet.SHEET_ID
+            import os
+            sid = os.environ.get("REVIEW_SPREADSHEET_ID", "").strip()
+            # The review store must be a SEPARATE spreadsheet in the reviews shared drive, never the
+            # leads Sheet (which the founder OAuth can write). Unset -> fail closed, so the gate
+            # blocks rather than falling back to a writable-by-the-worker sheet.
+            if not sid:
+                raise ReviewsUnavailable(
+                    "no review spreadsheet is configured (set REVIEW_SPREADSHEET_ID)")
+            self._sheet_id = sid
         return self._sheet_id
 
     def _values(self):
