@@ -830,17 +830,17 @@ a.metric:hover {
 .matches {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(250px, 1fr);
-  gap: 12px;
+  grid-auto-columns: minmax(300px, 1fr);
+  gap: 16px;
   overflow-x: auto;
-  padding-bottom: 2px;
+  padding-bottom: 4px;
 }
 
 .match {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px 12px;
+  gap: 12px;
+  padding: 18px 20px 16px;
   border-radius: var(--r-lg);
   border: 1px solid var(--wash-gray-line);
   background: var(--wash-gray);
@@ -885,25 +885,25 @@ a.metric:hover {
 
 .match-line {
   margin: 0;
-  font-size: 12.5px;
+  font-size: 13px;
   font-style: italic;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--soft);
   display: -webkit-box;
   -webkit-line-clamp: 3;
   line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: 54px;
+  min-height: 58px;
 }
 
 .match-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
   margin-top: auto;
-  padding-top: 10px;
+  padding-top: 14px;
   border-top: 1px solid rgba(16, 24, 40, 0.08);
 }
 
