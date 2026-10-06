@@ -6,10 +6,12 @@ import {
   Card,
   CountTabs,
   ExternalLink,
+  Metrics,
   SectionHead,
   Status,
   draftTone,
   leadTone,
+  type Metric,
   type Tone,
 } from "../components";
 import { SHOW, filterLeads } from "../filters";
@@ -71,6 +73,25 @@ function DraftCard({ draft }: { draft: Draft }) {
       </div>
     </article>
   );
+}
+
+/** The headline rates across every tier: what the founder asks for first — sent, open, click, reply.
+    Rates are the server's own strings ("33%" or "–"); we never fabricate a 0% where there is no data. */
+function KpiStrip({ all }: { all: TierCounts }) {
+  const metrics: Metric[] = [
+    { value: all.emails_sent, label: "Emails sent", sub: "first emails and follow-ups" },
+    { value: all.open_rate, label: "Open rate (est.)", sub: `${all.opened} of ${all.tracked} tracked` },
+    { value: all.click_rate, label: "Click rate", sub: `${all.clicked} of ${all.tracked} tracked` },
+    {
+      value: all.reply_rate,
+      label: "Reply rate",
+      sub: `${all.replied} of ${all.emailed} emailed`,
+      href: href("/leads", { show: "replied" }),
+    },
+    { value: all.opted_out, label: "Asked to stop" },
+    { value: all.bounced, label: "Bounced" },
+  ];
+  return <Metrics metrics={metrics} />;
 }
 
 function Pipeline({ all }: { all: TierCounts }) {
@@ -151,6 +172,17 @@ export function Dashboard({ data, onChanged }: { data: Snapshot; onChanged: () =
           </span>
         </div>
       </div>
+
+      {all && (
+        <section className="strip">
+          <SectionHead title="How outreach is doing">
+            <a className="button small ghost" href={href("/leads", { show: "emailed" })}>
+              See emailed leads <ArrowRight size={14} aria-hidden="true" />
+            </a>
+          </SectionHead>
+          <KpiStrip all={all} />
+        </section>
+      )}
 
       {waiting > 0 && (
         <Callout
