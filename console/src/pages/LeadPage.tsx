@@ -1,4 +1,6 @@
 import { ArrowLeft, Building2, History, Mail, Send, ShieldCheck } from "lucide-react";
+import { useState } from "react";
+import { sendDraft, type SendResult } from "../api";
 import { Avatar, Card, ExternalLink, Status, leadTone } from "../components";
 import { DraftPreview } from "../draft-view";
 import { gmailSearch, plural, safeHref } from "../format";
@@ -28,6 +30,83 @@ export function postCallReloadKey(lead: Lead, data: Snapshot, generation = 0): s
     data.approvals?.offer ? "1" : "0",
     data.links?.handbook ?? "",
   ].join("|");
+}
+
+/** Approve-and-send: the one place a real email leaves, on the founder's click, for a draft already
+ *  created in Gmail. Shown only when the server has send switched on. One click sends one email; a
+ *  confirm step stands between the button and the send, and an already-sent lead just reports it. */
+export function ApproveAndSend({ lead, onChanged }: { lead: Lead; onChanged?: () => void }) {
+  const created = lead.gmail_drafts?.find((item) => item.status === "CREATED");
+  const alreadySent = Boolean(lead.cells["Sent at"]);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<SendResult | null>(null);
+  const [error, setError] = useState("");
+
+  async function send() {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await sendDraft(lead.id);
+      setDone(result);
+      setConfirming(false);
+      onChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The email could not be sent.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (done || alreadySent) {
+    return (
+      <Card title="Approve and send" icon={Send}>
+        <p className="good">
+          Sent{lead.email ? ` to ${lead.email}` : ""}
+          {alreadySent && lead.cells["Sent at"] ? ` (${lead.cells["Sent at"]})` : ""}.
+        </p>
+        {done && !done.recorded && (
+          <p className="callout amber">
+            The email was sent, but recording it did not confirm. Reload before sending anything else.
+          </p>
+        )}
+      </Card>
+    );
+  }
+
+  if (!created) {
+    return (
+      <Card title="Approve and send" icon={Send}>
+        <p className="muted">
+          No draft is ready in Gmail yet. Review the draft first; once it is created you can send it here.
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card title="Approve and send" icon={Send}>
+      <p>
+        One click sends this one email to <strong>{lead.email}</strong>. Nothing else is sent, and a second
+        click can never send it twice.
+      </p>
+      {error && <p className="callout amber">{error}</p>}
+      {confirming ? (
+        <div className="email-actions">
+          <button type="button" className="primary" disabled={busy} onClick={send}>
+            <Send size={15} aria-hidden="true" /> {busy ? "Sending…" : `Yes, send to ${lead.email}`}
+          </button>
+          <button type="button" className="secondary" disabled={busy} onClick={() => setConfirming(false)}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button type="button" className="primary" onClick={() => setConfirming(true)}>
+          <Send size={15} aria-hidden="true" /> Approve and send
+        </button>
+      )}
+    </Card>
+  );
 }
 
 export function LeadPage({
@@ -81,6 +160,8 @@ export function LeadPage({
           <DraftPreview draft={draft} from={data.approvals?.sender || account} />
         </Card>
       )}
+
+      {data.send_enabled && <ApproveAndSend lead={lead} onChanged={onChanged} />}
 
       <div className="grid-2">
         <Card title="The lead" icon={Building2}>

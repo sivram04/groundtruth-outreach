@@ -376,6 +376,9 @@ export interface Snapshot {
   playbook_enabled?: boolean;
   /** Whether the reply-draft candidate (#6) is switched on for this server (off by default and in deploy). */
   reply_enabled?: boolean;
+  /** Whether Approve-and-send is switched on for this server (off by default and in deploy). The only
+   *  path that sends a real email, on the founder's click, for a draft already created in Gmail. */
+  send_enabled?: boolean;
   /** Whether the A/B test flow is switched on for this server (off by default and in deploy). */
   experiments_enabled?: boolean;
   /** The current experiment's variant-level report, or null when none is defined/assigned. */

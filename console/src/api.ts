@@ -596,6 +596,40 @@ export async function createReplyDraft(
   return payload as { created: boolean; draft_id: string; thread_id: string };
 }
 
+export interface SendResult {
+  lead_id: string;
+  sent: boolean;
+  message_id: string;
+  thread_id: string;
+  recorded: boolean;
+  sent_by: string;
+}
+
+/** POST /api/send/<lead>: send the already-created Gmail draft for this lead, on the founder's
+ *  approval. One click sends exactly one email; the server refuses (409) an uncreated or already-sent
+ *  lead, so a repeat never sends twice. */
+export async function sendDraft(leadId: string, fetcher: typeof fetch = fetch): Promise<SendResult> {
+  let response: Response;
+  try {
+    response = await fetcher(`/api/send/${encodeURIComponent(leadId)}`, {
+      method: "POST",
+      headers: { Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+    });
+  } catch {
+    throw new CallError("The console could not be reached. Check the connection and try again.");
+  }
+  if (response.status === 401) throw new LoadError(SIGN_IN_ENDED, true);
+  const isJson = (response.headers.get("Content-Type") ?? "").includes("application/json");
+  const payload: unknown = isJson ? await response.json().catch(() => null) : null;
+  if (!response.ok) {
+    const said =
+      payload && typeof payload === "object" && "error" in payload ? String((payload as { error: unknown }).error) : "";
+    throw new CallError(said || "The email could not be sent.");
+  }
+  return payload as SendResult;
+}
+
 /** Complete, snooze or cancel a lead's call task. `task_id` is required and names the exact task the
  *  founder was shown, so an action can never fall back to whatever task is open now: a stale id is
  *  refused (409) and a missing one is refused (400), and neither touches a newer task. */
