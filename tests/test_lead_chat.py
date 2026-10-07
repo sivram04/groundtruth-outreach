@@ -57,9 +57,18 @@ def test_an_instruction_with_no_readable_field_is_unclear():
 
 
 def test_a_bare_email_and_url_are_detected_for_an_add():
-    r = interp("add Company: Globe Plumbing  dana@globe.test  https://globe.test")
+    r = interp("add | Company: Globe Plumbing | dana@globe.test | https://globe.test")
     assert r["status"] == "ready" and r["op"] == "add"
     assert r["fields"]["BEST EMAIL"] == "dana@globe.test" and r["fields"]["Website"] == "https://globe.test"
+
+
+def test_a_url_inside_offerings_evidence_is_not_mangled_by_the_website_field():
+    # The evidence URL must survive intact for quote matching even when a website is also given.
+    r = interp('add | Company: Acme | email: a@b.test | website: https://acme.test/ '
+               '| offerings evidence: "We wire commercial buildings for contractors." (https://acme.test/services)')
+    assert r["status"] == "ready" and r["op"] == "add"
+    assert r["fields"]["Website"] == "https://acme.test/"
+    assert r["fields"]["Offerings evidence"] == '"We wire commercial buildings for contractors." (https://acme.test/services)'
 
 
 def test_an_add_cannot_propose_a_field_the_tab_cannot_store():

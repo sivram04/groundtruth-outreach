@@ -54,32 +54,26 @@ def _parse_fields(note):
     cleaned = _LEADING_OP.sub("", note)
     cleaned = re.sub(r"^\s*" + _LEAD_ID.pattern + r"\s*", "", cleaned)
     fields = {}
+    leftovers = []  # segments that are not a recognised `field: value`; a bare email/URL may live here
     for segment in re.split(r"[\n|]+", cleaned):
         m = re.match(r"\s*([A-Za-z][A-Za-z /-]*?)\s*[:=]\s*(.+?)\s*$", segment)
-        if not m:
-            continue
-        col = FIELD_ALIASES.get(m.group(1).strip().lower())
+        col = FIELD_ALIASES.get(m.group(1).strip().lower()) if m else None
         if col:
             value = m.group(2).strip()
             fields[col] = value.upper() if col in _UPPERCASE_COLUMNS else value
-    # Auto-detect a bare email/URL only when not already given by a label.
+        elif segment.strip():
+            leftovers.append(segment)
+    # Auto-detect a bare email/URL ONLY from the leftover text, never from inside a labelled value.
+    # (A URL inside an Offerings-evidence value, for instance, must stay intact for quote matching.)
+    leftover_text = " ".join(leftovers)
     if "BEST EMAIL" not in fields:
-        found = _EMAIL.search(note)
+        found = _EMAIL.search(leftover_text)
         if found:
             fields["BEST EMAIL"] = found.group(0)
     if "Website" not in fields:
-        found = _URL.search(note)
+        found = _URL.search(leftover_text)
         if found:
             fields["Website"] = found.group(0)
-    # A labelled value that swallowed a bare email/URL (no separator) is cleaned so, e.g., a company
-    # name does not keep the address appended to it.
-    for col, value in list(fields.items()):
-        if col in ("BEST EMAIL", "Website") or not isinstance(value, str):
-            continue
-        for contact in (fields.get("BEST EMAIL"), fields.get("Website")):
-            if contact:
-                value = value.replace(contact, "")
-        fields[col] = re.sub(r"\s{2,}", " ", value).strip()
     return fields
 
 
