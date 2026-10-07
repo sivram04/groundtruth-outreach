@@ -203,6 +203,7 @@ def snapshot():
     data["playbook_enabled"] = False  # likewise, the playbook upload needs a server
     data["reply_enabled"] = False  # the reply-draft candidate needs a server too
     data["send_enabled"] = False  # approve-and-send needs a server and is off in the demo
+    data["lead_chat_enabled"] = False  # lead-management chat needs a server and is off in the demo
     return data
 
 

@@ -32,8 +32,8 @@ from flask import Flask, g, jsonify, request, send_from_directory
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from outreach import (assistant, call_log_chat, calls, channels, console_auth, console_model,
-                      experiments, followup, importer, job_draft, playbook, playbook_extract,
-                      playbook_select, post_call, reply, review, suppression, sync)
+                      experiments, followup, importer, job_draft, lead_chat, playbook,
+                      playbook_extract, playbook_select, post_call, reply, review, suppression, sync)
 from outreach import gmail_drafts
 from outreach import send as send_mod
 from outreach.sheet import LEAD_TABS, DestinationMismatch, Store
@@ -69,7 +69,8 @@ MAX_IMPORT_BYTES = 2_000_000
 def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings, clock=_now,
                static_dir=None, handbook_doc_id="", review_store=None, enable_review=False,
                review_signer=None, enable_import=False, enable_calls=False, enable_playbook=False,
-               enable_experiments=False, enable_reply=False, enable_send=False, gmail_client=None):
+               enable_experiments=False, enable_reply=False, enable_send=False,
+               enable_lead_chat=False, gmail_client=None):
     """The console. `store`, `settings` and `clock` are called once per data request, and a test
     passes stand-ins for them. `verifier` None means not configured: every request is refused.
 
@@ -148,6 +149,7 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
         data["experiments_enabled"] = enable_experiments
         data["reply_enabled"] = enable_reply
         data["send_enabled"] = enable_send
+        data["lead_chat_enabled"] = enable_lead_chat
         return data, None
 
     @app.get("/api/snapshot")
@@ -752,6 +754,55 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             log.info("sent %s on approval by %s (message %s)", lead_id, g.email, result.get("message_id"))
             return jsonify(**result)
 
+    if enable_lead_chat:
+        # Manage leads by a typed instruction, propose-then-confirm (like the call-logging chat). The
+        # interpret step is READ-ONLY and never calls a model; the apply step writes only on the founder's
+        # confirm and re-validates server-side, so the client is never trusted. A new lead is appended; an
+        # existing lead's SYSTEM columns are updated, and its founder columns stay protected. Flag-gated,
+        # off by default and in deploy.
+        @app.post("/api/leads/interpret")
+        def leads_interpret():
+            note = str((request.get_json(silent=True) or {}).get("note", ""))
+            with reading:
+                try:
+                    st = store()
+                    leads, columns = st.leads(), st.lead_columns("A")
+                except Exception:
+                    log.exception("the Sheet could not be read to interpret a lead instruction")
+                    return refuse(502, "The Sheet could not be read just now.")
+            return jsonify(lead_chat.interpret(note, leads, columns=columns))
+
+        @app.post("/api/leads/apply")
+        def leads_apply():
+            body = request.get_json(silent=True) or {}
+            op, lead_id = str(body.get("op", "")), (str(body.get("lead_id", "")) or None)
+            fields = body.get("fields")
+            if not isinstance(fields, dict):
+                return refuse(400, "A lead change must carry fields.")
+            with reading:
+                try:
+                    st = store()
+                    leads, columns = st.leads(), st.lead_columns("A")
+                except Exception:
+                    log.exception("the Sheet could not be read to apply a lead change")
+                    return refuse(502, "The Sheet could not be read just now. Nothing was changed.")
+            reason = lead_chat.validate(op, lead_id=lead_id, fields=fields, leads=leads, columns=columns)
+            if reason:
+                return refuse(409, f"Nothing was changed ({reason}).")
+            try:
+                if op == "add":
+                    ids = st.append_leads("A", [lead_chat.build_add_row(fields)])
+                    log.info("lead added %s by %s", ids, g.email)
+                    return jsonify(ok=True, op="add", lead_id=(ids[0] if ids else ""))
+                written, _skipped = st.write_leads({lead_id: fields}, list(fields))
+                if written != 1:
+                    return refuse(409, "The lead changed before the update; nothing was written.")
+                log.info("lead %s updated by %s", lead_id, g.email)
+                return jsonify(ok=True, op="update", lead_id=lead_id)
+            except Exception:
+                log.exception("a lead change could not be applied")
+                return refuse(502, "The change could not be saved just now.")
+
     if enable_experiments:
         # Defining an experiment and assigning leads writes to the Sheet (the A/B tests tab), so this is
         # OFF by default and in deployment. It never sends, drafts, or touches a founder column, and it
@@ -954,7 +1005,8 @@ def _deployed():
                       handbook_doc_id=os.environ.get("HANDBOOK_DOC_ID", ""),
                       enable_review=enable_review, review_store=review.store_from_env(),
                       review_signer=review.configured_signer_from_env(),
-                      enable_send=os.environ.get("ENABLE_SEND") == "true")
+                      enable_send=os.environ.get("ENABLE_SEND") == "true",
+                      enable_lead_chat=os.environ.get("ENABLE_LEAD_CHAT") == "true")
 
 
 app = _deployed()
