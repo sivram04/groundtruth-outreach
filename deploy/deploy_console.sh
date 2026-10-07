@@ -28,11 +28,15 @@ cat > $ENV_FILE <<YAML
 CONSOLE_IAP_AUDIENCE: "/projects/$NUMBER/locations/$R/services/outreach-console"
 CONSOLE_ALLOWED_EMAILS: "admin@lakshyaa.ai"
 HANDBOOK_DOC_ID: "$HANDBOOK"
+ENABLE_REVIEW: "true"
+REVIEW_STORE: "sheet"
+ENABLE_SEND: "true"
+ENABLE_LEAD_CHAT: "true"
 YAML
 gcloud run deploy outreach-console --image=$IMAGE --region=$R --project=$P \
   --service-account=outreach-console@$P.iam.gserviceaccount.com \
   --no-allow-unauthenticated --iap \
   --max-instances=2 --concurrency=8 --timeout=60 --memory=512Mi \
-  --set-secrets=GOOGLE_SIGNIN_TOKEN=google-signin-token:latest,OUTREACH_HANDBOOK_JSON=outreach-settings:latest \
+    --set-secrets=GOOGLE_SIGNIN_TOKEN=google-signin-token:latest,OUTREACH_HANDBOOK_JSON=outreach-settings:latest,REVIEW_PRIVATE_KEY=review-signing-key:latest \
   --env-vars-file=$ENV_FILE \
   --quiet

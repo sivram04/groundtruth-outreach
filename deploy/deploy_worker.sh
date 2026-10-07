@@ -20,5 +20,6 @@ cd "$(dirname "$0")/.."
 gcloud run deploy outreach-worker --source=. --region=us-central1 --project=lakshyaa-outreach \
   --service-account=outreach-worker@lakshyaa-outreach.iam.gserviceaccount.com \
   --no-allow-unauthenticated --max-instances=1 --concurrency=1 --timeout=600 --memory=1Gi \
-  --set-secrets=GOOGLE_SIGNIN_TOKEN=google-signin-token:latest,TRACKING_KEY=tracking-signing-key:latest \
+    --set-secrets=GOOGLE_SIGNIN_TOKEN=google-signin-token:latest,TRACKING_KEY=tracking-signing-key:latest,OUTREACH_HANDBOOK_JSON=outreach-settings:latest \
+  --set-env-vars=ENABLE_REVIEW=true,REVIEW_STORE=sheet,ENABLE_GMAIL_DRAFTS=true \
   --no-traffic --tag=next --quiet
