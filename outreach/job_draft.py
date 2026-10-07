@@ -26,9 +26,12 @@ class DraftBlocked(ValueError):
 
 
 def load_settings(path=CONFIG_PATH):
-    if os.environ.get("OUTREACH_HANDBOOK_JSON"):
-        return json.loads(os.environ["OUTREACH_HANDBOOK_JSON"])
-    return json.loads(Path(path).read_text(encoding="utf-8")) if Path(path).exists() else {}
+    # Tolerate a leading UTF-8 BOM: a settings secret written by some Windows editors/PowerShell
+    # (Set-Content -Encoding utf8 on 5.1) starts with ﻿, which plain json.loads rejects.
+    raw = os.environ.get("OUTREACH_HANDBOOK_JSON")
+    if raw:
+        return json.loads(raw.lstrip("﻿"))
+    return json.loads(Path(path).read_text(encoding="utf-8-sig")) if Path(path).exists() else {}
 
 
 def _records(api, tab_name, header_row=1):
