@@ -40,3 +40,6 @@ gcloud run deploy outreach-console --image=$IMAGE --region=$R --project=$P \
     --set-secrets=GOOGLE_SIGNIN_TOKEN=google-signin-token:latest,OUTREACH_HANDBOOK_JSON=outreach-settings:latest,REVIEW_PRIVATE_KEY=review-signing-key:latest \
   --env-vars-file=$ENV_FILE \
   --quiet
+# Traffic was once pinned to a tagged revision ("next"), so a plain deploy left new revisions at 0%.
+# Always move 100% of traffic to the revision just deployed.
+gcloud run services update-traffic outreach-console --region=$R --project=$P --to-latest --quiet
