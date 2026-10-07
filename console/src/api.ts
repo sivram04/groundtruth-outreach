@@ -6,6 +6,8 @@ import type {
   ExperimentDefineResult,
   ImportPreview,
   ImportResult,
+  LeadChangeResult,
+  LeadChatProposal,
   PlaybookPreview,
   PlaybookSelection,
   PlaybookUpload,
@@ -628,6 +630,42 @@ export async function sendDraft(leadId: string, fetcher: typeof fetch = fetch): 
     throw new CallError(said || "The email could not be sent.");
   }
   return payload as SendResult;
+}
+
+/** POST /api/leads/interpret: read-only; restate a typed instruction as a proposal to confirm. */
+export async function interpretLeadChange(note: string, fetcher: typeof fetch = fetch): Promise<LeadChatProposal> {
+  return leadPost<LeadChatProposal>("/api/leads/interpret", { note }, fetcher);
+}
+
+/** POST /api/leads/apply: writes only on confirm; re-validated server-side, founder columns protected. */
+export async function applyLeadChange(
+  payload: { op: string; lead_id?: string; fields: Record<string, string> },
+  fetcher: typeof fetch = fetch,
+): Promise<LeadChangeResult> {
+  return leadPost<LeadChangeResult>("/api/leads/apply", payload, fetcher);
+}
+
+async function leadPost<T>(path: string, body: unknown, fetcher: typeof fetch): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetcher(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new CallError("The console could not be reached. Check the connection and try again.");
+  }
+  if (response.status === 401) throw new LoadError(SIGN_IN_ENDED, true);
+  const isJson = (response.headers.get("Content-Type") ?? "").includes("application/json");
+  const payload: unknown = isJson ? await response.json().catch(() => null) : null;
+  if (!response.ok) {
+    const said =
+      payload && typeof payload === "object" && "error" in payload ? String((payload as { error: unknown }).error) : "";
+    throw new CallError(said || "The lead change could not be completed.");
+  }
+  return payload as T;
 }
 
 /** Complete, snooze or cancel a lead's call task. `task_id` is required and names the exact task the

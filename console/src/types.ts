@@ -291,6 +291,25 @@ export interface Lead {
   columns: [string, string][];
 }
 
+/** The lead-management chat's proposal for the founder to confirm (propose-then-confirm). */
+export interface LeadChatProposal {
+  status: "unclear" | "need_more" | "bad_email" | "no_lead" | "protected" | "ready";
+  op?: "add" | "update";
+  lead_id?: string;
+  company?: string;
+  fields?: Record<string, string>;
+  columns?: string[];
+  value?: string;
+  reason?: string;
+  submission_id?: string;
+}
+
+export interface LeadChangeResult {
+  ok: boolean;
+  op: string;
+  lead_id: string;
+}
+
 export interface Need {
   order: number;
   label: string;
@@ -379,6 +398,8 @@ export interface Snapshot {
   /** Whether Approve-and-send is switched on for this server (off by default and in deploy). The only
    *  path that sends a real email, on the founder's click, for a draft already created in Gmail. */
   send_enabled?: boolean;
+  /** Whether the lead-management chat (add/update leads by instruction) is switched on (off in deploy). */
+  lead_chat_enabled?: boolean;
   /** Whether the A/B test flow is switched on for this server (off by default and in deploy). */
   experiments_enabled?: boolean;
   /** The current experiment's variant-level report, or null when none is defined/assigned. */
