@@ -20,7 +20,6 @@ import { href, leadHref } from "../router";
 import type { Draft, Snapshot, TierCounts } from "../types";
 import { CallLogChat } from "./CallLogChat";
 import { CallQueue } from "./CallQueue";
-import { LeadChat } from "./LeadChat";
 
 // The tone of each kind of thing that needs the founder: an answer, something late, a draft,
 // a check. The order numbers come from the server (console_model NEED_LABELS).
@@ -302,12 +301,6 @@ export function Dashboard({ data, onChanged }: { data: Snapshot; onChanged: () =
             onChanged={onChanged}
           />
           <CallLogChat onChanged={onChanged} />
-        </section>
-      )}
-
-      {data.lead_chat_enabled && (
-        <section className="section">
-          <LeadChat onChanged={onChanged} />
         </section>
       )}
 

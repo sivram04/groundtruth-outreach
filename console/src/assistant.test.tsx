@@ -2,8 +2,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LoadError, type Answer } from "./api";
 import { App } from "./App";
+import { Assistant } from "./assistant";
 import demo from "./demo/snapshot.json";
-import type { Snapshot } from "./types";
+import type { LeadChatProposal, Snapshot } from "./types";
 
 const data = demo as unknown as Snapshot;
 const loaded = () => Promise.resolve(structuredClone(data));
@@ -109,6 +110,65 @@ describe("the assistant", () => {
     await act(async () => screen.getByRole("button", { name: "Ask the assistant" }).click());
     expect(screen.getByRole("complementary", { name: "Assistant" })).toBeTruthy();
     expect(window.localStorage.getItem("outreach.assistant")).toBe("on");
+  });
+});
+
+describe("the assistant that also acts (write enabled)", () => {
+  function write(proposal: LeadChatProposal, opts: { apply?: ReturnType<typeof vi.fn>; ask?: ReturnType<typeof answering> } = {}) {
+    const apply = opts.apply ?? vi.fn(async () => ({ ok: true, op: "add", lead_id: "A-new1" }));
+    const ask = opts.ask ?? answering({});
+    const onChanged = vi.fn();
+    render(
+      <Assistant companies={new Map()} onClose={() => {}} canWrite onChanged={onChanged}
+        ask={ask} interpret={async () => proposal}
+        apply={apply as unknown as Parameters<typeof Assistant>[0]["apply"]} />,
+    );
+    const panel = screen.getByRole("complementary", { name: "Assistant" });
+    return { panel, apply, ask, onChanged };
+  }
+
+  async function typeAndSend(panel: HTMLElement, text: string) {
+    const box = within(panel).getByLabelText("Ask the assistant");
+    fireEvent.change(box, { target: { value: text } });
+    await act(async () => within(panel).getByRole("button", { name: "Ask" }).click());
+  }
+
+  it("says it can add or update a lead and never sends", () => {
+    const { panel } = write({ status: "unclear" });
+    expect(within(panel).getByText(/add or update a lead/)).toBeTruthy();
+    expect(within(panel).getByText(/never send email/)).toBeTruthy();
+  });
+
+  it("proposes an add and writes only on Confirm", async () => {
+    const { panel, apply, onChanged } = write({
+      status: "ready", op: "add", fields: { Company: "Acme Electric", "BEST EMAIL": "sam@acme.test" },
+    });
+    await typeAndSend(panel, "add | Company: Acme Electric | email: sam@acme.test");
+    await waitFor(() => expect(within(panel).getByText("Add a new lead?")).toBeTruthy());
+    expect(within(panel).getByText("Acme Electric")).toBeTruthy();
+    expect(apply).not.toHaveBeenCalled(); // nothing written until Confirm
+    await act(async () => within(panel).getByRole("button", { name: /Confirm/ }).click());
+    await waitFor(() => expect(apply).toHaveBeenCalledWith({
+      op: "add", lead_id: undefined, fields: { Company: "Acme Electric", "BEST EMAIL": "sam@acme.test" },
+    }));
+    await waitFor(() => expect(within(panel).getByText(/Added A-new1/)).toBeTruthy());
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it("answers a question (not a lead action) through the read-only path", async () => {
+    const ask = answering({ answer: "Three leads are ready." });
+    const { panel } = write({ status: "unclear" }, { ask });
+    await typeAndSend(panel, "how many leads are ready?");
+    await waitFor(() => expect(within(panel).getByText("Three leads are ready.")).toBeTruthy());
+    expect(ask).toHaveBeenCalledWith("how many leads are ready?");
+  });
+
+  it("explains a protected-column attempt and offers no Confirm", async () => {
+    const { panel, apply } = write({ status: "protected", lead_id: "A-0001", columns: ["BEST EMAIL"] });
+    await typeAndSend(panel, "update A-0001 | email: new@x.test");
+    await waitFor(() => expect(within(panel).getByText(/protected/)).toBeTruthy());
+    expect(within(panel).queryByRole("button", { name: /Confirm/ })).toBeNull();
+    expect(apply).not.toHaveBeenCalled();
   });
 });
 
