@@ -158,7 +158,8 @@ def written_preview(lead, facts, settings, handbook, *, suppressed, model, quote
                             handbook)
         usable = [chosen]
     try:
-        draft, problems = writer.compose(handbook["text"], company, usable, model)
+        draft, problems = writer.compose(handbook["text"], company, usable, model,
+                                         product=str(settings.get("product_name") or "").strip())
     except Exception as exc:  # a model or network failure must not produce a draft
         return _blocked(lead, options,
                         [f"the writer failed: {type(exc).__name__}: {exc}"[:180]], handbook)

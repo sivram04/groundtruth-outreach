@@ -71,7 +71,7 @@ SCHEMA = {
     "required": ["subject", "sentences"],
 }
 
-PROMPT = """You are writing one short cold email for the founder of Lakshyaa.
+PROMPT = """You are writing one short cold email for the founder of {product}.
 
 THE FOUNDER'S HANDBOOK is the only source for what the product is, what it is not, and what
 to ask for. Follow it exactly. Do not add a capability, a benefit or a claim it does not make.
@@ -692,15 +692,18 @@ def verify(handbook_text, company, facts, sentences, subject):
                            for s in sentences]}, [])
 
 
-def compose(handbook_text, company, facts, model):
+def compose(handbook_text, company, facts, model, *, product="the founder's product"):
     """Ask the model for sentences, then judge them. Returns (draft, problems).
 
     `facts` are verified quotes, each with a quote_id. `model(prompt, schema) -> (json, usage)`.
+    `product` names the founder's own product in the prompt; it comes from the drafting settings'
+    `product_name`, never a literal, so the outreach tool is not tied to one product.
     """
     if not facts:
         return None, ["no verified company quote to write from"]
     quotes = "\n".join(f'- id {f["quote_id"]} ({f["category"]}): "{f["quote"]}"' for f in facts)
-    prompt = PROMPT.format(handbook=handbook_text, company=company, quotes=quotes)
+    prompt = PROMPT.format(product=product or "the founder's product",
+                           handbook=handbook_text, company=company, quotes=quotes)
     out, usage = model(prompt, SCHEMA)
     draft, problems = verify(handbook_text, company, facts, out.get("sentences") or [],
                              out.get("subject", ""))
