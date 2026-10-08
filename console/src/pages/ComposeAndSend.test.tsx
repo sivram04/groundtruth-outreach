@@ -56,4 +56,25 @@ describe("compose and send", () => {
     render(<ComposeAndSend lead={lead()} draft={draft({ subject: "", body: "" })} compose={vi.fn()} sendEdited={vi.fn()} sendCreated={vi.fn()} />);
     expect(screen.getByRole("button", { name: /Approve and send/ }).hasAttribute("disabled")).toBe(true);
   });
+
+  it("offers no send when the lead has no email address", () => {
+    render(<ComposeAndSend lead={lead({ email: "" })} draft={draft()} compose={vi.fn()} sendEdited={vi.fn()} sendCreated={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /Approve and send/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Write a first draft for me/ })).toBeNull();
+    expect(screen.getByText(/Find a contact first/)).toBeTruthy();
+  });
+
+  it("points a call-only lead to logging the call, not sending", () => {
+    render(
+      <ComposeAndSend
+        lead={lead({ email: "", phone: "614-555-0100", channel: "CALL" })}
+        draft={draft()}
+        compose={vi.fn()}
+        sendEdited={vi.fn()}
+        sendCreated={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /Approve and send/ })).toBeNull();
+    expect(screen.getByText(/Log the call instead/)).toBeTruthy();
+  });
 });

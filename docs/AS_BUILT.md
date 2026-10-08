@@ -1372,6 +1372,14 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-10-08 (list → click → edit tightening, item A: guard a dead address)** — on a lead with no
+  usable email, the editable "Write and send" card (`console/src/pages/ComposeAndSend.tsx`) no longer offers
+  the compose/send controls; it explains why instead ("Log the call instead" for a CALL lead with a phone;
+  otherwise "Find a contact first…"), so the founder never sees a live Approve-and-send button over
+  "Sending to —" that the server would only reject. Two new React tests cover both branches; frontend suite
+  146 pass, tsc clean. No backend or send-path change. Items B (unsaved-edit guard) and C (whole-row click)
+  from the same tightening pass were identified but not taken (founder chose A only on 2026-10-08).
+
 - **2026-10-04 (MVP #6: reply-draft candidate + booking link, lead-page wiring)** — after a lead writes
   back, the lead page can offer a suggested reply for the founder to read, edit or copy into the thread in
   Gmail. Built exactly like the post-call candidate (`outreach/reply.py`, `console/src/pages/ReplyCandidate.tsx`):

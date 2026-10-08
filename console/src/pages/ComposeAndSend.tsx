@@ -28,6 +28,7 @@ export function ComposeAndSend({
 }) {
   const alreadySent = Boolean(lead.cells["Sent at"]);
   const created = lead.gmail_drafts?.find((d) => d.status === "CREATED");
+  const hasEmail = Boolean(lead.email && lead.email.trim());
   const [subject, setSubject] = useState(draft?.subject ?? "");
   const [body, setBody] = useState(draft?.body ?? "");
   const [touched, setTouched] = useState(false);
@@ -112,6 +113,20 @@ export function ComposeAndSend({
             <Send size={15} aria-hidden="true" /> Approve and send
           </button>
         )}
+      </Card>
+    );
+  }
+
+  // No usable address: there is nothing to send, so never offer the send. Say why, and what to do,
+  // rather than show "Sending to —" with a live button that the server would only reject.
+  if (!hasEmail) {
+    return (
+      <Card title="Write and send" icon={Mail}>
+        <p className="muted">
+          {lead.channel === "CALL"
+            ? "This lead has a phone number but no email address, so there is nothing to send here. Log the call instead."
+            : "No email address is on file for this lead yet, so nothing can be sent. Find a contact first, then a draft can be written and sent."}
+        </p>
       </Card>
     );
   }
