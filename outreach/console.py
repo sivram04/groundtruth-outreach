@@ -1144,7 +1144,8 @@ def _deployed():
                       enable_review=enable_review, review_store=review.store_from_env(),
                       review_signer=review.configured_signer_from_env(),
                       enable_send=os.environ.get("ENABLE_SEND") == "true",
-                      enable_lead_chat=os.environ.get("ENABLE_LEAD_CHAT") == "true")
+                      enable_lead_chat=os.environ.get("ENABLE_LEAD_CHAT") == "true",
+                      enable_playbook=os.environ.get("ENABLE_PLAYBOOK") == "true")
 
 
 app = _deployed()

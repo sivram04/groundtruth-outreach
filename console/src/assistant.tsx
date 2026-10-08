@@ -1,6 +1,15 @@
-import { ArrowUp, Bot, Check, Flag, Mail, PanelLeftClose, Reply, Sparkles, X } from "lucide-react";
+import { ArrowUp, Bot, Check, Flag, Mail, PanelLeftClose, Paperclip, Reply, Sparkles, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { CallError, LoadError, applyLeadChange, askAssistant, interpretLeadChange, type Answer } from "./api";
+import {
+  CallError,
+  LoadError,
+  applyLeadChange,
+  askAssistant,
+  interpretLeadChange,
+  reviewPlaybook,
+  setPlaybookText,
+  type Answer,
+} from "./api";
 import { NAME } from "./brand";
 import { href, leadHref } from "./router";
 import type { LeadChatProposal } from "./types";
@@ -53,16 +62,22 @@ export function Assistant(props: {
   ask?: typeof askAssistant;
   interpret?: typeof interpretLeadChange;
   apply?: typeof applyLeadChange;
+  review?: typeof reviewPlaybook;
+  savePlaybook?: typeof setPlaybookText;
 }) {
   const [said, setSaid] = useState<Said[]>([]);
   const [pending, setPending] = useState<LeadChatProposal | null>(null);
+  const [playbook, setPlaybook] = useState<{ text: string; name: string; summary: string } | null>(null);
   const [question, setQuestion] = useState("");
   const [thinking, setThinking] = useState(false);
   const [busy, setBusy] = useState(false);
   const thread = useRef<HTMLDivElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const ask = props.ask ?? askAssistant;
   const interpret = props.interpret ?? interpretLeadChange;
   const apply = props.apply ?? applyLeadChange;
+  const review = props.review ?? reviewPlaybook;
+  const savePlaybook = props.savePlaybook ?? setPlaybookText;
 
   useEffect(() => {
     thread.current?.scrollTo?.({ top: thread.current.scrollHeight });
@@ -131,8 +146,51 @@ export function Assistant(props: {
     );
   }
 
+  function onFile(file: File | undefined | null) {
+    if (!file || busy) return;
+    add({ from: "you", text: `Playbook: ${file.name}` });
+    setBusy(true);
+    setPending(null);
+    setPlaybook(null);
+    review(file).then(
+      (r) => {
+        const words = r.text.trim().split(/\s+/).filter(Boolean).length;
+        const hasFollowups = r.review.follow_ups && Object.values(r.review.follow_ups).some((f) => f.present);
+        const parts = [r.review.initial_email?.present ? "an initial email" : "", hasFollowups ? "follow-ups" : ""].filter(Boolean);
+        const seen = parts.length ? `, with ${parts.join(" and ")}` : "";
+        setPlaybook({
+          text: r.text,
+          name: file.name,
+          summary: `I read ${file.name} (${words} words${seen}). Save it as your live playbook? New drafts will be written from it.`,
+        });
+        setBusy(false);
+      },
+      (error: unknown) => {
+        setBusy(false);
+        add({ from: "assistant", refused: true, text: error instanceof CallError ? error.message : "That file could not be read." });
+      },
+    );
+  }
+
+  function confirmPlaybook() {
+    if (!playbook || busy) return;
+    setBusy(true);
+    savePlaybook(playbook.text, playbook.name).then(
+      () => {
+        setBusy(false);
+        setPlaybook(null);
+        add({ from: "assistant", text: "Saved. New drafts will be written from this playbook." });
+        props.onChanged?.();
+      },
+      (error: unknown) => {
+        setBusy(false); // keep the proposal so the founder can retry or cancel
+        add({ from: "assistant", refused: true, text: error instanceof CallError ? error.message : "The playbook could not be saved." });
+      },
+    );
+  }
+
   const blurb = props.canWrite
-    ? "Ask about your leads and drafts, or tell me to add or update a lead. I show what will change and you confirm before anything is written. I never send email."
+    ? "Ask about your leads and drafts, tell me to add or update a lead, or attach a playbook (PDF or DOCX) to set what we say about your company. I show what will change and you confirm before anything is written. I never send email."
     : "Ask about your leads, your drafts and what needs you. I read your Sheet and answer only from it; I cannot send or change anything.";
 
   return (
@@ -210,6 +268,21 @@ export function Assistant(props: {
           </div>
         )}
 
+        {playbook && (
+          <div className="bubble assistant proposal">
+            <p className="strong">Set your playbook?</p>
+            <p className="small">{playbook.summary}</p>
+            <div className="email-actions">
+              <button type="button" className="primary" disabled={busy} onClick={confirmPlaybook}>
+                <Check size={15} aria-hidden="true" /> {busy ? "Saving…" : "Save as my playbook"}
+              </button>
+              <button type="button" className="secondary" disabled={busy} onClick={() => setPlaybook(null)}>
+                <X size={15} aria-hidden="true" /> Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         {thinking && (
           <p className="muted small thinking" role="status">
             Reading your Sheet…
@@ -238,6 +311,30 @@ export function Assistant(props: {
           rows={2}
           maxLength={400}
         />
+        {props.canWrite && (
+          <>
+            <input
+              ref={fileInput}
+              type="file"
+              accept=".pdf,.docx"
+              style={{ display: "none" }}
+              onChange={(event) => {
+                onFile(event.target.files?.[0]);
+                event.target.value = ""; // allow re-selecting the same file
+              }}
+            />
+            <button
+              type="button"
+              className="round"
+              disabled={thinking || busy}
+              aria-label="Attach a playbook (PDF or DOCX)"
+              title="Attach a playbook (PDF or DOCX)"
+              onClick={() => fileInput.current?.click()}
+            >
+              <Paperclip size={17} aria-hidden="true" />
+            </button>
+          </>
+        )}
         <button type="submit" className="round" disabled={thinking || busy || !question.trim()} aria-label="Ask">
           <ArrowUp size={17} aria-hidden="true" />
         </button>

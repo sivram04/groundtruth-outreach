@@ -664,6 +664,15 @@ export async function sendEditedDraft(
   return leadPost<SendResult>(`/api/send-edited/${encodeURIComponent(leadId)}`, { subject, body }, fetcher);
 }
 
+/** POST /api/playbook/set: save this text as the live playbook (the source every draft reads from). */
+export async function setPlaybookText(
+  text: string,
+  name: string,
+  fetcher: typeof fetch = fetch,
+): Promise<{ content_hash: string; enabled: boolean }> {
+  return leadPost<{ content_hash: string; enabled: boolean }>("/api/playbook/set", { text, name }, fetcher);
+}
+
 /** POST /api/leads/interpret: read-only; restate a typed instruction as a proposal to confirm. */
 export async function interpretLeadChange(note: string, fetcher: typeof fetch = fetch): Promise<LeadChatProposal> {
   return leadPost<LeadChatProposal>("/api/leads/interpret", { note }, fetcher);

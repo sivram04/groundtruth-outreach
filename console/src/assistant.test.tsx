@@ -204,4 +204,34 @@ describe("the toggle in the top bar", () => {
     await act(async () => inBar().click());
     expect(screen.getByRole("complementary", { name: "Assistant" })).toBeTruthy();
   });
+
+  it("uploads a playbook, confirms, and saves it as the live source", async () => {
+    const review = vi.fn(async () => ({
+      kind: "docx",
+      text: "word ".repeat(120).trim(),
+      review: { content_hash: "h", length: 600, initial_email: { present: true, paragraphs: [] },
+                follow_ups: {}, timing: { stated: false, business_days: [], note: "" },
+                offer_values: {}, missing: [], ambiguous: [], usable_for_followups: true },
+      review_token: "t",
+    }));
+    const savePlaybook = vi.fn(async () => ({ content_hash: "h", enabled: true }));
+    render(<Assistant companies={new Map()} onClose={() => {}} canWrite review={review} savePlaybook={savePlaybook} />);
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["data"], "pitch.docx");
+    Object.defineProperty(input, "files", { value: [file] });
+    fireEvent.change(input);
+    await waitFor(() => expect(review).toHaveBeenCalled());
+    await screen.findByText(/Save it as your live playbook/);
+    fireEvent.click(screen.getByRole("button", { name: /Save as my playbook/ }));
+    await waitFor(() => expect(savePlaybook).toHaveBeenCalledWith(expect.any(String), "pitch.docx"));
+    await screen.findByText(/New drafts will be written from this playbook/);
+  });
+
+  it("offers the playbook upload only when writing is on", () => {
+    render(<Assistant companies={new Map()} onClose={() => {}} canWrite={false} />);
+    expect(screen.queryByLabelText(/Attach a playbook/)).toBeNull();
+    cleanup();
+    render(<Assistant companies={new Map()} onClose={() => {}} canWrite />);
+    expect(screen.getByLabelText(/Attach a playbook/)).toBeTruthy();
+  });
 });
