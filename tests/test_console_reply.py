@@ -45,7 +45,7 @@ def a_store(events=(), suppression=()):
 
 def make(built, store, monkeypatch, *, settings=OFFER, handbook=HANDBOOK, enable=True):
     monkeypatch.setattr(job_draft, "_handbook",
-                        lambda s, handbook_arg=None, drive=None: (handbook, None if handbook else "no handbook"))
+                        lambda s, handbook_arg=None, drive=None, api=None: (handbook, None if handbook else "no handbook"))
     return console.create_app(
         verifier=console_auth.Verifier(AUDIENCE, ALLOWED, fetch=Keys()), store=lambda: store,
         settings=lambda: settings, clock=lambda: MON, static_dir=built,
@@ -133,7 +133,7 @@ DRAFT_OFFER = {**OFFER, "sender_email": SENDER}
 
 def make_draft(built, store, monkeypatch, *, gmail, enable_env=True):
     monkeypatch.setattr(job_draft, "_handbook",
-                        lambda s, handbook_arg=None, drive=None: (HANDBOOK, None))
+                        lambda s, handbook_arg=None, drive=None, api=None: (HANDBOOK, None))
     if enable_env:
         monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
     else:

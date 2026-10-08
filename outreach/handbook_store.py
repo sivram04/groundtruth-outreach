@@ -9,10 +9,11 @@ The returned handbook has the SAME shape the Drive loader returns ({text, conten
 version, name, source}), so every approval hash and candidate fingerprint stays consistent, and a
 changed playbook is a new content hash that re-opens approval exactly as a changed Drive doc would.
 
-Off by default: ``active`` returns None unless the drafting settings set ``playbook_store_enabled``
-to True, so until the founder switches to a stored playbook the Drive doc remains the source and
-nothing else changes. ``set_active`` always writes (the founder can prepare the text before enabling
-it).
+A saved playbook is live immediately: ``active`` returns the latest stored row whenever one exists,
+so the moment the founder saves a playbook it is the source; until then (no row) the Drive doc
+remains the source and nothing else changes. ``active`` is only ever consulted by ``job_draft._handbook``
+when a caller hands it a Sheets client, so a draft path that holds its own handbook (tests, and
+re-gates) never reads the store.
 """
 
 from datetime import datetime, timezone
@@ -34,16 +35,12 @@ def _rows(api):
         return []
 
 
-def active(settings=None, *, api=None):
+def active(*, api=None):
     """The active stored playbook as a handbook dict, or None.
 
-    None when the feature is off (``playbook_store_enabled`` not True), the tab is absent or empty,
-    its header is not exactly the schema, or the latest row's text is too short to be a playbook. A
-    None result means the Drive handbook stays the source.
+    None when the tab is absent or empty, its header is not exactly the schema, or the latest row's
+    text is too short to be a playbook. A None result means the Drive handbook stays the source.
     """
-    settings = settings or {}
-    if settings.get("playbook_store_enabled") is not True:
-        return None
     values = _rows(api or _api())
     if len(values) < 2 or values[0] != HEADER:
         return None

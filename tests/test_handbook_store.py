@@ -72,19 +72,14 @@ class FakeApi:
         self.tabs.setdefault(title, [])
 
 
-ON = {"playbook_store_enabled": True}
-
-
-def test_active_is_none_when_the_feature_is_off():
-    api = FakeApi()
-    handbook_store.set_active(TEXT, set_by="admin@lakshyaa.ai", api=api)
-    assert handbook_store.active({}, api=api) is None  # no flag -> Drive stays the source
+def test_active_is_none_when_no_playbook_is_stored():
+    assert handbook_store.active(api=FakeApi()) is None  # no tab/rows -> Drive stays the source
 
 
 def test_set_then_active_returns_the_stored_playbook():
     api = FakeApi()
     h = handbook_store.set_active(TEXT, set_by="admin@lakshyaa.ai", name="Pitch", api=api)
-    book = handbook_store.active(ON, api=api)
+    book = handbook_store.active(api=api)
     assert book["source"] == "stored" and book["text"] == playbook.normalize(TEXT)
     assert book["content_hash"] == h == playbook.content_hash(TEXT)
     assert book["name"] == "Pitch" and book["document_id"].startswith("playbook:")
@@ -95,13 +90,13 @@ def test_the_latest_row_wins():
     handbook_store.set_active(TEXT, set_by="a@x", api=api)
     newer = TEXT + "\n\nWe also read bank balances and open invoices to see weeks ahead."
     handbook_store.set_active(newer, set_by="a@x", api=api)
-    assert handbook_store.active(ON, api=api)["text"] == playbook.normalize(newer)
+    assert handbook_store.active(api=api)["text"] == playbook.normalize(newer)
 
 
 def test_active_is_none_for_text_too_short_to_be_a_playbook():
     api = FakeApi(tabs={handbook_store.TAB: [handbook_store.HEADER,
                                              ["2026-10-08", "a@x", "upload", "", "h", "too short"]]})
-    assert handbook_store.active(ON, api=api) is None
+    assert handbook_store.active(api=api) is None
 
 
 def test_set_active_rejects_text_that_is_too_short():
@@ -114,19 +109,15 @@ def test_set_active_needs_a_setter():
         handbook_store.set_active(TEXT, set_by="", api=FakeApi())
 
 
-def test_job_draft_handbook_prefers_the_stored_playbook_when_enabled(monkeypatch):
+def test_job_draft_handbook_uses_a_stored_playbook_when_a_client_is_passed():
     api = FakeApi()
     handbook_store.set_active(TEXT, set_by="admin@lakshyaa.ai", api=api)
-    monkeypatch.setattr(handbook_store, "_api", lambda: api)
-    book, why = job_draft._handbook(ON)
+    book, why = job_draft._handbook({}, api=api)
     assert why is None and book["source"] == "stored" and book["text"] == playbook.normalize(TEXT)
 
 
-def test_job_draft_handbook_ignores_the_store_when_the_flag_is_off(monkeypatch):
-    api = FakeApi()
-    handbook_store.set_active(TEXT, set_by="admin@lakshyaa.ai", api=api)
-    monkeypatch.setattr(handbook_store, "_api", lambda: api)
-    # Flag off -> the store is not consulted; the Drive loader is (and fails closed here).
+def test_job_draft_handbook_skips_the_store_when_no_client_is_passed(monkeypatch):
+    # Without an api, the store is never consulted; the Drive loader is (and fails closed here).
     monkeypatch.setattr(job_draft.handbook_drive, "load",
                         lambda settings, drive=None: (_ for _ in ()).throw(
                             job_draft.handbook_drive.HandbookUnavailable("no drive")))

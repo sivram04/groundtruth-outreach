@@ -64,7 +64,7 @@ OFFER = {"call_no_answer_business_days": 3, "product_name": "Lakshyaa", "sender_
 
 def make_cand(built, store, monkeypatch, *, now=MON, handbook=HANDBOOK, settings=OFFER):
     monkeypatch.setattr(job_draft, "_handbook",
-                        lambda s, handbook_arg=None, drive=None: (handbook, None if handbook else "no handbook"))
+                        lambda s, handbook_arg=None, drive=None, api=None: (handbook, None if handbook else "no handbook"))
     clock = now if callable(now) else (lambda: now)
     return console.create_app(
         verifier=console_auth.Verifier(AUDIENCE, ALLOWED, fetch=Keys()), store=lambda: store,

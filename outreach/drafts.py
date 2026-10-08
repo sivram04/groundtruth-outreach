@@ -158,7 +158,7 @@ def prepare(store=None, *, settings=None, handbook=None, drive=None, model=None,
               "to_write": [row["Lead ID"] for row in todo], "dry_run": dry_run, "written": {}}
     if dry_run or not todo:
         return report
-    book, why = job_draft._handbook(settings, handbook, drive)
+    book, why = job_draft._handbook(settings, handbook, drive, api=getattr(store, "api", None))
     if not book:
         raise DraftsBlocked(why)
     facts = (store.table("Research") or ([], []))[1]
@@ -218,7 +218,7 @@ def regate_one(store=None, lead_id=None, *, settings=None, review_store=None,
         raise DraftsBlocked("the suppression list could not be read: " + exc.reason) from exc
     suppressed = sync.on_list(entries, lead.get("BEST EMAIL", ""))
     now = now or datetime.now(timezone.utc)
-    book, why = job_draft._handbook(settings, handbook, drive)
+    book, why = job_draft._handbook(settings, handbook, drive, api=getattr(store, "api", None))
     if not book:
         raise DraftsBlocked(why)
     try:

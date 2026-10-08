@@ -102,20 +102,21 @@ def _read(api, ids):
     return tabs, matches, facts
 
 
-def _handbook(settings, handbook=None, drive=None):
+def _handbook(settings, handbook=None, drive=None, api=None):
     """The active playbook, or the reason there is none. Never a local substitute.
 
     An explicit ``handbook`` wins (tests, and callers that already hold one). Otherwise, when the
-    founder has switched to a stored playbook (``playbook_store_enabled``), that is the source; else
-    the Drive document. The stored playbook has the same shape as the Drive one, so hashes are
-    consistent either way.
+    caller hands a Sheets client (``api``) and a playbook has been saved, that stored playbook is the
+    source; else the Drive document. A saved playbook is live immediately, with no flag. The stored
+    playbook has the same shape as the Drive one, so hashes are consistent either way.
     """
     if handbook is not None:
         return handbook, None
     try:
-        stored = handbook_store.active(settings)
-        if stored is not None:
-            return stored, None
+        if api is not None:
+            stored = handbook_store.active(api=api)
+            if stored is not None:
+                return stored, None
         return handbook_drive.load(settings, drive=drive), None
     except handbook_drive.HandbookUnavailable as exc:
         return None, f"handbook unavailable: {exc}"
@@ -224,7 +225,7 @@ def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
         if not set(ids) <= leads.keys():
             raise DraftBlocked("fixture is missing a requested Lead ID")
         if write:
-            book, why = _handbook(settings, handbook, drive)
+            book, why = _handbook(settings, handbook, drive, api=api)
             return [(written_preview(leads[i], fixture["research"], settings, book,
                                      suppressed=fixture.get("suppressed", {}).get(i, None),
                                      model=model or gemini.generate_json,
@@ -242,7 +243,7 @@ def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
     _, matches, facts = _read(api, ids)
     by_id = {lead["Lead ID"]: lead for _, _, lead in matches}
     if write:
-        book, why = _handbook(settings, handbook, drive)
+        book, why = _handbook(settings, handbook, drive, api=api)
         return [(written_preview(by_id[i], facts, settings, book,
                                  suppressed=_suppressed(api, by_id[i].get("BEST EMAIL", "")),
                                  model=model or gemini.generate_json,
@@ -275,13 +276,13 @@ def _actions_today(tabs):
     return count
 
 
-def _revalidated(lead, facts, written, settings, handbook=None, drive=None, pages=None):
+def _revalidated(lead, facts, written, settings, handbook=None, drive=None, pages=None, api=None):
     """Re-judge an approved written draft against the live handbook, quotes and company name.
 
     The company name is re-derived from the company's own site exactly as the preview did, so
     the rebuilt copy and its hash match what the founder approved.
     """
-    book, why = _handbook(settings, handbook, drive)
+    book, why = _handbook(settings, handbook, drive, api=api)
     if not book:
         raise DraftBlocked(why)
     company, verified = drafting.verified_company_name(
@@ -347,7 +348,7 @@ def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
     if calls.blocks_outreach(call_effect):
         raise DraftBlocked(f"a recorded call outcome ({call_effect.lower()}) blocks emailing this lead; "
                            "no draft is created")
-    book, rebuilt, company = _revalidated(lead, facts, written, settings, handbook, drive, pages)
+    book, rebuilt, company = _revalidated(lead, facts, written, settings, handbook, drive, pages, api=api)
     result = drafting.preview(lead, facts, settings,
                              suppressed=_suppressed(api, lead.get("BEST EMAIL", "")),
                              handbook=book, written=rebuilt, company=company)

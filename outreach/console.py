@@ -659,7 +659,7 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                 return jsonify(candidate=None, reason="no_email")
             if suppression.covers(entries, email):  # the ordinary suppression check is kept too
                 return jsonify(candidate=None, reason="suppressed")
-            book, _why = job_draft._handbook(chosen)
+            book, _why = job_draft._handbook(chosen, api=getattr(st, "api", None))
             if book is None:  # grounded in the current handbook, or not offered at all
                 return jsonify(candidate=None, unavailable=True, reason="handbook_unavailable")
             try:
@@ -737,7 +737,7 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             effect = calls.outreach_effect(call_events)
             email = channels.email_of(row)
             suppressed = bool(email) and suppression.covers(entries, email)
-            book, _why = job_draft._handbook(chosen)
+            book, _why = job_draft._handbook(chosen, api=getattr(st, "api", None))
             if book is None:  # grounded in the current handbook, or not offered at all
                 return jsonify(candidate=None, unavailable=True, reason="handbook_unavailable")
             try:
