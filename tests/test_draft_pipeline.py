@@ -9,9 +9,16 @@ from pathlib import Path
 import pytest
 
 import review_fixtures as rf
-from outreach import calls, drafting, gmail_drafts, handbook_drive, job_draft, review, worker, writer
+from outreach import calls, drafting, gmail_drafts, handbook_drive, job_draft, review, sheet, worker, writer
 from outreach.review_identity import Signer
 from outreach.sheet import CALLS_HEADER
+
+
+def _stub_sheet_projects(monkeypatch):
+    """The worker draft routes read projects from the Sheet; in a unit test there is no Sheet, so give
+    them a dummy api and an empty projects map (a single-project default is applied downstream)."""
+    monkeypatch.setattr(sheet, "_api", lambda: object())
+    monkeypatch.setattr(sheet, "Store", lambda api: type("S", (), {"projects": lambda self, s=None: {}})())
 from test_sheet_append import FakeSheets
 
 # The genuine call-log reader, captured before `ready` patches it to CONTINUE, so the call-gate tests
@@ -652,6 +659,7 @@ def test_the_worker_create_route_goes_through_the_gated_create(monkeypatch):
     """The HTTP create surface funnels through job_draft.create (where the gate lives), so it
     cannot bypass review; here the gated create refuses and the route surfaces the refusal."""
     monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
+    _stub_sheet_projects(monkeypatch)
     seen = {}
 
     def spy(lead_id, approved_hash, *, written=None, **kwargs):
@@ -729,6 +737,7 @@ def test_create_refuses_the_old_template_even_with_its_approved_hash(ready):
 
 
 def test_worker_preview_always_uses_the_drive_writer(monkeypatch):
+    _stub_sheet_projects(monkeypatch)
     called = []
     monkeypatch.setattr(job_draft, "previews", lambda ids, **kwargs:
                         called.append(kwargs) or [{"preview_hash": None}])

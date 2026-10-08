@@ -52,9 +52,13 @@ def auto_research():
 def draft_preview():
     ids = request.get_json(silent=True) or {}
     try:
-        # Every live preview must use the Drive handbook and Gemini writer.
+        # Every live preview must use the Drive handbook and Gemini writer. Each lead drafts from its
+        # project's handbook (projects read from the Sheet; a single-project account gets one default).
+        settings = job_draft.load_settings()
+        api = sheet._api()
         return jsonify(ok=True, previews=job_draft.previews(
-            ids.get("ids", []), write=True))
+            ids.get("ids", []), write=True, settings=settings, api=api,
+            projects=sheet.Store(api).projects(settings)))
     except job_draft.DraftBlocked as exc:
         return jsonify(ok=False, error=str(exc)), 400
 
@@ -66,8 +70,11 @@ def draft_create():
         return jsonify(ok=False, error="Gmail draft creation is disabled"), 403
     body = request.get_json(silent=True) or {}
     try:
+        settings = job_draft.load_settings()
+        api = sheet._api()
         result = job_draft.create(body.get("lead_id", ""), body.get("approved_hash", ""),
-                                  written=body.get("written"))
+                                  written=body.get("written"), settings=settings, api=api,
+                                  projects=sheet.Store(api).projects(settings))
         return jsonify(ok=True, **result)
     except job_draft.DraftBlocked as exc:
         return jsonify(ok=False, error=str(exc)), 400

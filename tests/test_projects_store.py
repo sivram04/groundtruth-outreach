@@ -36,3 +36,13 @@ def test_a_projects_tab_with_changed_columns_is_refused():
     grid = [["Project ID", "Wrong"], ["P-x", "y"]]
     with pytest.raises(RuntimeError):
         store_with(grid).projects({})
+
+
+def test_a_leads_project_cell_is_read_so_it_can_resolve():
+    fake = FakeSheets()
+    fake.tabs["A_Contact_Now"] = [["A tab"],
+                                  ["Company", "Decision maker", "BEST EMAIL", "Website", "Phone", "Lead ID", "Project"],
+                                  ["Acme", "Sam", "a@b.test", "https://acme.test", "", "A-0001", "P-ref"]]
+    lead = sheet.Store(api=fake).leads()["A-0001"]
+    assert lead["Project"] == "P-ref"  # the Project column flows through so project_of can resolve it
+    assert projects.project_of({"P-ref": {"id": "P-ref"}}, lead) == {"id": "P-ref"}

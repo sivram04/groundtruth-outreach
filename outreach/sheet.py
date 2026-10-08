@@ -37,8 +37,12 @@ FOLLOWUP_COLUMNS = ["Follow-up step", "Follow-up action", "Follow-up action at",
                     "Follow-up status", "Follow-up draft ID"]
 # Stage 5. Blank until the lead has had an email this system drafted with tracking on.
 TRACKING_COLUMNS = ["Tracked sends", "Opens (est.)", "Clicks"]
+# Multi-project. The project a lead belongs to; blank resolves to the default project, so existing
+# leads need no migration. System-owned (not a founder column), so changing it does not alter a lead's
+# founder fingerprint and it can be set through the system's own write paths.
+PROJECT_COLUMNS = ["Project"]
 SYSTEM_COLUMNS = (CHECK_COLUMNS + RESEARCH_COLUMNS + PROFILE_COLUMNS + DRAFT_COLUMNS
-                  + SYNC_COLUMNS + FOLLOWUP_COLUMNS + TRACKING_COLUMNS)
+                  + SYNC_COLUMNS + FOLLOWUP_COLUMNS + TRACKING_COLUMNS + PROJECT_COLUMNS)
 EVENTS_TAB = "Events"
 EVENTS_HEADER = ["Recorded at (UTC)", "Lead ID", "Event", "Step", "Occurred at (UTC)", "Address",
                  "Match", "Detail", "Thread ID", "Gmail message ID", "Event key"]
