@@ -13,6 +13,7 @@ import json
 TYPES = ("lead", "referral", "investor", "custom")
 
 # The Projects tab columns (one row per project). Offer and input schema are JSON in a single cell.
+TAB = "Projects"
 HEADER = ["Project ID", "Name", "Type", "Handbook doc ID", "Offer JSON", "Input schema",
           "Created at (UTC)"]
 
@@ -76,6 +77,22 @@ def parse_all(rows):
             raise ProjectError(f"duplicate Project ID {project['id']}")
         projects[project["id"]] = project
     return projects
+
+
+def default_project(settings=None):
+    """The implicit project a single-project account runs, built from the current settings so existing
+    leads (with a blank Project cell) keep drafting from the configured handbook. A Projects tab is not
+    required until the founder defines more than one project."""
+    settings = settings or {}
+    return {
+        "id": DEFAULT_ID,
+        "name": "Default outreach",
+        "type": "lead",
+        "handbook_doc_id": (settings.get("handbook_doc_id") or "").strip(),
+        "offer": {},
+        "input_schema": [],
+        "created_at": "",
+    }
 
 
 def project_of(projects, target_row, *, default_id=DEFAULT_ID):

@@ -437,6 +437,21 @@ class Store:
             raise RuntimeError("the Call log tab's columns were changed; it is neither read nor written")
         return rows
 
+    def projects(self, settings=None):
+        """Configured projects keyed by id. With no Projects tab, a single implicit default project
+        built from the settings, so a single-project account is unchanged. Refuses a tab whose columns
+        were changed. The default project is always present, so a lead with a blank Project resolves."""
+        from outreach import projects as proj
+        table = self.table(proj.TAB)
+        if table is None:
+            return {proj.DEFAULT_ID: proj.default_project(settings)}
+        header, rows = table
+        if header and header[:len(proj.HEADER)] != proj.HEADER:
+            raise RuntimeError("the Projects tab's columns were changed; it is neither read nor written")
+        parsed = proj.parse_all(rows)
+        parsed.setdefault(proj.DEFAULT_ID, proj.default_project(settings))
+        return parsed
+
     def append_call_events(self, events):
         """Append call events, skipping any whose Event ID is already present (so a repeated submission
         adds nothing). Returns the Event IDs actually written."""
