@@ -32,7 +32,7 @@ from flask import Flask, g, jsonify, request, send_from_directory
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from outreach import (assistant, call_log_chat, calls, channels, console_auth, console_model,
-                      experiments, followup, importer, job_draft, lead_chat, playbook,
+                      drafts, experiments, followup, importer, job_draft, lead_chat, playbook,
                       playbook_extract, playbook_select, post_call, reply, review, suppression, sync)
 from outreach import gmail_drafts
 from outreach import send as send_mod
@@ -284,6 +284,67 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                                        "be loaded. Reload before continuing.")
             log.info("review %s by %s for %s", decision, g.email, lead_id)
             return jsonify(review.review_view(candidate, None, chosen, status=status))
+
+        @app.post("/api/drafts/prepare/<lead_id>")
+        def prepare_draft(lead_id):
+            """Compose (or refresh) ONE lead's candidate into the Drafts tab so it can be reviewed, and
+            so a confirmed review mints its approval hash. Writes the Drafts tab only - no Gmail, no send.
+            One model call for the one lead. Returns its resulting status/why."""
+            chosen = _chosen_settings()
+            with reading:
+                try:
+                    report = drafts.prepare(store(), settings=chosen, review_store=reviews,
+                                            only=[lead_id], refresh=True)
+                except drafts.DraftsBlocked as exc:
+                    return refuse(409, f"The candidate could not be prepared ({exc}).")
+                except Exception:
+                    log.exception("the candidate could not be prepared")
+                    return refuse(502, "The candidate could not be prepared just now.")
+            written = report.get("written", {}).get(lead_id)
+            if not written:
+                return refuse(404, "This lead is not ready for a first draft, so no candidate was written.")
+            log.info("candidate prepared for %s by %s: %s", lead_id, g.email, written.get("status"))
+            return jsonify(ok=True, lead_id=lead_id, **written)
+
+        @app.post("/api/draft/create/<lead_id>")
+        def create_gmail_draft(lead_id):
+            """Turn the reviewed, READY candidate into one Gmail draft (never sent). Re-prepares this one
+            lead first so a confirmed review mints its approval hash, then reads the stored candidate and
+            creates the draft through the gated job_draft.create (ENABLE_GMAIL_DRAFTS must be set)."""
+            chosen = _chosen_settings()
+            with reading:
+                try:
+                    st = store()
+                    drafts.prepare(st, settings=chosen, review_store=reviews, only=[lead_id], refresh=True)
+                    rows = st.drafts()
+                except drafts.DraftsBlocked as exc:
+                    return refuse(409, f"The candidate could not be prepared ({exc}).")
+                except Exception:
+                    log.exception("the Sheet could not be read to create a draft")
+                    return refuse(502, "The Sheet could not be read just now. Nothing was created.")
+            row = next((r for _, r in rows if r.get("Lead ID") == lead_id), None)
+            if row is None:
+                return refuse(404, "There is no prepared candidate for this lead.")
+            approved_hash = (row.get("Approval hash") or "").strip()
+            written_raw = (row.get("Written") or "").strip()
+            if not approved_hash or not written_raw:
+                why = (row.get("Why") or "").strip() or "it has not been reviewed or the offer is not approved"
+                return refuse(409, f"The candidate is not ready to send ({why}).")
+            try:
+                written = json.loads(written_raw)
+            except ValueError:
+                return refuse(502, "The stored candidate could not be read.")
+            client = (gmail_client or gmail_drafts.client)()
+            try:
+                result = job_draft.create(lead_id, approved_hash, written=written, settings=chosen,
+                                          api=st.api, gmail=client, review_store=reviews)
+            except job_draft.DraftBlocked as exc:
+                return refuse(409, f"The draft could not be created ({exc}).")
+            except Exception:
+                log.exception("a Gmail draft could not be created")
+                return refuse(502, "The draft could not be created just now. Nothing was sent.")
+            log.info("gmail draft created for %s by %s", lead_id, g.email)
+            return jsonify(ok=True, **result)
 
     if enable_import:
         # Lead import writes new rows to the Sheet, so it is OFF by default and in deployment; a test

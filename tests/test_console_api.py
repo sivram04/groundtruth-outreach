@@ -320,6 +320,50 @@ def test_a_review_of_a_changed_candidate_is_refused(built):
     assert stale.status_code == 409
 
 
+# --- the approve-sends wiring: prepare the candidate, create the Gmail draft ------------------------
+
+def _store_with_drafts(draft_rows):
+    shared = MemoryStore(fx.rows(), events=fx.events(), suppression=fx.suppression(), runs=fx.runs(),
+                         drafts=draft_rows)
+    shared.api = object()  # the create route passes st.api to job_draft.create
+    return shared
+
+
+def _send_app(built, shared):
+    return app(built, store=lambda: shared, enable_review=True, settings=review_settings,
+               review_signer=rf.SIGNER, review_store=review.MemoryReviewStore(),
+               gmail_client=lambda: object())
+
+
+def test_preparing_a_draft_composes_the_candidate_for_review(built, monkeypatch):
+    monkeypatch.setattr(console.drafts, "prepare",
+                        lambda store, **kw: {"written": {"A-0014": {"status": "WAITING", "why": "awaiting review"}}})
+    r = review_app(built).post("/api/drafts/prepare/A-0014", headers=signed())
+    assert r.status_code == 200 and r.get_json()["ok"] is True and r.get_json()["status"] == "WAITING"
+
+
+def test_create_gmail_draft_uses_the_reviewed_ready_candidate(built, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(console.drafts, "prepare", lambda store, **kw: {})
+
+    def fake_create(lead_id, approved_hash, *, written=None, **kw):
+        seen.update(lead_id=lead_id, approved_hash=approved_hash)
+        return {"lead_id": lead_id, "draft_id": "d1", "status": "CREATED"}
+
+    monkeypatch.setattr(console.job_draft, "create", fake_create)
+    ready = {**review_rows()[0], "Status": "READY", "Approval hash": "approved-hash-xyz"}
+    r = _send_app(built, _store_with_drafts([ready])).post("/api/draft/create/A-0014", headers=signed())
+    assert r.status_code == 200 and r.get_json()["draft_id"] == "d1"
+    assert seen["lead_id"] == "A-0014" and seen["approved_hash"] == "approved-hash-xyz"
+
+
+def test_create_refuses_a_candidate_that_is_not_ready(built, monkeypatch):
+    monkeypatch.setattr(console.drafts, "prepare", lambda store, **kw: {})
+    # review_rows() has an empty Approval hash -> not reviewed/approved -> cannot create
+    r = _send_app(built, _store_with_drafts(review_rows())).post("/api/draft/create/A-0014", headers=signed())
+    assert r.status_code == 409
+
+
 def test_rejecting_is_recorded(built):
     reviews = review.MemoryReviewStore()
     client = review_app(built, reviews=reviews)

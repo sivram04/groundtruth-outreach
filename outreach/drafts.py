@@ -135,12 +135,14 @@ def plan(store):
 
 
 def prepare(store=None, *, settings=None, handbook=None, drive=None, model=None, now=None,
-            limit=DEFAULT_LIMIT, refresh=False, dry_run=False, pages=None, review_store=None):
+            limit=DEFAULT_LIMIT, refresh=False, dry_run=False, pages=None, review_store=None, only=None):
     """Write the Drafts rows of up to `limit` ready leads. Returns what was done, by lead.
 
     A row is READY (and carries an approval hash) only when the candidate also has a valid human
     evidence review; otherwise it is WAITING with the words shown for review. `review_store`
-    defaults to the fail-closed production store, so until reviews exist nothing is READY."""
+    defaults to the fail-closed production store, so until reviews exist nothing is READY. `only`
+    (a set/list of Lead IDs) limits the run to those leads - a cheap, targeted compose/refresh for one
+    lead rather than the whole batch."""
     if not 1 <= int(limit) <= MAX_LIMIT:
         raise DraftsBlocked(f"a run writes between 1 and {MAX_LIMIT} drafts")
     settings = job_draft.load_settings() if settings is None else settings
@@ -148,6 +150,9 @@ def prepare(store=None, *, settings=None, handbook=None, drive=None, model=None,
         raise DraftsBlocked("the drafting settings cannot be read")
     store = store or Store()
     ready, existing, entries = plan(store)
+    if only is not None:
+        wanted = set(only)
+        ready = [row for row in ready if row["Lead ID"] in wanted]
     todo = [row for row in ready if refresh or row["Lead ID"] not in existing][:int(limit)]
     report = {"ready": len(ready), "already_drafted": len([r for r in ready if r["Lead ID"] in existing]),
               "to_write": [row["Lead ID"] for row in todo], "dry_run": dry_run, "written": {}}

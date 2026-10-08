@@ -607,6 +607,26 @@ export interface SendResult {
   sent_by: string;
 }
 
+export interface DraftStepResult {
+  ok: boolean;
+  lead_id: string;
+  status?: string;
+  why?: string;
+  draft_id?: string;
+}
+
+/** POST /api/drafts/prepare/<lead>: compose (or refresh) this one lead's candidate into the Drafts tab
+ *  so it can be reviewed. Writes the Drafts tab only — no Gmail, no send. */
+export async function prepareDraft(leadId: string, fetcher: typeof fetch = fetch): Promise<DraftStepResult> {
+  return leadPost<DraftStepResult>(`/api/drafts/prepare/${encodeURIComponent(leadId)}`, {}, fetcher);
+}
+
+/** POST /api/draft/create/<lead>: turn the reviewed, READY candidate into one Gmail draft (never sent).
+ *  Refuses (409) when the candidate is not reviewed or the offer is not approved. */
+export async function createGmailDraft(leadId: string, fetcher: typeof fetch = fetch): Promise<DraftStepResult> {
+  return leadPost<DraftStepResult>(`/api/draft/create/${encodeURIComponent(leadId)}`, {}, fetcher);
+}
+
 /** POST /api/send/<lead>: send the already-created Gmail draft for this lead, on the founder's
  *  approval. One click sends exactly one email; the server refuses (409) an uncreated or already-sent
  *  lead, so a repeat never sends twice. */

@@ -1,6 +1,6 @@
 import { ArrowLeft, Building2, History, Mail, Send, ShieldCheck } from "lucide-react";
 import { useState } from "react";
-import { sendDraft, type SendResult } from "../api";
+import { createGmailDraft, prepareDraft, sendDraft, CallError, type DraftStepResult, type SendResult } from "../api";
 import { Avatar, Card, ExternalLink, Status, leadTone } from "../components";
 import { DraftPreview } from "../draft-view";
 import { gmailSearch, plural, safeHref } from "../format";
@@ -35,6 +35,87 @@ export function postCallReloadKey(lead: Lead, data: Snapshot, generation = 0): s
 /** Approve-and-send: the one place a real email leaves, on the founder's click, for a draft already
  *  created in Gmail. Shown only when the server has send switched on. One click sends one email; a
  *  confirm step stands between the button and the send, and an already-sent lead just reports it. */
+/** The steps that turn a ready lead into a sendable Gmail draft: prepare the candidate, review and
+ *  approve it, then create the Gmail draft. Hidden once a Gmail draft exists (Approve-and-send takes over).
+ *  `prepare`/`create` are injectable for tests. */
+export function DraftWorkflow({
+  lead,
+  onChanged,
+  prepare = prepareDraft,
+  create = createGmailDraft,
+}: {
+  lead: Lead;
+  onChanged?: () => void;
+  prepare?: typeof prepareDraft;
+  create?: typeof createGmailDraft;
+}) {
+  const [busy, setBusy] = useState("");
+  const [prep, setPrep] = useState<DraftStepResult | null>(null);
+  const [made, setMade] = useState(false);
+  const [error, setError] = useState("");
+
+  if (lead.gmail_drafts?.some((d) => d.status === "CREATED")) return null; // Approve-and-send takes over
+
+  async function runPrepare() {
+    setBusy("prepare");
+    setError("");
+    setMade(false);
+    try {
+      setPrep(await prepare(lead.id));
+    } catch (e) {
+      setError(e instanceof CallError ? e.message : "The draft could not be prepared.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function runCreate() {
+    setBusy("create");
+    setError("");
+    try {
+      await create(lead.id);
+      setMade(true);
+      onChanged?.();
+    } catch (e) {
+      setError(e instanceof CallError ? e.message : "The draft could not be created.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <Card title="Prepare the draft" icon={Mail}>
+      <ol className="plain small">
+        <li>Prepare the draft for review.</li>
+        <li>
+          Review and approve it on the <a href={`#/review/${lead.id}`}>review page</a> (the offer wording must be
+          approved too).
+        </li>
+        <li>Create the Gmail draft, then send it below.</li>
+      </ol>
+      <div className="email-actions">
+        <button type="button" className="secondary" disabled={busy !== ""} onClick={runPrepare}>
+          {busy === "prepare" ? "Preparing…" : "Prepare draft for review"}
+        </button>
+        <a className="button secondary" href={`#/review/${lead.id}`}>
+          Open review
+        </a>
+        <button type="button" className="primary" disabled={busy !== ""} onClick={runCreate}>
+          {busy === "create" ? "Creating…" : "Create Gmail draft"}
+        </button>
+      </div>
+      {prep && (
+        <p className="small">
+          Candidate: <strong>{prep.status}</strong>
+          {prep.why ? ` — ${prep.why}` : ""}
+        </p>
+      )}
+      {made && <p className="small good">Gmail draft created — send it below.</p>}
+      {error && <p className="callout amber">{error}</p>}
+    </Card>
+  );
+}
+
 export function ApproveAndSend({ lead, onChanged }: { lead: Lead; onChanged?: () => void }) {
   const created = lead.gmail_drafts?.find((item) => item.status === "CREATED");
   const alreadySent = Boolean(lead.cells["Sent at"]);
@@ -161,6 +242,7 @@ export function LeadPage({
         </Card>
       )}
 
+      {data.send_enabled && <DraftWorkflow lead={lead} onChanged={onChanged} />}
       {data.send_enabled && <ApproveAndSend lead={lead} onChanged={onChanged} />}
 
       <div className="grid-2">
