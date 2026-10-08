@@ -15,6 +15,14 @@
 #   gcloud run services update-traffic outreach-worker --region=us-central1 \
 #     --project=lakshyaa-outreach --to-tags=next=100
 # Never set ENABLE_GMAIL_DRAFTS here: draft creation stays refused until the founder says so.
+#
+# Auto-send (owner's roadmap item 3, 2026-10-08): POST /jobs/send drips already-created,
+# already-approved drafts, up to the daily cap - outreach/auto_send.py. It is OFF unless this
+# deploy sets ENABLE_AUTO_SEND=true on this --set-env-vars line, and nothing calls it until a
+# Cloud Scheduler job is created for it (like outreach-sync above, same OIDC pattern, as
+# outreach-scheduler@, POST /jobs/send). Both the env var and the Scheduler job are the
+# founder's own step, deliberately not added here - turning this on starts real, unattended
+# sends to real prospects.
 set -e
 cd "$(dirname "$0")/.."
 gcloud run deploy outreach-worker --source=. --region=us-central1 --project=lakshyaa-outreach \

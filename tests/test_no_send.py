@@ -1,13 +1,16 @@
-"""The system sends email from exactly one place, and only on a human's approval.
+"""The system sends email from exactly one place, and only through a sanctioned path.
 
-Historically the system never sent at all. It now has one sanctioned send path - the console's
-human-clicked "Approve and send", implemented in ``outreach/send.py`` - so these tests pin that
-exception down instead of forbidding it outright:
+Historically the system never sent at all. It now has two sanctioned callers of the one send
+path (``outreach/send.py``): the console's human-clicked "Approve and send", and the scheduled
+``outreach/auto_send.py`` job, which sends only already-created, already-approved drafts, up to
+the daily cap, re-checking the call log and suppression list at send time (founder decision,
+2026-10-08: "owner's 5-feature roadmap" item 3). These tests pin that pair down instead of
+forbidding sending outright:
 
   * a message-send call may appear only in ``outreach/send.py`` (and nowhere else);
   * SMTP and the send-only Gmail scope never appear anywhere;
-  * only the console entry point imports ``outreach/send.py`` - no worker or scheduled job does,
-    so the automation can create drafts but can never send.
+  * only the console and ``outreach/auto_send.py`` import ``outreach/send.py`` - no other worker
+    job or scheduled job does, so the rest of the automation can create drafts but can never send.
 """
 
 import re
@@ -50,10 +53,11 @@ def test_a_send_call_appears_only_in_the_sanctioned_module():
     assert not hits, "A send call exists outside the sanctioned send module:\n" + "\n".join(hits)
 
 
-def test_only_the_console_imports_the_send_module():
-    # The automation (worker, sync, follow-ups, drafting jobs, tracking) must never reach the send
-    # path. Only the console, where a human clicks Approve, may import it.
-    allowed = {SEND_MODULE, "console.py"}
+def test_only_the_console_and_auto_send_import_the_send_module():
+    # The rest of the automation (sync, follow-ups, drafting jobs, tracking) must never reach the
+    # send path. Only the console (a human clicks Approve) and auto_send.py (the scheduled,
+    # cap-limited drip of already-approved drafts) may import it.
+    allowed = {SEND_MODULE, "console.py", "auto_send.py"}
     importers = []
     for path in CODE.rglob("*.py"):
         if path.name in allowed:

@@ -4,8 +4,8 @@ import os
 
 from flask import Flask, jsonify, request
 
-from outreach import (followup, job_check, job_draft, job_profile, job_research, sheet, sync,
-                      tracking_job)
+from outreach import (auto_send, followup, job_check, job_draft, job_profile, job_research,
+                      sheet, sync, tracking_job)
 
 app = Flask(__name__)
 
@@ -103,6 +103,20 @@ def followup_job():
         return jsonify(ok=True, **followup.run(where="cloud-run", dry_run=dry_run))
     except followup.FollowupBlocked as exc:
         return jsonify(ok=False, error=str(exc)), 400
+
+
+@app.post("/jobs/send")
+def send_job():
+    """Send as many already-created, already-approved drafts as today's cap allows.
+
+    The one scheduled job allowed to reach ``outreach.send``. Off unless ENABLE_AUTO_SEND is set;
+    ``outreach.auto_send.run`` also requires the daily cap in settings and re-checks the call log
+    and suppression list for every lead at send time, not just at draft-creation time.
+    """
+    try:
+        return jsonify(ok=True, **auto_send.run())
+    except auto_send.AutoSendBlocked as exc:
+        return jsonify(ok=False, error=str(exc)), 403
 
 
 @app.post("/jobs/followup/preview")

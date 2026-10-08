@@ -1,14 +1,16 @@
 """The one place the system sends an email. Nothing else in ``outreach/`` may send.
 
-A send happens only here, only on a human's approval through the console (an authenticated,
-human-clicked request), and only for a draft this system already created and the founder has read.
-No worker or scheduled job imports this module, so the automation can create drafts but can never
-send. One approval sends exactly one email; a lead already sent (or in flight) is refused, so a
-repeated click never sends twice.
+A send happens only here, for a draft this system already created and the founder has read, and
+only through one of two sanctioned callers: the console's human-clicked "Approve and send", or
+``outreach/auto_send.py`` (the scheduled, cap-limited drip of drafts already approved and
+created - founder decision 2026-10-08). No other worker or scheduled job imports this module, so
+the rest of the automation can create drafts but can never send. One approval sends exactly one
+email; a lead already sent (or in flight) is refused, so a repeated click or a repeated scheduled
+run never sends twice.
 
 This is the single sanctioned exception to the "the system never sends email" rule. The no-send
 test (``tests/test_no_send.py``) permits a send call in this file and nowhere else, and a separate
-test holds that only the console entry point reaches it.
+test holds that only the console and ``auto_send.py`` reach it.
 """
 
 import os
