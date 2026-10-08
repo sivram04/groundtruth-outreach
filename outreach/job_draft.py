@@ -13,8 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from outreach import (calls, drafting, gemini, gmail_drafts, handbook_drive, research, review,
-                      suppression, tracking, writer)
+from outreach import (calls, drafting, gemini, gmail_drafts, handbook_drive, handbook_store,
+                      research, review, suppression, tracking, writer)
 from outreach.sheet import (CALLS_HEADER, CALLS_TAB, DRAFT_COLUMNS, LEAD_TABS, SHEET_ID,
                             SYSTEM_COLUMNS, Tab, _api)
 
@@ -103,10 +103,19 @@ def _read(api, ids):
 
 
 def _handbook(settings, handbook=None, drive=None):
-    """The Drive document, or the reason there is none. Never a local substitute."""
+    """The active playbook, or the reason there is none. Never a local substitute.
+
+    An explicit ``handbook`` wins (tests, and callers that already hold one). Otherwise, when the
+    founder has switched to a stored playbook (``playbook_store_enabled``), that is the source; else
+    the Drive document. The stored playbook has the same shape as the Drive one, so hashes are
+    consistent either way.
+    """
     if handbook is not None:
         return handbook, None
     try:
+        stored = handbook_store.active(settings)
+        if stored is not None:
+            return stored, None
         return handbook_drive.load(settings, drive=drive), None
     except handbook_drive.HandbookUnavailable as exc:
         return None, f"handbook unavailable: {exc}"
