@@ -236,6 +236,25 @@ def test_the_handbook_hash_is_part_of_the_approval():
     assert preview(book=edited)["preview_hash"] != first
 
 
+def test_previews_resolves_the_handbook_by_each_leads_project(monkeypatch):
+    # The wiring: previews asks for the handbook per lead, passing the lead's own row (which carries
+    # its Project) and the projects. project_handbook's own tests prove it then loads the right doc.
+    seen = []
+
+    def fake_ph(lead_row, s, projects, *, handbook=None, drive=None):
+        seen.append((lead_row["Lead ID"], (lead_row.get("Project") or ""), sorted(projects)))
+        return BOOK, None
+
+    monkeypatch.setattr(job_draft, "project_handbook", fake_ph)
+    fake_projects = {"P-default": {"id": "P-default"}, "P-ref": {"id": "P-ref"}}
+    out = job_draft.previews(["A-0001"], settings=settings(), write=True, model=model_for(),
+                             fixture={"leads": [lead(Project="P-ref")], "research": facts(),
+                                      "pages": SITE, "suppressed": {"A-0001": False}},
+                             projects=fake_projects)[0]
+    assert out["subject"]  # composed from the resolved handbook (not a _blocked preview with no subject)
+    assert seen == [("A-0001", "P-ref", ["P-default", "P-ref"])]  # asked per lead, with its project
+
+
 # --- the model cannot widen what is said ---------------------------------------------------
 
 @pytest.mark.parametrize("sentence", [

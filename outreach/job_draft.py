@@ -125,15 +125,28 @@ def _handbook(settings, handbook=None, drive=None, api=None, doc_id=None):
         return None, f"handbook unavailable: {exc}"
 
 
-def project_handbook(lead, settings, projects, *, handbook=None, drive=None):
+def _projects(projects, settings):
+    """The projects to draft against: the ones given, or a single implicit default from settings so a
+    single-project account (no Projects tab) draws from the configured handbook exactly as before."""
+    from outreach import projects as proj
+    return projects if projects is not None else {proj.DEFAULT_ID: proj.default_project(settings)}
+
+
+def project_handbook(lead, settings, projects, *, handbook=None, drive=None, api=None):
     """The handbook a lead drafts from, chosen by its project (`projects.handbook_doc_for`), or the
     reason there is none. A lead in a project with no handbook, and no settings fallback, is refused -
-    the handbook is never guessed. `handbook` (a preloaded book) short-circuits for tests."""
+    the handbook is never guessed. `handbook` (a preloaded book) short-circuits for tests.
+
+    `api`, when given, still lets a lead with NO project-specific handbook fall back to a stored
+    playbook (see `_handbook`) rather than only the Drive document - a project's own `doc_id`, when
+    it has one, always wins, same as `_handbook`."""
     from outreach import projects as proj
     if handbook is not None:
         return handbook, None
     doc_id = proj.handbook_doc_for(lead, projects, settings)
     if not doc_id:
+        if api is not None:
+            return _handbook(settings, drive=drive, api=api)
         return None, "handbook unavailable: this lead's project has no handbook configured"
     return _handbook(settings, drive=drive, doc_id=doc_id)
 
@@ -231,8 +244,9 @@ def _gate_hash(result, handbook, settings, review_store):
 
 
 def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
-             write=False, model=None, drive=None, handbook=None, review_store=None):
+             write=False, model=None, drive=None, handbook=None, review_store=None, projects=None):
     settings = load_settings() if settings is None else settings
+    projects = _projects(projects, settings)
     quote_choices = quote_choices or {}
     if fixture is not None:
         if not 1 <= len(ids) <= MAX_PILOT or len(set(ids)) != len(ids):
@@ -241,14 +255,16 @@ def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
         if not set(ids) <= leads.keys():
             raise DraftBlocked("fixture is missing a requested Lead ID")
         if write:
-            book, why = _handbook(settings, handbook, drive, api=api)
-            return [(written_preview(leads[i], fixture["research"], settings, book,
-                                     suppressed=fixture.get("suppressed", {}).get(i, None),
-                                     model=model or gemini.generate_json,
-                                     quote_id=quote_choices.get(i), pages=fixture.get("pages", ""),
-                                     review_store=review_store)
-                     if book else _blocked(leads[i], [], [why]))
-                    for i in ids]
+            out = []
+            for i in ids:
+                book, why = project_handbook(leads[i], settings, projects, handbook=handbook, drive=drive)
+                out.append(written_preview(leads[i], fixture["research"], settings, book,
+                                           suppressed=fixture.get("suppressed", {}).get(i, None),
+                                           model=model or gemini.generate_json,
+                                           quote_id=quote_choices.get(i), pages=fixture.get("pages", ""),
+                                           review_store=review_store)
+                           if book else _blocked(leads[i], [], [why]))
+            return out
         return [_gate_hash(drafting.preview(leads[lead_id], fixture["research"], settings,
                                             suppressed=fixture.get("suppressed", {}).get(lead_id, None),
                                             subject_template=settings.get("subject_template"),
@@ -259,13 +275,15 @@ def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
     _, matches, facts = _read(api, ids)
     by_id = {lead["Lead ID"]: lead for _, _, lead in matches}
     if write:
-        book, why = _handbook(settings, handbook, drive, api=api)
-        return [(written_preview(by_id[i], facts, settings, book,
-                                 suppressed=_suppressed(api, by_id[i].get("BEST EMAIL", "")),
-                                 model=model or gemini.generate_json,
-                                 quote_id=quote_choices.get(i), review_store=review_store)
-                 if book else _blocked(by_id[i], [], [why]))
-                for i in ids]
+        out = []
+        for i in ids:
+            book, why = project_handbook(by_id[i], settings, projects, handbook=handbook, drive=drive, api=api)
+            out.append(written_preview(by_id[i], facts, settings, book,
+                                       suppressed=_suppressed(api, by_id[i].get("BEST EMAIL", "")),
+                                       model=model or gemini.generate_json,
+                                       quote_id=quote_choices.get(i), review_store=review_store)
+                       if book else _blocked(by_id[i], [], [why]))
+        return out
     return [_gate_hash(drafting.preview(by_id[lead_id], facts, settings,
                                         suppressed=_suppressed(api, by_id[lead_id].get("BEST EMAIL", "")),
                                         subject_template=settings.get("subject_template"),
@@ -292,13 +310,16 @@ def _actions_today(tabs):
     return count
 
 
-def _revalidated(lead, facts, written, settings, handbook=None, drive=None, pages=None, api=None):
+def _revalidated(lead, facts, written, settings, handbook=None, drive=None, pages=None, api=None,
+                 projects=None):
     """Re-judge an approved written draft against the live handbook, quotes and company name.
 
     The company name is re-derived from the company's own site exactly as the preview did, so
-    the rebuilt copy and its hash match what the founder approved.
+    the rebuilt copy and its hash match what the founder approved. The handbook is the lead's
+    project handbook, so revalidation uses the same document the candidate was drafted from.
     """
-    book, why = _handbook(settings, handbook, drive, api=api)
+    book, why = project_handbook(lead, settings, _projects(projects, settings), handbook=handbook,
+                                 drive=drive, api=api)
     if not book:
         raise DraftBlocked(why)
     company, verified = drafting.verified_company_name(
@@ -333,7 +354,7 @@ def regate(lead, facts, written, settings, *, suppressed, handbook=None, drive=N
 
 
 def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
-           gmail=None, drive=None, handbook=None, pages=None, review_store=None):
+           gmail=None, drive=None, handbook=None, pages=None, review_store=None, projects=None):
     """Reserve in Sheets, create one Gmail draft, then finalize the Sheet row.
 
     A failed/uncertain create leaves RESERVED. No second create is attempted for that
@@ -364,7 +385,8 @@ def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
     if calls.blocks_outreach(call_effect):
         raise DraftBlocked(f"a recorded call outcome ({call_effect.lower()}) blocks emailing this lead; "
                            "no draft is created")
-    book, rebuilt, company = _revalidated(lead, facts, written, settings, handbook, drive, pages, api=api)
+    book, rebuilt, company = _revalidated(lead, facts, written, settings, handbook, drive, pages,
+                                          api=api, projects=projects)
     result = drafting.preview(lead, facts, settings,
                              suppressed=_suppressed(api, lead.get("BEST EMAIL", "")),
                              handbook=book, written=rebuilt, company=company)
