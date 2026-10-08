@@ -8,6 +8,7 @@ import { href } from "../router";
 import type { Snapshot } from "../types";
 import type { Lead } from "../types";
 import { CallPanel } from "./CallPanel";
+import { ComposeAndSend } from "./ComposeAndSend";
 import { NotFound } from "./NotFound";
 import { PostCallCandidate } from "./PostCallCandidate";
 import { ReplyCandidate } from "./ReplyCandidate";
@@ -236,14 +237,13 @@ export function LeadPage({
         </Card>
       )}
 
-      {draft && (
+      {draft && !data.send_enabled && (
         <Card title="The draft" icon={Mail}>
           <DraftPreview draft={draft} from={data.approvals?.sender || account} />
         </Card>
       )}
 
-      {data.send_enabled && <DraftWorkflow lead={lead} onChanged={onChanged} />}
-      {data.send_enabled && <ApproveAndSend lead={lead} onChanged={onChanged} />}
+      {data.send_enabled && <ComposeAndSend lead={lead} draft={draft} onChanged={onChanged} />}
 
       <div className="grid-2">
         <Card title="The lead" icon={Building2}>

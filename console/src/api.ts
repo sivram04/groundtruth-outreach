@@ -652,6 +652,18 @@ export async function sendDraft(leadId: string, fetcher: typeof fetch = fetch): 
   return payload as SendResult;
 }
 
+/** POST /api/send-edited/<lead>: create a Gmail draft from the founder's OWN final subject/body and
+ *  send it, in one approval. The words are the founder's; the server keeps the opt-out line and the
+ *  no-spam/at-most-once guards. */
+export async function sendEditedDraft(
+  leadId: string,
+  subject: string,
+  body: string,
+  fetcher: typeof fetch = fetch,
+): Promise<SendResult> {
+  return leadPost<SendResult>(`/api/send-edited/${encodeURIComponent(leadId)}`, { subject, body }, fetcher);
+}
+
 /** POST /api/leads/interpret: read-only; restate a typed instruction as a proposal to confirm. */
 export async function interpretLeadChange(note: string, fetcher: typeof fetch = fetch): Promise<LeadChatProposal> {
   return leadPost<LeadChatProposal>("/api/leads/interpret", { note }, fetcher);

@@ -340,6 +340,41 @@ def test_one_approved_written_draft_reaches_gmail_once(ready):
     assert tab.lead["Draft status"] == "CREATED" and tab.lead["Draft hash"] == digest
 
 
+# --- the editable "approve and send": the founder's OWN words, no grounding/review gate ------------
+
+def test_create_edited_sends_the_founders_own_words(ready):
+    row, tab, created = ready
+    result = job_draft.create_edited(
+        "A-0001", "A quick question", "Hi Sam,\n\nI wrote this myself.\n\nBest,",
+        approver="admin@lakshyaa.ai", settings=settings(), api=object(), gmail=Mailbox())
+    assert result["status"] == "CREATED" and len(created) == 1
+    assert created[0]["to"] == "sam@example.test"
+    assert created[0]["subject"] == "A quick question"
+    assert "I wrote this myself." in created[0]["body"]
+    assert created[0]["body"].endswith(drafting.OPT_OUT)  # opt-out kept on every send
+    assert tab.lead["Draft status"] == "CREATED" and tab.lead["Draft ID"]
+
+
+def test_create_edited_restores_the_opt_out_if_it_was_removed(ready):
+    row, tab, created = ready
+    job_draft.create_edited("A-0001", "Hello", "Just my words, no opt-out line.",
+                            approver="admin@lakshyaa.ai", settings=settings(), api=object(), gmail=Mailbox())
+    assert created[0]["body"].endswith(drafting.OPT_OUT)
+
+
+def test_create_edited_refuses_an_empty_subject_or_body(ready):
+    for subject, body in [("", "a body"), ("a subject", "   ")]:
+        with pytest.raises(job_draft.DraftBlocked):
+            job_draft.create_edited("A-0001", subject, body, approver="admin@lakshyaa.ai",
+                                    settings=settings(), api=object(), gmail=Mailbox())
+
+
+def test_create_edited_needs_an_approver(ready):
+    with pytest.raises(job_draft.DraftBlocked):
+        job_draft.create_edited("A-0001", "Hi", "words", approver="",
+                                settings=settings(), api=object(), gmail=Mailbox())
+
+
 # --- a recorded call decision blocks initial Gmail draft creation (the real write boundary) --------
 # drafts.plan is candidate selection; job_draft.create is the only path that turns an approved candidate
 # into a Gmail draft (the worker create route calls it). So the call-decision gate must live here too, or

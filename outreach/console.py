@@ -824,6 +824,45 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             log.info("sent %s on approval by %s (message %s)", lead_id, g.email, result.get("message_id"))
             return jsonify(**result)
 
+        @app.post("/api/send-edited/<lead_id>")
+        def approve_and_send_edited(lead_id):
+            """Create a Gmail draft from the founder's OWN final subject/body (edited in the console)
+            and send it on the founder's approval - the single editable 'approve and send'. The words
+            are the founder's, so no model-grounding or review gate applies here; the no-spam guards and
+            at-most-once still do, and the opt-out line is always kept. 404 unknown lead, 409 could not
+            prepare/send, 502 the Sheet or Gmail could not be reached."""
+            payload = request.get_json(silent=True) or {}
+            subject, body = str(payload.get("subject", "")), str(payload.get("body", ""))
+            with reading:
+                try:
+                    st = store()
+                    leads = st.leads()
+                except Exception:
+                    log.exception("the Sheet could not be read to send an edited draft")
+                    return refuse(502, "The Sheet could not be read just now. Nothing was sent.")
+                if lead_id not in leads:
+                    return refuse(404, "There is no such lead.")
+            client = (gmail_client or gmail_drafts.client)()
+            chosen = _chosen_settings()
+            try:
+                job_draft.create_edited(lead_id, subject, body, approver=g.email,
+                                        settings=chosen, api=st.api, gmail=client)
+            except job_draft.DraftBlocked as exc:
+                return refuse(409, f"The email could not be prepared to send ({exc}).")
+            except Exception:
+                log.exception("an edited draft could not be created")
+                return refuse(502, "The email could not be prepared just now. Nothing was sent.")
+            try:
+                result = send_mod.send_created_draft(lead_id, sent_by=g.email, api=st.api, gmail=client)
+            except send_mod.SendBlocked as exc:
+                return refuse(409, f"Nothing was sent ({exc}).")
+            except Exception:
+                log.exception("an edited draft could not be sent")
+                return refuse(502, "The email could not be sent just now.")
+            log.info("sent edited %s on approval by %s (message %s)", lead_id, g.email,
+                     result.get("message_id"))
+            return jsonify(**result)
+
     if enable_lead_chat:
         # Manage leads by a typed instruction, propose-then-confirm (like the call-logging chat). The
         # interpret step is READ-ONLY and never calls a model; the apply step writes only on the founder's

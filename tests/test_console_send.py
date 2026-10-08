@@ -5,7 +5,7 @@ when the flag is off. The send itself (at-most-once, flag gate, etc.) is covered
 import pytest
 
 import console_fixture as fx  # noqa: F401  (makes the app's static/build fixture path importable)
-from outreach import console, console_auth
+from outreach import console, console_auth, job_draft
 from outreach import send as send_mod
 from stage4_fakes import MemoryStore
 from test_console_auth import ALLOWED, AUDIENCE, Keys, token
@@ -79,3 +79,49 @@ def test_a_guard_block_is_409_not_500(built, monkeypatch):
 def test_it_needs_a_signed_in_caller(built):
     client = make(built, a_store())
     assert client.post("/api/send/A-0001").status_code in (401, 403, 503)
+
+
+# --- the editable "approve and send": the founder's own final words, created then sent -------------
+
+def test_send_edited_creates_from_my_words_then_sends(built, monkeypatch):
+    seen = {}
+
+    def fake_create_edited(lead_id, subject, body, *, approver, settings, api, gmail):
+        seen.update(lead_id=lead_id, subject=subject, body=body, approver=approver, api=api)
+        return {"lead_id": lead_id, "draft_id": "d1", "status": "CREATED"}
+
+    def fake_send(lead_id, *, sent_by, api, gmail):
+        return {"lead_id": lead_id, "sent": True, "message_id": "m-1", "thread_id": "t-1",
+                "recorded": True, "sent_by": sent_by}
+
+    monkeypatch.setattr(job_draft, "create_edited", fake_create_edited)
+    monkeypatch.setattr(send_mod, "send_created_draft", fake_send)
+    store = a_store()
+    r = make(built, store).post("/api/send-edited/A-0001", headers=signed(),
+                                json={"subject": "My subject", "body": "My own words."})
+    assert r.status_code == 200 and r.get_json()["sent"] is True
+    assert seen["subject"] == "My subject" and seen["body"] == "My own words."
+    assert seen["approver"] and "@" in seen["approver"]  # the IAP identity, never a client value
+    assert seen["api"] is store.api
+
+
+def test_send_edited_is_absent_when_the_flag_is_off(built):
+    client = make(built, a_store(), enable=False)
+    assert client.post("/api/send-edited/A-0001", headers=signed(),
+                       json={"subject": "s", "body": "b"}).status_code in (404, 405)
+
+
+def test_send_edited_unknown_lead_is_404(built):
+    client = make(built, a_store())
+    assert client.post("/api/send-edited/Z-9999", headers=signed(),
+                       json={"subject": "s", "body": "b"}).status_code == 404
+
+
+def test_send_edited_turns_a_create_block_into_409(built, monkeypatch):
+    def blocked(lead_id, subject, body, *, approver, settings, api, gmail):
+        raise job_draft.DraftBlocked("a prior sent message exists for this recipient")
+
+    monkeypatch.setattr(job_draft, "create_edited", blocked)
+    client = make(built, a_store())
+    assert client.post("/api/send-edited/A-0001", headers=signed(),
+                       json={"subject": "s", "body": "b"}).status_code == 409

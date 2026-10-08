@@ -441,6 +441,44 @@ ul.bubble-leads a {
   background: var(--panel);
 }
 
+.compose-field {
+  display: block;
+  margin: 12px 0;
+}
+
+.compose-field .field-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.compose-field input,
+.compose-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 14px;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--text);
+}
+
+.compose-field textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.compose-field input:focus,
+.compose-field textarea:focus {
+  outline: none;
+  border-color: var(--line-strong);
+  background: var(--panel);
+}
+
 button.round {
   border-radius: 999px;
   padding: 8px;

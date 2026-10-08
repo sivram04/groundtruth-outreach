@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -409,6 +410,90 @@ def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
         raise DraftBlocked("draft exists in Gmail but Sheet finalization failed; reconcile manually")
     return {"lead_id": lead_id, "draft_id": draft_id, "action_id": action_id,
             "status": "CREATED"}
+
+
+def create_edited(lead_id, subject, body, *, approver, settings=None, api=None, gmail=None):
+    """Create ONE Gmail draft from the founder's OWN final words, for the editable approve-and-send
+    flow. These are the founder's words, approved by their authenticated click, so the model-grounding
+    and evidence-review gate do not apply here - the founder owns and is accountable for the text.
+
+    The guards that remain are not about wording but about who is mailed and how often: a recorded
+    call stop/hold, the suppression list, the sender-mailbox match, no prior send and no existing
+    draft to the recipient, and the daily cap - plus at-most-once via the reserved action. The opt-out
+    line is ALWAYS present (US CAN-SPAM): if the founder edited it away, it is put back before sending.
+    """
+    if os.environ.get("ENABLE_GMAIL_DRAFTS") != "true":
+        raise DraftBlocked("Gmail draft creation is disabled")
+    if not (approver or "").strip():
+        raise DraftBlocked("an approver must be named")
+    subject = " ".join((subject or "").split())
+    body = (body or "").replace("\r\n", "\n").strip()
+    if not subject or not body:
+        raise DraftBlocked("the email needs a subject and a body")
+    if len(subject) > 200:
+        raise DraftBlocked("the subject line is too long")
+    settings = load_settings() if settings is None else settings
+    api = api or _api()
+    tabs, matches, facts = _read(api, [lead_id])
+    if not matches:
+        raise DraftBlocked(f"no lead {lead_id}")
+    tab, row, lead = matches[0]
+    to = (lead.get("BEST EMAIL") or "").strip().lower()
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", to):
+        raise DraftBlocked("the lead has no valid email address")
+    call_effect = _call_effect(api, lead_id)
+    if calls.blocks_outreach(call_effect):
+        raise DraftBlocked(f"a recorded call outcome ({call_effect.lower()}) blocks emailing this lead")
+    if _suppressed(api, lead.get("BEST EMAIL", "")):
+        raise DraftBlocked("this recipient is on the suppression list")
+    # CAN-SPAM: the opt-out line always goes out, even if the founder edited around it.
+    if drafting.OPT_OUT not in body:
+        body = body.rstrip() + "\n\n" + drafting.OPT_OUT
+    if _actions_today(tabs) >= int(settings["daily_cap"]):
+        raise DraftBlocked("the daily draft cap is reached")
+
+    gmail = gmail or gmail_drafts.client()
+    mailbox = gmail.users().getProfile(userId="me").execute().get("emailAddress", "")
+    if mailbox.lower() != settings["sender_email"].lower():
+        raise DraftBlocked("the signed-in Gmail mailbox does not match the configured sender")
+    if gmail_drafts.prior_sends(gmail, to):
+        raise DraftBlocked("a prior sent message exists for this recipient")
+    if gmail_drafts.existing_drafts(gmail, to):
+        raise DraftBlocked("a Gmail draft already exists for this recipient")
+
+    # A content digest over the exact words makes the action id stable for this text, so a retry of
+    # the same approved email reconciles to the same reservation rather than double-creating.
+    content = hashlib.sha256((subject + "\n" + body).encode()).hexdigest()
+    action_id = hashlib.sha256(("edited:" + lead_id + ":" + content).encode()).hexdigest()[:32]
+    html = None
+    if settings.get("tracking_enabled") is True:
+        try:
+            html = tracking.tracked_html(body, action_id, tracking.key())
+        except tracking.TrackingUnavailable as exc:
+            raise DraftBlocked(f"tracking is on but {exc}") from None
+    tab.ensure_columns(DRAFT_COLUMNS)
+    reserved = tab.write({row: {"Draft action": action_id,
+                                "Draft action at": datetime.now(timezone.utc).isoformat(),
+                                "Draft status": "RESERVED", "Draft hash": "edited:" + content,
+                                "Draft quote ID": "", "Draft tracked": "yes" if html else ""}})
+    if reserved["written"] != 1 or reserved["skipped"]:
+        raise DraftBlocked("lead changed before reservation; no Gmail write attempted")
+
+    draft = gmail_drafts.create(gmail, to=to, from_address=settings["sender_email"],
+                                subject=subject, body=body, action_id=action_id, html=html)
+    draft_id = draft.get("id")
+    if not draft_id:
+        raise DraftBlocked("Gmail did not return a draft ID; action remains RESERVED")
+    fresh = Tab(api, tab.name, SYSTEM_COLUMNS)
+    match = [(r, v) for r, v in fresh.rows if v.get("Lead ID") == lead_id]
+    if len(match) != 1 or match[0][1].get("Draft action") != action_id:
+        raise DraftBlocked("draft exists in Gmail but Sheet reservation changed; reconcile manually")
+    finalized = fresh.write({match[0][0]: {"Draft status": "CREATED", "Draft ID": draft_id,
+                                         "Draft thread ID": draft.get("message", {}).get("threadId", ""),
+                                         "Drafted at": datetime.now(timezone.utc).isoformat()}})
+    if finalized["written"] != 1 or finalized["skipped"]:
+        raise DraftBlocked("draft exists in Gmail but Sheet finalization failed; reconcile manually")
+    return {"lead_id": lead_id, "draft_id": draft_id, "action_id": action_id, "status": "CREATED"}
 
 
 def reconcile(lead_id, *, api=None, gmail=None):
