@@ -100,3 +100,14 @@ def project_of(projects, target_row, *, default_id=DEFAULT_ID):
     Returns the project dict, or None when the named project does not exist."""
     wanted = (target_row.get("Project") or "").strip() or default_id
     return projects.get(wanted)
+
+
+def handbook_doc_for(target_row, projects, settings=None):
+    """The Drive handbook document id a lead should draft from: its project's handbook, or - when the
+    project has none configured - the settings handbook. This is the one decision that makes drafting
+    project-aware; the drafting pipeline loads the handbook from the id it returns, nothing else changes.
+    Returns "" when neither is set (the caller then refuses, never guesses a handbook)."""
+    project = project_of(projects, target_row)
+    if project and project.get("handbook_doc_id"):
+        return project["handbook_doc_id"]
+    return ((settings or {}).get("handbook_doc_id") or "").strip()

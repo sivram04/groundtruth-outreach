@@ -64,3 +64,19 @@ def test_a_target_resolves_to_its_project_or_the_default():
     assert projects.project_of(all_projects, {"Project": "P-ref"})["type"] == "referral"
     assert projects.project_of(all_projects, {"Project": ""})["id"] == "P-default"  # blank -> default
     assert projects.project_of(all_projects, {"Project": "P-missing"}) is None  # named but absent
+
+
+def test_handbook_doc_is_picked_by_the_targets_project():
+    all_projects = projects.parse_all([
+        row(**{"Project ID": "P-default", "Handbook doc ID": "doc-default"}),
+        row(**{"Project ID": "P-ref", "Type": "referral", "Handbook doc ID": "doc-ref"}),
+        row(**{"Project ID": "P-none", "Type": "investor", "Handbook doc ID": ""}),
+    ])
+    # a lead's own project's handbook wins
+    assert projects.handbook_doc_for({"Project": "P-ref"}, all_projects) == "doc-ref"
+    # a blank Project resolves to the default project's handbook
+    assert projects.handbook_doc_for({"Project": ""}, all_projects) == "doc-default"
+    # a project with no handbook falls back to the settings handbook
+    assert projects.handbook_doc_for({"Project": "P-none"}, all_projects, {"handbook_doc_id": "doc-s"}) == "doc-s"
+    # nothing configured -> "" so the caller refuses rather than guesses
+    assert projects.handbook_doc_for({"Project": "P-none"}, all_projects) == ""
