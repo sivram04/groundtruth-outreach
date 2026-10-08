@@ -287,35 +287,44 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
 
         @app.post("/api/drafts/prepare/<lead_id>")
         def prepare_draft(lead_id):
-            """Compose (or refresh) ONE lead's candidate into the Drafts tab so it can be reviewed, and
-            so a confirmed review mints its approval hash. Writes the Drafts tab only - no Gmail, no send.
-            One model call for the one lead. Returns its resulting status/why."""
+            """Prepare ONE lead's candidate into the Drafts tab so it can be reviewed, and so a
+            confirmed review mints its approval hash. Writes the Drafts tab only - no Gmail, no send.
+
+            A candidate already stored is RE-GATED, never re-composed: re-clicking this after a review
+            must pick up the confirmation (-> READY), not replace the approved words with a fresh model
+            body (which would change the fingerprint and silently void the review). Only a lead with no
+            stored candidate yet is composed (one model call). Returns its resulting status/why."""
             chosen = _chosen_settings()
             with reading:
                 try:
-                    report = drafts.prepare(store(), settings=chosen, review_store=reviews,
-                                            only=[lead_id], refresh=True)
+                    st = store()
+                    picked = drafts.regate_one(st, lead_id, settings=chosen, review_store=reviews)
+                    if picked is None:
+                        report = drafts.prepare(st, settings=chosen, review_store=reviews,
+                                                only=[lead_id], refresh=True)
+                        picked = report.get("written", {}).get(lead_id)
                 except drafts.DraftsBlocked as exc:
                     return refuse(409, f"The candidate could not be prepared ({exc}).")
                 except Exception:
                     log.exception("the candidate could not be prepared")
                     return refuse(502, "The candidate could not be prepared just now.")
-            written = report.get("written", {}).get(lead_id)
-            if not written:
+            if not picked:
                 return refuse(404, "This lead is not ready for a first draft, so no candidate was written.")
-            log.info("candidate prepared for %s by %s: %s", lead_id, g.email, written.get("status"))
-            return jsonify(ok=True, lead_id=lead_id, **written)
+            log.info("candidate prepared for %s by %s: %s", lead_id, g.email, picked.get("status"))
+            return jsonify(ok=True, lead_id=lead_id, **picked)
 
         @app.post("/api/draft/create/<lead_id>")
         def create_gmail_draft(lead_id):
-            """Turn the reviewed, READY candidate into one Gmail draft (never sent). Re-prepares this one
-            lead first so a confirmed review mints its approval hash, then reads the stored candidate and
-            creates the draft through the gated job_draft.create (ENABLE_GMAIL_DRAFTS must be set)."""
+            """Turn the reviewed, READY candidate into one Gmail draft (never sent). Re-gates this one
+            lead first (reusing its stored words, no model call) so a confirmed review mints its approval
+            hash, then reads the stored candidate and creates the draft through the gated job_draft.create
+            (ENABLE_GMAIL_DRAFTS must be set). It must NOT re-compose: recomposing would change the body
+            and void the very review this step depends on."""
             chosen = _chosen_settings()
             with reading:
                 try:
                     st = store()
-                    drafts.prepare(st, settings=chosen, review_store=reviews, only=[lead_id], refresh=True)
+                    drafts.regate_one(st, lead_id, settings=chosen, review_store=reviews)
                     rows = st.drafts()
                 except drafts.DraftsBlocked as exc:
                     return refuse(409, f"The candidate could not be prepared ({exc}).")

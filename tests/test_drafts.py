@@ -106,6 +106,39 @@ def test_with_the_offer_approved_a_row_is_ready_and_carries_its_approval_hash():
     assert len(row["Approval hash"]) == 64
 
 
+def test_regate_one_mints_the_hash_for_a_confirmed_candidate_without_recomposing():
+    """After a review, re-gating the STORED candidate (no model call) turns it READY and mints its
+    approval hash - the words are reused exactly, so the reviewed fingerprint still matches."""
+    memory = store(ready_lead())
+    cfg = settings(offer_approved=True)
+    reviews = reviewed_store(memory, config=cfg)
+    run(memory, config=cfg)  # compose + store the candidate; no review store -> WAITING, no hash
+    assert row_of(memory)["Status"] == drafts.WAITING and row_of(memory)["Approval hash"] == ""
+    before = row_of(memory)["Body"]
+    result = drafts.regate_one(memory, "A-0001", settings=cfg, review_store=reviews,
+                               handbook=BOOK, pages=SITE, now=NOW)
+    assert result == {"status": drafts.READY, "why": ""}
+    row = row_of(memory)
+    assert row["Status"] == drafts.READY and len(row["Approval hash"]) == 64
+    assert row["Body"] == before  # the approved words are reused, not re-composed
+
+
+def test_regate_one_returns_none_when_no_candidate_is_stored():
+    memory = store(ready_lead())  # no Drafts row yet
+    assert drafts.regate_one(memory, "A-0001", settings=settings(offer_approved=True),
+                             handbook=BOOK, pages=SITE) is None
+
+
+def test_regate_one_holds_when_the_name_is_no_longer_on_the_site():
+    memory = store(ready_lead())
+    cfg = settings(offer_approved=True)
+    reviews = reviewed_store(memory, config=cfg)
+    run(memory, config=cfg)
+    result = drafts.regate_one(memory, "A-0001", settings=cfg, review_store=reviews,
+                               handbook=BOOK, pages="An unrelated page with no company name.", now=NOW)
+    assert result["status"] == drafts.HELD and row_of(memory)["Approval hash"] == ""
+
+
 def test_an_approved_offer_without_a_review_waits_with_no_hash():
     """Even with the offer approved and every check passing, no approval hash is issued until a
     human evidence review exists; the words are kept and the row waits."""

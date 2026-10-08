@@ -287,6 +287,23 @@ def _revalidated(lead, facts, written, settings, handbook=None, drive=None, page
     return book, rebuilt, company
 
 
+def regate(lead, facts, written, settings, *, suppressed, handbook=None, drive=None,
+           pages=None, review_store=None):
+    """Re-judge a STORED candidate and mint its approval hash WITHOUT calling the model.
+
+    Reuses the exact words the founder already approved: the draft is rebuilt deterministically
+    (`_revalidated`, no model call), re-judged against the live handbook and quotes, and gated so
+    an approval hash is issued only when a valid, current human review of THIS exact candidate
+    exists. Re-composing instead (as `written_preview` does) would change the body and so the
+    candidate fingerprint, silently voiding a review the founder already gave. Returns a preview
+    shaped like `written_preview`'s output, for `drafts.written_row`."""
+    book, rebuilt, company = _revalidated(lead, facts, written, settings, handbook, drive, pages)
+    result = drafting.preview(lead, facts, settings, suppressed=suppressed,
+                              handbook=book, written=rebuilt, company=company)
+    result["company_name_used"] = company
+    return _gate_hash(result, book, settings, review_store)
+
+
 def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
            gmail=None, drive=None, handbook=None, pages=None, review_store=None):
     """Reserve in Sheets, create one Gmail draft, then finalize the Sheet row.

@@ -186,6 +186,55 @@ def prepare(store=None, *, settings=None, handbook=None, drive=None, model=None,
     return report
 
 
+def regate_one(store=None, lead_id=None, *, settings=None, review_store=None,
+               handbook=None, drive=None, now=None, pages=None):
+    """Re-gate the STORED candidate for one lead WITHOUT re-composing it.
+
+    The founder's approved words are reused exactly as stored (no model call): the row is
+    re-judged and, when a valid current review of this exact candidate exists, its approval hash
+    is minted and the row becomes READY. This is what lets a confirmation take effect -
+    `prepare(refresh=True)` would instead recompose the body, change the candidate fingerprint and
+    silently void the review. Returns {status, why}, or None when the lead has no stored candidate
+    to re-gate (there is nothing to pick up)."""
+    settings = job_draft.load_settings() if settings is None else settings
+    if not settings:
+        raise DraftsBlocked("the drafting settings cannot be read")
+    store = store or Store()
+    target = next(((number, row) for number, row in store.drafts()
+                   if row.get("Lead ID") == lead_id
+                   and row.get("Email", FIRST_EMAIL) == FIRST_EMAIL
+                   and (row.get("Written") or "").strip()), None)
+    if target is None:
+        return None
+    number, row = target
+    lead = store.leads().get(lead_id)
+    if lead is None:
+        return None
+    written = json.loads(row["Written"])
+    facts = (store.table("Research") or ([], []))[1]
+    try:
+        entries = store.suppression()
+    except suppression.Unreadable as exc:
+        raise DraftsBlocked("the suppression list could not be read: " + exc.reason) from exc
+    suppressed = sync.on_list(entries, lead.get("BEST EMAIL", ""))
+    now = now or datetime.now(timezone.utc)
+    book, why = job_draft._handbook(settings, handbook, drive)
+    if not book:
+        raise DraftsBlocked(why)
+    try:
+        preview = job_draft.regate(lead, facts, written, settings, suppressed=suppressed,
+                                   handbook=book, drive=drive, pages=pages, review_store=review_store)
+        new_row = written_row(lead, preview, settings, facts, suppressed=suppressed,
+                              handbook=book, now=now)
+    except job_draft.DraftBlocked as exc:
+        # The stored words can no longer be rebuilt (e.g. the company name is no longer on its own
+        # site): hold the row and say why - never leave a stale approval hash on a row that cannot
+        # be rebuilt to the approved candidate.
+        new_row = {**row, "Status": HELD, "Why": str(exc), "Approval hash": ""}
+    store.write_drafts([], {number: new_row})
+    return {"status": new_row["Status"], "why": new_row["Why"]}
+
+
 def main():
     parser = argparse.ArgumentParser(description="Write ready leads' first emails into the Drafts "
                                                  "tab; never sends")

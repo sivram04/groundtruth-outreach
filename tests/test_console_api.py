@@ -335,16 +335,28 @@ def _send_app(built, shared):
                gmail_client=lambda: object())
 
 
-def test_preparing_a_draft_composes_the_candidate_for_review(built, monkeypatch):
-    monkeypatch.setattr(console.drafts, "prepare",
-                        lambda store, **kw: {"written": {"A-0014": {"status": "WAITING", "why": "awaiting review"}}})
+def test_preparing_a_draft_regates_the_stored_candidate(built, monkeypatch):
+    # A stored candidate is re-gated (picking up a review), never re-composed.
+    monkeypatch.setattr(console.drafts, "regate_one",
+                        lambda store, lead_id, **kw: {"status": "WAITING", "why": "awaiting review"})
     r = review_app(built).post("/api/drafts/prepare/A-0014", headers=signed())
     assert r.status_code == 200 and r.get_json()["ok"] is True and r.get_json()["status"] == "WAITING"
 
 
+def test_preparing_composes_when_no_candidate_is_stored_yet(built, monkeypatch):
+    # No stored candidate -> compose once (the only path that calls the model).
+    monkeypatch.setattr(console.drafts, "regate_one", lambda store, lead_id, **kw: None)
+    monkeypatch.setattr(console.drafts, "prepare",
+                        lambda store, **kw: {"written": {"A-0014": {"status": "WAITING", "why": "awaiting review"}}})
+    r = review_app(built).post("/api/drafts/prepare/A-0014", headers=signed())
+    assert r.status_code == 200 and r.get_json()["status"] == "WAITING"
+
+
 def test_create_gmail_draft_uses_the_reviewed_ready_candidate(built, monkeypatch):
     seen = {}
-    monkeypatch.setattr(console.drafts, "prepare", lambda store, **kw: {})
+    # Re-gate (no model) picks up the confirmation; it must NOT re-compose the candidate.
+    monkeypatch.setattr(console.drafts, "regate_one",
+                        lambda store, lead_id, **kw: {"status": "READY", "why": ""})
 
     def fake_create(lead_id, approved_hash, *, written=None, **kw):
         seen.update(lead_id=lead_id, approved_hash=approved_hash)
@@ -358,7 +370,7 @@ def test_create_gmail_draft_uses_the_reviewed_ready_candidate(built, monkeypatch
 
 
 def test_create_refuses_a_candidate_that_is_not_ready(built, monkeypatch):
-    monkeypatch.setattr(console.drafts, "prepare", lambda store, **kw: {})
+    monkeypatch.setattr(console.drafts, "regate_one", lambda store, lead_id, **kw: None)
     # review_rows() has an empty Approval hash -> not reviewed/approved -> cannot create
     r = _send_app(built, _store_with_drafts(review_rows())).post("/api/draft/create/A-0014", headers=signed())
     assert r.status_code == 409
