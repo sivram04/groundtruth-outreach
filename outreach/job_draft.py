@@ -102,24 +102,40 @@ def _read(api, ids):
     return tabs, matches, facts
 
 
-def _handbook(settings, handbook=None, drive=None, api=None):
+def _handbook(settings, handbook=None, drive=None, api=None, doc_id=None):
     """The active playbook, or the reason there is none. Never a local substitute.
 
-    An explicit ``handbook`` wins (tests, and callers that already hold one). Otherwise, when the
-    caller hands a Sheets client (``api``) and a playbook has been saved, that stored playbook is the
-    source; else the Drive document. A saved playbook is live immediately, with no flag. The stored
+    An explicit ``handbook`` wins (tests, and callers that already hold one). A ``doc_id`` (a
+    lead's own project handbook - multi-project) names a specific Drive document and always wins
+    over the stored playbook, since it is the caller's explicit choice of which handbook this
+    lead's draft uses. Otherwise, when the caller hands a Sheets client (``api``) and a playbook
+    has been saved, that stored playbook is the source; else the Drive document (the configured
+    one, or ``doc_id`` if given). A saved playbook is live immediately, with no flag. The stored
     playbook has the same shape as the Drive one, so hashes are consistent either way.
     """
     if handbook is not None:
         return handbook, None
     try:
-        if api is not None:
+        if api is not None and doc_id is None:
             stored = handbook_store.active(api=api)
             if stored is not None:
                 return stored, None
-        return handbook_drive.load(settings, drive=drive), None
+        return handbook_drive.load(settings, drive=drive, doc_id=doc_id), None
     except handbook_drive.HandbookUnavailable as exc:
         return None, f"handbook unavailable: {exc}"
+
+
+def project_handbook(lead, settings, projects, *, handbook=None, drive=None):
+    """The handbook a lead drafts from, chosen by its project (`projects.handbook_doc_for`), or the
+    reason there is none. A lead in a project with no handbook, and no settings fallback, is refused -
+    the handbook is never guessed. `handbook` (a preloaded book) short-circuits for tests."""
+    from outreach import projects as proj
+    if handbook is not None:
+        return handbook, None
+    doc_id = proj.handbook_doc_for(lead, projects, settings)
+    if not doc_id:
+        return None, "handbook unavailable: this lead's project has no handbook configured"
+    return _handbook(settings, drive=drive, doc_id=doc_id)
 
 
 def _blocked(lead, options, blockers, handbook=None):

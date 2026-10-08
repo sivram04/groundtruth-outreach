@@ -221,7 +221,7 @@ def test_no_handbook_means_no_preview(monkeypatch):
 
 
 def test_an_unreadable_drive_document_blocks_every_lead(monkeypatch):
-    def refuse(settings=None, drive=None):
+    def refuse(settings=None, drive=None, doc_id=None):
         raise handbook_drive.HandbookUnavailable("Drive refused the read")
     monkeypatch.setattr(handbook_drive, "load", refuse)
     out = job_draft.previews(["A-0001"], settings=settings(), write=True, model=model_for(),
