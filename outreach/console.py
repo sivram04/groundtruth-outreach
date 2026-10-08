@@ -32,8 +32,9 @@ from flask import Flask, g, jsonify, request, send_from_directory
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from outreach import (assistant, call_log_chat, calls, channels, console_auth, console_model,
-                      drafts, experiments, followup, importer, job_draft, lead_chat, playbook,
-                      playbook_extract, playbook_select, post_call, reply, review, suppression, sync)
+                      drafts, experiments, followup, handbook_store, importer, job_draft, lead_chat,
+                      playbook, playbook_extract, playbook_select, post_call, reply, review,
+                      suppression, sync)
 from outreach import gmail_drafts
 from outreach import send as send_mod
 from outreach.sheet import LEAD_TABS, DestinationMismatch, Store
@@ -1094,6 +1095,34 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
             draft, problems = followup.render(1, text, _chosen_settings(), first_name)
             log.info("playbook preview for %s: %s", g.email, "drafted" if draft else "blocked")
             return jsonify(step=1, content_hash=selected, body=draft, problems=problems)
+
+        @app.post("/api/playbook/set")
+        def playbook_set():
+            """Persist the founder's playbook text as the LIVE source every draft reads from (the
+            durable Playbook tab). The text is the founder's own, saved on their authenticated action;
+            it is stored verbatim, never run as instructions. Returns the new content hash and whether
+            the stored playbook is actually in use yet (the `playbook_store_enabled` settings flag)."""
+            try:
+                body = _bounded_json()
+            except RequestEntityTooLarge:
+                return refuse(413, "That playbook is too large.")
+            text = str(body.get("text", ""))
+            name = str(body.get("name", "")).strip()[:120]
+            if len(text) > playbook_extract.MAX_CHARS:
+                return refuse(413, "That playbook is too long.")
+            try:
+                with reading:
+                    api = store().api
+                content_hash = handbook_store.set_active(text, set_by=g.email, name=name,
+                                                         source="console", api=api)
+            except ValueError as exc:
+                return refuse(422, str(exc))
+            except Exception:
+                log.exception("the playbook could not be saved")
+                return refuse(502, "The playbook could not be saved just now.")
+            log.info("playbook set as live by %s: %s", g.email, content_hash[:8])
+            return jsonify(ok=True, content_hash=content_hash,
+                           enabled=_chosen_settings().get("playbook_store_enabled") is True)
 
     return app
 

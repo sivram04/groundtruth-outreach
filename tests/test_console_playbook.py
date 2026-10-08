@@ -35,6 +35,39 @@ def make(built, **changes):
     return console.create_app(**options).test_client()
 
 
+def _store_with_api():
+    store = MemoryStore([])
+    store.api = object()  # the set route passes store().api to handbook_store (stubbed in tests)
+    return store
+
+
+def test_set_persists_the_playbook_as_the_live_source(built, monkeypatch):
+    seen = {}
+
+    def fake_set(text, *, set_by, name, source, api, now=None):
+        seen.update(text=text, set_by=set_by, name=name, source=source)
+        return "hash123"
+
+    monkeypatch.setattr(console.handbook_store, "set_active", fake_set)
+    client = make(built, store=lambda: _store_with_api())
+    r = client.post("/api/playbook/set", headers=signed(), json={"text": "x" * 300, "name": "Pitch"})
+    assert r.status_code == 200 and r.get_json()["content_hash"] == "hash123"
+    assert seen["name"] == "Pitch" and seen["source"] == "console"
+    assert seen["set_by"] and "@" in seen["set_by"]  # the IAP identity, never a client value
+
+
+def test_set_refuses_a_playbook_that_is_too_short(built):
+    # Real handbook_store.set_active raises ValueError on length BEFORE touching the Sheet.
+    client = make(built, store=lambda: _store_with_api())
+    r = client.post("/api/playbook/set", headers=signed(), json={"text": "tiny"})
+    assert r.status_code == 422
+
+
+def test_set_needs_a_signed_in_caller(built):
+    client = make(built, store=lambda: _store_with_api())
+    assert client.post("/api/playbook/set", json={"text": "x" * 300}).status_code in (401, 403, 503)
+
+
 def _docx(paragraphs):
     import docx
     document = docx.Document()
