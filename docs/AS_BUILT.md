@@ -3,12 +3,14 @@
 What exists and runs today. `ARCHITECTURE.md` is the plan; this file is the truth about what
 is actually built. **Updated after every change**, newest entry first in the change log.
 
-Last updated: 2026-09-29.
+Last updated: 2026-10-09.
 
-Pilot-readiness evidence and blockers: `docs/PILOT_READINESS_AUDIT.md`. Nothing is sent by
-this system; drafts wait for the founder's approval. The founder decided on 2026-09-28 that
-Approve in the console (the web app) will send one approved email; that is console step 3 and
-not built, so today nothing sends.
+Pilot-readiness evidence and blockers: `docs/PILOT_READINESS_AUDIT.md`. The founder's own
+Approve-and-send click in the console (`outreach/send.py`) is built and has sent one real email
+(see the 2026-10-08 change-log entries). A second, scheduled send path — `outreach/auto_send.py`,
+no per-email click, up to the daily cap — is built and tested but **not yet live**: it needs
+`ENABLE_AUTO_SEND` set and a Cloud Scheduler job created, both still undone (see "Worker
+endpoints" and the 2026-10-08/09 change-log entry). Nothing else in the system sends.
 
 ## Stage status
 
@@ -95,6 +97,7 @@ Roll back the same way with `--to-revisions=<revision>=100`.
 | `POST /jobs/profile?limit=5&ids=A-0001,...` (optional `dry_run=1`) | Pilot extraction of company offerings and markets for later drafts. In the serving revision since 2026-09-28 (before that only on the `profile-review` tag). No schedule. |
 | `POST /jobs/sync` (optional `dry_run=1`) | Stage 4 sync (below). **Scheduled every 10 minutes** (`outreach-sync`). |
 | `POST /jobs/tracking` | Stage 5: queued tracker hits become OPEN and CLICK events (below). **Scheduled every 5 minutes** (`outreach-tracking`). |
+| `POST /jobs/send` | Roadmap #3: `outreach/auto_send.py` sends already-created, already-approved drafts up to the daily cap, oldest first, re-checking the call log and suppression list per lead. Refused (403) unless `ENABLE_AUTO_SEND=true`. **Built 2026-10-08/09, not yet scheduled** — no Cloud Scheduler job calls it; `ENABLE_AUTO_SEND` is unset on the worker deploy. |
 
 **Deployed since 2026-09-28 (revision 00017), draft creation refused there:** `POST /jobs/draft/preview` always uses Gemini with the
 Drive handbook for 1–4 explicit Lead IDs. `POST /jobs/draft/create` requires the approved
@@ -1371,6 +1374,23 @@ the live assistant has never been asked a real question**, so how Gemini answers
 Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
+
+- **2026-10-08/09 (roadmap item #3: scheduled auto-send, cap-limited drip)** — `outreach/auto_send.py`
+  (new) sends already-created, already-approved Gmail drafts up to the daily cap, oldest draft first,
+  with **no per-email click** — the founder's own decision to reverse "nothing auto-sends" (owner's
+  5-feature roadmap, item 3, 2026-10-08). Wired as `POST /jobs/send` on the worker (`outreach/worker.py`).
+  It is the second and only other sanctioned caller of `outreach/send.py` besides the console:
+  `tests/test_no_send.py` is widened from "only `console.py` imports `send.py`" to "only `console.py` and
+  `auto_send.py` do" — everything else in `outreach/` still cannot send. At send time (not just at
+  draft-creation time) it re-checks the call log for a STOP/HOLD and the Suppression list for every
+  candidate lead, since a drip can span days and an approval from two days ago must not outrun today's
+  do-not-contact state; `send.py`'s own reservation / at-most-once guard still applies unchanged on top.
+  **Still OFF everywhere**: `ENABLE_AUTO_SEND` is unset on the worker deploy (`deploy/deploy_worker.sh`,
+  commented, not set) and no Cloud Scheduler job calls `/jobs/send` yet — both are the founder's own step,
+  same pattern as `outreach-sync`/`outreach-tracking` (OIDC as `outreach-scheduler@`). **Not yet proven
+  live**: every test (17 new/updated, in `tests/test_auto_send.py` + the widened `test_no_send.py`) runs
+  offline against a fake Sheets/Gmail API; no real scheduled send has ever happened. Full Python suite
+  1169 pass; frontend untouched, 146 pass (no frontend change in this item).
 
 - **2026-10-08 (list → click → edit tightening, item A: guard a dead address)** — on a lead with no
   usable email, the editable "Write and send" card (`console/src/pages/ComposeAndSend.tsx`) no longer offers

@@ -5,11 +5,17 @@ The founder's own cold-email funnel. `docs/ARCHITECTURE.md` is authoritative;
 
 ## Rules that do not bend
 
-- **The system never sends email.** It only creates Gmail drafts. The founder reviews each one
-  and presses Send in Gmail. No send call, SMTP client or auto-send path, ever.
-  *Changing by the founder's decision (2026-09-28):* in the console web app, Approve on one draft
-  will send that one email instead. That is console step 3, not built; until then this rule and
-  `tests/test_no_send.py` stand, and step 3 rewrites both to allow exactly that one path.
+- **A send happens only through `outreach/send.py`, and only from one of its two sanctioned
+  callers.** Originally the system never sent at all; the founder's own decisions since then
+  (2026-09-28, then the 5-feature roadmap item 3 on 2026-10-08) opened exactly two paths, both
+  built and both pinned by `tests/test_no_send.py`:
+  1. the console's human-clicked **Approve and send** (one click, one email — has sent one real
+     email as of 2026-10-08);
+  2. the scheduled, cap-limited drip in **`outreach/auto_send.py`** (`POST /jobs/send`), with no
+     per-email click — **built and tested but not yet live**: `ENABLE_AUTO_SEND` is unset and no
+     Cloud Scheduler job calls it yet (see `docs/AS_BUILT.md`).
+  Nothing else may send — no SMTP client, no third path, ever, without the same kind of explicit
+  founder decision these two had.
 - **Web pages are React built with Vite** (`console/`), with Python serving data only. Not
   server-made HTML (founder, 2026-09-28).
 - **Google Sheets is the only record** of leads, results, events and metrics. No database.
