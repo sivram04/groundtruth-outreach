@@ -98,6 +98,33 @@ sign-in creates an account, a repeat sign-in with the same identity resolves to 
 invalid credential is refused with no session created, connect routes require sign-in, and the
 no-connector-yet 503 path. Full suite 1299 pass.
 
+## Fixed, same day: RLS was defined but never activated
+
+Self-review (prompted by the founder asking "what about tenant isolation?") found that
+`tenancy.py` never actually turned on the RLS policies the migrations define. The policies read
+`current_setting('app.tenant_id', true)`; nothing in this module ever called
+`set_config('app.tenant_id', account_id, true)` to set it. Depending on how the runtime database
+role ends up configured, that meant either every RLS-protected query would return zero rows (a
+restricted role - fails closed, but simply broken) or RLS would be silently skipped entirely (an
+owner/bypass role), leaving this module's own `WHERE account_id = ...` filters as the *only*
+thing preventing cross-tenant access - no defense in depth from the database at all.
+
+Fixed: every function touching an RLS-protected table (`google_connections`,
+`google_auth_attempts` - `tenant.accounts`/`tenant.identities` are deliberately exempt, see
+`_scope_to_tenant`'s docstring for why) now calls a new `_scope_to_tenant(conn, account_id)`
+helper first, in the same transaction, before its query. One new pinning test asserts the
+`set_config` call happens immediately before each protected query, not just that the feature
+exists.
+
+**Still not enforced by this module**: the reference design calls for two separate runtime
+database roles - a narrow "registry" role for `accounts`/`identities` only, and a "data" role,
+RLS-scoped, for everything else. `tenancy.py` runs every call as whatever role `conn` happens to
+be opened with; it does not itself provision or select between two roles. That split needs to
+exist before this goes near a real, shared database - until then, RLS is correctly *activated*
+by this code, but a compromised or misconfigured connection role could still see across tenants
+if it was never restricted in the first place. Database role provisioning is infrastructure
+work, not something `tenancy.py` can own.
+
 ## What's still needed before this is usable
 
 1. **A real Postgres connection.** The GCP project `lakshyaa-outreach` already has a Cloud SQL

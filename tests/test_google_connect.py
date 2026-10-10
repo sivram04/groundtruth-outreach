@@ -22,7 +22,9 @@ class FakeDBCursor:
     def execute(self, sql, params=()):
         sql = " ".join(sql.split())
         s = self.store
-        if sql.startswith("SELECT account_id FROM tenant.identities"):
+        if sql.startswith("SELECT set_config"):
+            pass  # activates the RLS tenant scope - see test_tenancy.py for the pinning test
+        elif sql.startswith("SELECT account_id FROM tenant.identities"):
             (subject,) = params
             self._last = [(s["identities"][subject],)] if subject in s["identities"] else []
         elif sql.startswith("INSERT INTO tenant.accounts"):

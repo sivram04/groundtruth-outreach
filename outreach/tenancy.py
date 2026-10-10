@@ -22,6 +22,33 @@ class TenancyError(Exception):
     """A tenancy operation could not complete; nothing was written unless stated otherwise."""
 
 
+def _scope_to_tenant(conn, account_id):
+    """Activate the RLS policy on every tenant-scoped table (``tenant.projects``,
+    ``tenant.google_connections``, ``tenant.google_auth_attempts``) for the REST of this
+    transaction, by setting the session-local ``app.tenant_id`` their ``USING``/``WITH CHECK``
+    clauses read.
+
+    This is the one line every function below was missing before this was pointed out: without
+    it, the policies in the migrations do nothing at all - either every query against those
+    tables returns zero rows (a restricted runtime role, fails closed but is simply broken), or
+    RLS is silently skipped by role privilege (a bypass/owner role), leaving this module's own
+    ``WHERE account_id = ...`` filters as the *only* thing preventing cross-tenant access - no
+    defense in depth from the database at all. Call this first, in the same transaction as the
+    query it protects (``SET LOCAL``-style: ``set_config``'s third argument ``true`` scopes it to
+    the current transaction, so it can never leak into a pooled connection's next, unrelated
+    request).
+
+    ``tenant.accounts``/``tenant.identities`` are deliberately NOT behind this (and have no RLS
+    policy in the migration): resolving an identity to an account happens before the caller knows
+    which tenant it is, so it cannot be tenant-scoped yet. The reference design calls this the
+    registry role vs. the data role - two different runtime DB roles, the first with access to
+    accounts/identities only, the second RLS-scoped to everything else. This module does not yet
+    enforce that role split itself (it runs as whatever role ``conn`` was opened with); provisioning
+    two separate runtime roles, and connecting as the right one for each call, is still open.
+    """
+    conn.cursor().execute("SELECT set_config('app.tenant_id', %s, true)", (str(account_id),))
+
+
 @dataclass(frozen=True)
 class Account:
     id: str
@@ -75,6 +102,7 @@ def save_connection(conn, account_id, *, kind, google_subject, email, scopes, re
         raise TenancyError("a connection needs a refresh token")
     ciphertext = encrypt(refresh_token)
     connection_id = str(uuid.uuid4())
+    _scope_to_tenant(conn, account_id)
     cur = conn.cursor()
     cur.execute(
         """INSERT INTO tenant.google_connections
@@ -95,6 +123,7 @@ def read_connection(conn, account_id, *, kind, decrypt):
     ``decrypt`` is required for the same reason ``encrypt`` is in `save_connection` - no default,
     so a caller cannot accidentally treat ciphertext as a usable token.
     """
+    _scope_to_tenant(conn, account_id)
     cur = conn.cursor()
     cur.execute(
         """SELECT refresh_ciphertext, google_subject, email, scopes FROM tenant.google_connections
@@ -117,6 +146,7 @@ def create_auth_attempt(conn, account_id, provider_subject, kind, state_hash, no
     table never grows unbounded on abandoned flows."""
     if kind not in KINDS:
         raise TenancyError(f"unknown connection kind: {kind}")
+    _scope_to_tenant(conn, account_id)
     cur = conn.cursor()
     cur.execute("DELETE FROM tenant.google_auth_attempts WHERE expires_at <= %s", (now,))
     expires_at = now + _minutes(ttl_minutes)
@@ -130,6 +160,7 @@ def create_auth_attempt(conn, account_id, provider_subject, kind, state_hash, no
 def consume_auth_attempt(conn, account_id, provider_subject, state_hash, *, now):
     """Atomically read-and-delete the matching, unexpired attempt - a state can be used at most
     once, and only by the same (account, subject) that started it. None if there is no match."""
+    _scope_to_tenant(conn, account_id)
     cur = conn.cursor()
     cur.execute(
         """DELETE FROM tenant.google_auth_attempts
@@ -150,6 +181,7 @@ def get_connection_record(conn, account_id, connection_id, kind):
     decrypted here. None if it doesn't exist or belongs to a different account/kind."""
     if kind not in KINDS:
         raise TenancyError(f"unknown connection kind: {kind}")
+    _scope_to_tenant(conn, account_id)
     cur = conn.cursor()
     cur.execute(
         """SELECT google_subject, scopes, refresh_ciphertext, kms_key_name, email
@@ -170,6 +202,7 @@ def revoke_connection(conn, account_id, connection_id):
     Simpler than the reference design's RECONNECT_REQUIRED state (a soft-disabled row kept for
     audit): deleting means a disconnected/expired connection is indistinguishable from one never
     made. Revisit if an audit trail of past connections turns out to matter."""
+    _scope_to_tenant(conn, account_id)
     cur = conn.cursor()
     cur.execute(
         "DELETE FROM tenant.google_connections WHERE account_id = %s AND connection_id = %s",

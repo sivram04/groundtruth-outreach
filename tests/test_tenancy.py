@@ -18,7 +18,10 @@ class FakeCursor:
 
     def execute(self, sql, params=()):
         sql = " ".join(sql.split())
-        if sql.startswith("SELECT account_id FROM tenant.identities"):
+        self.store.setdefault("query_log", []).append(sql.split("(")[0].strip())
+        if sql.startswith("SELECT set_config"):
+            self.store["tenant_scope_set_to"] = params[0]
+        elif sql.startswith("SELECT account_id FROM tenant.identities"):
             (subject,) = params
             self._last = [(self.store["identities"][subject],)] if subject in self.store["identities"] else []
         elif sql.startswith("INSERT INTO tenant.accounts"):
@@ -109,6 +112,21 @@ def test_save_and_read_connection_round_trips_through_the_encryptor():
     assert result["refresh_token"] == "real-refresh-token"
     assert result["email"] == "sam@example.test"
     assert result["scopes"] == ["gmail.readonly", "gmail.compose"]
+
+
+def test_save_and_read_connection_activate_the_rls_tenant_scope_first():
+    # Pins the fix: without this, the RLS policies in the migrations do nothing at all (see
+    # tenancy._scope_to_tenant's docstring) - either every query fails closed, or isolation is
+    # only ever enforced by this module remembering its own WHERE clauses, never the database.
+    conn = FakeConn()
+    account = tenancy.resolve_identity(conn, "subj-1", "sam@example.test")
+    tenancy.save_connection(
+        conn, account.id, kind="gmail", google_subject="subj-1", email="sam@example.test",
+        scopes=["gmail.readonly"], refresh_token="t", encrypt=lambda p: p.encode(), kms_key_name="k")
+    assert conn.store["tenant_scope_set_to"] == account.id
+    assert conn.store["query_log"][-2] == "SELECT set_config"  # set immediately before the write
+    tenancy.read_connection(conn, account.id, kind="gmail", decrypt=lambda c: c.decode())
+    assert conn.store["query_log"][-2] == "SELECT set_config"  # and immediately before the read
 
 
 def test_a_second_connect_for_the_same_identity_replaces_the_stored_token():
