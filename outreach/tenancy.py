@@ -15,6 +15,8 @@ storing a refresh token in plain text by accident.
 import uuid
 from dataclasses import dataclass
 
+KINDS = ("gmail", "drive")
+
 
 class TenancyError(Exception):
     """A tenancy operation could not complete; nothing was written unless stated otherwise."""
@@ -67,7 +69,7 @@ def save_connection(conn, account_id, *, kind, google_subject, email, scopes, re
     a repeat connect for the same identity replaces the stored token (a new consent re-grants the
     same scopes, it does not create a second row to go stale).
     """
-    if kind not in ("gmail", "drive"):
+    if kind not in KINDS:
         raise TenancyError(f"unknown connection kind: {kind}")
     if not refresh_token:
         raise TenancyError("a connection needs a refresh token")
@@ -104,3 +106,71 @@ def read_connection(conn, account_id, *, kind, decrypt):
     ciphertext, google_subject, email, scopes = row
     return {"refresh_token": decrypt(ciphertext), "google_subject": google_subject,
            "email": email, "scopes": list(scopes)}
+
+
+# --- the OAuth connect flow's own storage (outreach/google_connect.py calls these) ----------
+
+def create_auth_attempt(conn, account_id, provider_subject, kind, state_hash, nonce, verifier,
+                        *, now, ttl_minutes=10):
+    """Record one in-flight connect attempt, state/verifier never exposed again except to the
+    one caller that completes it with the matching state. Also sweeps expired attempts, so the
+    table never grows unbounded on abandoned flows."""
+    if kind not in KINDS:
+        raise TenancyError(f"unknown connection kind: {kind}")
+    cur = conn.cursor()
+    cur.execute("DELETE FROM tenant.google_auth_attempts WHERE expires_at <= %s", (now,))
+    expires_at = now + _minutes(ttl_minutes)
+    cur.execute(
+        """INSERT INTO tenant.google_auth_attempts
+             (account_id, state_hash, provider_subject, kind, nonce, code_verifier, expires_at)
+           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+        (account_id, state_hash, provider_subject, kind, nonce, verifier, expires_at))
+
+
+def consume_auth_attempt(conn, account_id, provider_subject, state_hash, *, now):
+    """Atomically read-and-delete the matching, unexpired attempt - a state can be used at most
+    once, and only by the same (account, subject) that started it. None if there is no match."""
+    cur = conn.cursor()
+    cur.execute(
+        """DELETE FROM tenant.google_auth_attempts
+           WHERE account_id = %s AND state_hash = %s AND provider_subject = %s AND expires_at > %s
+           RETURNING kind, nonce, code_verifier""",
+        (account_id, state_hash, provider_subject, now))
+    row = cur.fetchone()
+    return {"kind": row[0], "nonce": row[1], "verifier": row[2]} if row else None
+
+
+def _minutes(n):
+    from datetime import timedelta
+    return timedelta(minutes=n)
+
+
+def get_connection_record(conn, account_id, connection_id, kind):
+    """The raw (still-encrypted) connection record, for refreshing an access token - never
+    decrypted here. None if it doesn't exist or belongs to a different account/kind."""
+    if kind not in KINDS:
+        raise TenancyError(f"unknown connection kind: {kind}")
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT google_subject, scopes, refresh_ciphertext, kms_key_name, email
+           FROM tenant.google_connections
+           WHERE account_id = %s AND connection_id = %s AND kind = %s""",
+        (account_id, connection_id, kind))
+    row = cur.fetchone()
+    if row is None:
+        return None
+    google_subject, scopes, ciphertext, kms_key_name, email = row
+    return {"google_subject": google_subject, "scopes": list(scopes), "ciphertext": bytes(ciphertext),
+           "kms_key_name": kms_key_name, "email": email}
+
+
+def revoke_connection(conn, account_id, connection_id):
+    """Remove a connection entirely (e.g. its refresh token was rejected - invalid_grant).
+
+    Simpler than the reference design's RECONNECT_REQUIRED state (a soft-disabled row kept for
+    audit): deleting means a disconnected/expired connection is indistinguishable from one never
+    made. Revisit if an audit trail of past connections turns out to matter."""
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM tenant.google_connections WHERE account_id = %s AND connection_id = %s",
+        (account_id, connection_id))

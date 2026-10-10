@@ -50,6 +50,31 @@ foundation, reusing `main`'s current logic, is deliberately treated as separate,
   storing a token in plain text. Wiring real Cloud KMS is the next slice, once a real Postgres
   connection exists to test against.
 
+## Update, same day: the connect flow itself
+
+`outreach/google_connect.py` ports that same prior attempt's `Connector`/`KMSVault` classes -
+also sound, reviewed design (PKCE, state stored only as a hash, redirect-URI pinned to the exact
+HTTPS callback path, scope-grant verified against what was actually requested, the connected
+identity read from Google's own signed ID token and checked against the nonce from `begin`, and
+KMS ciphertext bound via AAD to the exact account+kind+subject it was encrypted for, so it can
+never be replayed into a different row). Adapted to call `tenancy.py`'s functions (added this
+same session: `create_auth_attempt`, `consume_auth_attempt`, `get_connection_record`,
+`revoke_connection`) instead of a connection-pool-backed store object, and to this branch's
+simpler schema - a connection that fails refresh (Google's `invalid_grant`) is deleted outright
+rather than marked `RECONNECT_REQUIRED` (a soft-disabled audit row the reference schema has and
+this one doesn't yet).
+
+13 new tests, offline, against a fake DB cursor, a fake HTTP post, and a fake ID-token verifier -
+proving the security-relevant branches directly: a state can never be reused, an expired attempt
+is refused, a mismatched nonce is refused, an under-granted scope is refused, an unverified email
+is refused, and a `invalid_grant` refresh revokes the connection rather than retrying it silently.
+Full suite 1278 pass.
+
+**Still not done**: `KMSVault` itself (the real Cloud KMS calls) has no direct test yet - every
+test above injects a trivial fake vault, proving `Connector`'s logic but not KMS's actual
+encrypt/decrypt request shape. Worth a focused test with a fake low-level KMS client before this
+goes anywhere near a real key.
+
 ## What's still needed before this is usable
 
 1. **A real Postgres connection.** The GCP project `lakshyaa-outreach` already has a Cloud SQL
