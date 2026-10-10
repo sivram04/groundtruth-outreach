@@ -1386,6 +1386,23 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-10-10 (local functional walkthrough: the "no handbook" gap confirmed as config, not a
+  bug)** — `tests/test_local_functional_walkthrough.py` drives the WHOLE lead lifecycle through
+  the real console Flask routes (not calling functions directly) with synthetic Sheets/Gmail/
+  Gemini: add a lead → set company info by chat → save a playbook → write the first draft →
+  review and confirm it → re-gate → create the Gmail draft → send it → read the snapshot back.
+  Zero live cost, zero live risk. **Result: once a playbook is actually saved, the entire pipeline
+  genuinely works end to end** - confirming the "Write a first draft for me" failure found
+  testing against the real Sheet (previous entry) is exactly what it looked like: no handbook
+  configured anywhere, not a code defect. With one saved, drafting, review-gating, Gmail draft
+  creation and sending all completed cleanly through the real routes.
+  Building this test also surfaced an architectural fact worth knowing: `job_draft.create`/`_read`
+  and `send.py` read the Sheet through the raw API via `Tab` directly, a different code path from
+  the `Store` abstraction `drafts.prepare` uses - both reach the same real Google Sheet in
+  production, so this never diverges live, but a synthetic offline test must populate both
+  representations with the same lead to exercise the full path. Documented in the test itself for
+  whoever writes the next one.
+
 - **2026-10-10 (multi-project merged into main; functional testing found a real production gap)**
   — the `multi-project` branch (7 increments: a `Project` model, a `Projects` Sheet tab, a
   per-project handbook resolver, project-aware drafting, a first "referral" project type) had sat
