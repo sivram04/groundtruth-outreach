@@ -10,3 +10,6 @@ cryptography==50.*
 openpyxl==3.*
 pypdf==5.*
 python-docx==1.*
+# multi-tenant branch only (outreach/tenancy.py): the account/connection schema's driver, same
+# version the prior tenant-schema work used. Not needed by anything on main.
+psycopg[binary,pool]==3.2.*
