@@ -5,12 +5,22 @@ is actually built. **Updated after every change**, newest entry first in the cha
 
 Last updated: 2026-10-10.
 
-Pilot-readiness evidence and blockers: `docs/PILOT_READINESS_AUDIT.md`. The founder's own
-Approve-and-send click in the console (`outreach/send.py`) is built and has sent one real email
-(see the 2026-10-08 change-log entries). A second, scheduled send path — `outreach/auto_send.py`,
-no per-email click, up to the daily cap — is built and tested but **not yet live**: it needs
-`ENABLE_AUTO_SEND` set and a Cloud Scheduler job created, both still undone (see "Worker
-endpoints" and the 2026-10-08/09 change-log entry). Nothing else in the system sends.
+Pilot-readiness evidence and blockers: `docs/PILOT_READINESS_AUDIT.md` (dated 2026-09-23, now
+stale against everything below — read the change log for current state, not that file). The
+founder's own Approve-and-send click in the console (`outreach/send.py`) is built and has sent
+**exactly one real email, ever** (2026-10-08). A second, scheduled send path —
+`outreach/auto_send.py`, no per-email click, up to the daily cap — is built, tested, and
+**deployed live** (`ENABLE_AUTO_SEND=true`, worker revision `outreach-worker-00036-xer`, 100%
+traffic as of 2026-10-10), but **no Cloud Scheduler job calls it yet** - so nothing sends on its
+own until the founder creates one. Nothing else in the system sends. Console is also deployed
+live (`outreach-console-00019-krz`, 100% traffic). As of 2026-10-10, after the first live
+`/jobs/auto` run cleared every blank email check: 641 total leads, 410 OK / 204 RISKY / 12
+DUPLICATE / 14 SENT BY HAND / 1 INVALID (0 blank, was 148 before this run); 110 fit-researched
+(54 QUALIFIED, 54 REVIEW_NEEDED, 2 DISQUALIFIED; 531 still blank); 32 profiled (31 READY, 1
+REVIEW_NEEDED; 609 still blank) - most leads have still never been researched or profiled, since
+`/jobs/auto` caps research at 40 and profile at 5 per call and nothing calls it automatically yet
+(no Scheduler job). Bulk research was also deliberately paused by the founder early on
+(2026-09-22).
 
 ## Stage status
 
@@ -1375,6 +1385,34 @@ the live assistant has never been asked a real question**, so how Gemini answers
 Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
+
+- **2026-10-10 (this session's work deployed live; found and fixed a crash before it shipped)** —
+  everything built this session (auto-send, the paginated/batch-approve leads table, the
+  decluttered lead page, company-info and link settings via chat, Import, the Calls/Reply/
+  Experiments env-var fix, auto-research, the Dashboard ready-queue) is now live:
+  - **Console**: deployed to 100% traffic, revision `outreach-console-00019-krz`.
+  - **Worker**: deployed and traffic moved to 100%, revision `outreach-worker-00036-xer`.
+  - **Caught before it shipped**: checking the real `outreach-settings` secret ahead of the
+    console deploy found `company_settings.missing()` would crash on `daily_cap` (stored there
+    as a JSON integer, not a string) - and `next_missing()` is called outside any try/except in
+    `console()`'s snapshot builder, so this would have 500'd `/api/snapshot` - the main data load
+    - on every page, for every request, the moment the console deployed (`enable_lead_chat` is
+      already `true`). Fixed (coerce to `str` first) and verified against the real live settings
+    before deploying. 2 new regression tests; see the dedicated change-log entry just above this
+    one for the fix itself.
+  - **`/jobs/auto` fired for real** on the worker's `next` tag before moving traffic, with the
+    founder's explicit go-ahead (real Gemini cost, real Sheet writes): checked 148 pending leads
+    (92 OK, 56 RISKY), researched 40 (21 QUALIFIED, 18 REVIEW_NEEDED, 1 DISQUALIFIED; ~225k prompt
+    / 15k output / 88k thinking tokens), profiled 5 (all READY; ~25k prompt / 2k output / 12k
+    thinking tokens). No failures, no skips. The real identity fields in the live secret were
+    confirmed already filled in (sender name/title/email/phone/website/address, product name,
+    daily cap 4) - `next_missing` now correctly returns `None` against them.
+  - **Still not done**: no Cloud Scheduler job calls `/jobs/send` or `/jobs/auto` yet - both run
+    only on a manual call until the founder creates one for each (their own step, same pattern as
+    every other scheduled job here). `ENABLE_CALLS`/`ENABLE_REPLY`/`ENABLE_EXPERIMENTS` are wired
+    but still not added to `deploy_console.sh`'s `ENV_FILE`. The temporary `run.invoker` grant to
+    `user:admin@lakshyaa.ai` on `outreach-worker` (made 2026-10-09 to test `/jobs/send`) is still
+    in place alongside the standing `outreach-scheduler@` grant.
 
 - **2026-10-10 (roadmap #5, continued: a "Ready for a first draft" queue on the Dashboard)** —
   once auto-research clears a lead (OK email, QUALIFIED fit, a usable quote) but nobody has
