@@ -17,17 +17,17 @@
 # Never set ENABLE_GMAIL_DRAFTS here: draft creation stays refused until the founder says so.
 #
 # Auto-send (owner's roadmap item 3, 2026-10-08): POST /jobs/send drips already-created,
-# already-approved drafts, up to the daily cap - outreach/auto_send.py. It is OFF unless this
-# deploy sets ENABLE_AUTO_SEND=true on this --set-env-vars line, and nothing calls it until a
-# Cloud Scheduler job is created for it (like outreach-sync above, same OIDC pattern, as
-# outreach-scheduler@, POST /jobs/send). Both the env var and the Scheduler job are the
-# founder's own step, deliberately not added here - turning this on starts real, unattended
-# sends to real prospects.
+# already-approved drafts, up to the daily cap - outreach/auto_send.py. ENABLE_AUTO_SEND=true
+# set on this deploy by the founder, 2026-10-08/09 - tested live on the `next` tag (ran clean
+# with nothing eligible to send). STILL NO Cloud Scheduler job calls /jobs/send: nothing fires
+# this on its own yet, same OIDC pattern as outreach-sync when one is created, as
+# outreach-scheduler@. Creating that job is the step that starts real, unattended sends to
+# real prospects - the founder's own, still undone.
 set -e
 cd "$(dirname "$0")/.."
 gcloud run deploy outreach-worker --source=. --region=us-central1 --project=lakshyaa-outreach \
   --service-account=outreach-worker@lakshyaa-outreach.iam.gserviceaccount.com \
   --no-allow-unauthenticated --max-instances=1 --concurrency=1 --timeout=600 --memory=1Gi \
     --set-secrets=GOOGLE_SIGNIN_TOKEN=google-signin-token:latest,TRACKING_KEY=tracking-signing-key:latest,OUTREACH_HANDBOOK_JSON=outreach-settings:latest \
-  --set-env-vars=ENABLE_REVIEW=true,REVIEW_STORE=sheet,ENABLE_GMAIL_DRAFTS=true \
+  --set-env-vars=ENABLE_REVIEW=true,REVIEW_STORE=sheet,ENABLE_GMAIL_DRAFTS=true,ENABLE_AUTO_SEND=true \
   --no-traffic --tag=next --quiet

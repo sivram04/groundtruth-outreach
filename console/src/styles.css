@@ -999,6 +999,26 @@ a.metric:hover {
   flex-shrink: 0;
 }
 
+.batch-bar {
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.checkbox-col {
+  width: 32px;
+  text-align: center;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 16px 0;
+}
+
 .callout-text {
   flex: 1 1 220px;
   min-width: 0;

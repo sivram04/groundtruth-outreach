@@ -44,7 +44,7 @@ function page(route: Route, data: Snapshot, onImported: () => void, generation: 
     case "drafts":
       return <Drafts data={data} />;
     case "leads":
-      return <Leads key={route.query.toString()} data={data} query={route.query} />;
+      return <Leads key={route.query.toString()} data={data} query={route.query} onChanged={onImported} />;
     case "lead":
       return <LeadPage data={data} id={route.id} onChanged={onImported} generation={generation} />;
     case "review":

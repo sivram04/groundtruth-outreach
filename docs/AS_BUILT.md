@@ -97,7 +97,7 @@ Roll back the same way with `--to-revisions=<revision>=100`.
 | `POST /jobs/profile?limit=5&ids=A-0001,...` (optional `dry_run=1`) | Pilot extraction of company offerings and markets for later drafts. In the serving revision since 2026-09-28 (before that only on the `profile-review` tag). No schedule. |
 | `POST /jobs/sync` (optional `dry_run=1`) | Stage 4 sync (below). **Scheduled every 10 minutes** (`outreach-sync`). |
 | `POST /jobs/tracking` | Stage 5: queued tracker hits become OPEN and CLICK events (below). **Scheduled every 5 minutes** (`outreach-tracking`). |
-| `POST /jobs/send` | Roadmap #3: `outreach/auto_send.py` sends already-created, already-approved drafts up to the daily cap, oldest first, re-checking the call log and suppression list per lead. Refused (403) unless `ENABLE_AUTO_SEND=true`. **Built 2026-10-08/09, not yet scheduled** — no Cloud Scheduler job calls it; `ENABLE_AUTO_SEND` is unset on the worker deploy. |
+| `POST /jobs/send` | Roadmap #3: `outreach/auto_send.py` sends already-created, already-approved drafts up to the daily cap, oldest first, re-checking the call log and suppression list per lead. Refused (403) unless `ENABLE_AUTO_SEND=true`. **`ENABLE_AUTO_SEND=true` set and deployed 2026-10-09** (worker revision `outreach-worker-00034-jux`, tested live on the `next` tag — `{"ok": true, "sent": [], "skipped": [], "remaining_cap": 4}`, correctly a no-op since no lead currently has a `CREATED` draft). **Still not scheduled**: no Cloud Scheduler job calls it yet, so nothing fires it on its own. `user:admin@lakshyaa.ai` was temporarily granted `roles/run.invoker` on `outreach-worker` to run that manual test (alongside the standing `outreach-scheduler@` grant); remove it once the Scheduler job exists, so only the automation account has standing access, matching every other job. |
 
 **Deployed since 2026-09-28 (revision 00017), draft creation refused there:** `POST /jobs/draft/preview` always uses Gemini with the
 Drive handbook for 1–4 explicit Lead IDs. `POST /jobs/draft/create` requires the approved
@@ -1374,6 +1374,20 @@ the live assistant has never been asked a real question**, so how Gemini answers
 Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
+
+- **2026-10-09 (list → click → edit, continued: paginated table + batch approve)** — the founder's
+  feedback after the first real send: approving a draft took more clicks than sending it manually would,
+  and the leads table showed every matching row with no limit. `console/src/pages/Leads.tsx`: capped to
+  20 rows per page with Previous/Next (`?page=N` in the URL, consistent with the existing `q`/`tier`/`show`
+  query state); when `send_enabled`, a checkbox appears on any row with a `CREATED`, unsent Gmail draft,
+  a header checkbox selects all such rows on the page, and selecting any shows a sticky "Approve & send N"
+  bar — one confirm sends every selected lead (each still through the one sanctioned `outreach/send.py`
+  path via the existing `/api/send/<lead>`, called once per lead; not a new backend endpoint) and reports
+  how many sent vs. failed, never silently. Styled after a reference product's (Tsenta, a job-application
+  agent) list → batch-select → one-click-approve pattern, adapted to this domain. 7 new tests
+  (`Leads.test.tsx`); frontend suite 153 pass (was 146), tsc clean, build clean. Not yet proven in a live
+  browser session (no local dev server exists for this console - it needs live Google Sheets/Gmail auth);
+  verified via component tests + production build only.
 
 - **2026-10-08/09 (roadmap item #3: scheduled auto-send, cap-limited drip)** — `outreach/auto_send.py`
   (new) sends already-created, already-approved Gmail drafts up to the daily cap, oldest draft first,
