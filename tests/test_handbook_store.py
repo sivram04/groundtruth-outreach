@@ -119,7 +119,7 @@ def test_job_draft_handbook_uses_a_stored_playbook_when_a_client_is_passed():
 def test_job_draft_handbook_skips_the_store_when_no_client_is_passed(monkeypatch):
     # Without an api, the store is never consulted; the Drive loader is (and fails closed here).
     monkeypatch.setattr(job_draft.handbook_drive, "load",
-                        lambda settings, drive=None: (_ for _ in ()).throw(
+                        lambda settings, drive=None, doc_id=None: (_ for _ in ()).throw(
                             job_draft.handbook_drive.HandbookUnavailable("no drive")))
     book, why = job_draft._handbook({})
     assert book is None and "handbook unavailable" in why
