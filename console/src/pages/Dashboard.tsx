@@ -17,7 +17,7 @@ import {
 import { SHOW, filterLeads } from "../filters";
 import { gmailSearch } from "../format";
 import { href, leadHref } from "../router";
-import type { Draft, Snapshot, TierCounts } from "../types";
+import type { Draft, Lead, Snapshot, TierCounts } from "../types";
 import { CallLogChat } from "./CallLogChat";
 import { CallQueue } from "./CallQueue";
 
@@ -69,6 +69,34 @@ function DraftCard({ draft }: { draft: Draft }) {
         </span>
         <a className="button small" href={leadHref(draft.lead_id)}>
           Read it
+        </a>
+      </div>
+    </article>
+  );
+}
+
+/** A lead the auto-research pass (or a manual check) has just cleared for a first draft - OK
+ *  email, QUALIFIED fit, a usable company quote - but nobody has written to yet. Roadmap #5: the
+ *  founder's one remaining action on this lead is to write (or approve) its first draft. */
+function ReadyCard({ lead }: { lead: Lead }) {
+  return (
+    <article className="match green">
+      <div className="match-top">
+        <span className="match-when">researched{lead.tier_label ? ` · ${lead.tier_label}` : ""}</span>
+        <Status tone="green">Ready</Status>
+      </div>
+      <h3 title={lead.company}>{lead.company || lead.id}</h3>
+      <p className="match-line">{lead.action || "Every check passes; write its first draft."}</p>
+      <div className="match-foot">
+        <span className="match-who">
+          <Avatar name={lead.company || lead.id} size="small" />
+          <span className="match-who-text">
+            {lead.contact || lead.email}
+            <span className="block muted">{lead.email}</span>
+          </span>
+        </span>
+        <a className="button small" href={leadHref(lead.id)}>
+          Write &amp; approve
         </a>
       </div>
     </article>
@@ -130,6 +158,7 @@ export function Dashboard({ data, onChanged }: { data: Snapshot; onChanged: () =
   const all = data.tiers[data.tiers.length - 1];
   const account = data.links.gmail_account || data.signed_in_as;
   const waiting = data.drafts_summary.waiting_for_offer;
+  const readyToDraft = data.leads.filter((lead) => lead.ready && !drafts.has(lead.id));
   const rows = filterLeads(data, { q: words, tier: "", show });
   return (
     <>
@@ -198,6 +227,21 @@ export function Dashboard({ data, onChanged }: { data: Snapshot; onChanged: () =
             wording.
           </strong>
         </Callout>
+      )}
+
+      {readyToDraft.length > 0 && (
+        <section className="strip">
+          <SectionHead title="Ready for a first draft">
+            <a className="button small ghost" href={href("/leads", { show: "ready" })}>
+              See all {readyToDraft.length} <ArrowRight size={14} aria-hidden="true" />
+            </a>
+          </SectionHead>
+          <div className="matches">
+            {readyToDraft.slice(0, 5).map((lead) => (
+              <ReadyCard key={lead.id} lead={lead} />
+            ))}
+          </div>
+        </section>
       )}
 
       {data.drafts.length > 0 && (

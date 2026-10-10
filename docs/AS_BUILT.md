@@ -1376,6 +1376,16 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-10-10 (roadmap #5, continued: a "Ready for a first draft" queue on the Dashboard)** —
+  once auto-research clears a lead (OK email, QUALIFIED fit, a usable quote) but nobody has
+  written to it, it used to be visible only by filtering the Leads page to "Ready for a first
+  draft" - not the first thing anyone would see. `console/src/pages/Dashboard.tsx` now has its
+  own section for exactly that set (`lead.ready && no draft yet`), leading with it ahead of
+  "Drafts to read", each card linking straight to the lead page's write-and-approve card
+  (`ComposeAndSend`), capped at 5 with a "See all N" link to `#/leads?show=ready` when there are
+  more. 3 new tests (`Dashboard.test.tsx`, the page's first); frontend suite 153 pass, tsc clean,
+  build clean.
+
 - **2026-10-10 (roadmap item #5, first slice: auto-research, no manual job call)** — founder
   scoped #5 down to its smallest useful piece: a newly added lead (Import or the chat assistant)
   gets email-checked, fit-researched and company-profiled automatically, instead of someone
