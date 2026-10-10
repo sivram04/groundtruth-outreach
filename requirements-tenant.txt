@@ -1,0 +1,15 @@
+# Multi-tenant foundation only (outreach/tenancy.py, outreach/google_connect.py,
+# outreach/tenant_console.py) - NOT installed by deploy/console.Dockerfile or any deploy script,
+# and NOT needed by anything outreach.console:app or outreach.worker:app actually serves today.
+#
+# Deliberately kept OUT of requirements.txt: that file is installed into the live console/worker
+# image by deploy/console.Dockerfile's `pip install -r requirements.txt`, and none of these three
+# packages has ever been tested in that build. A failure to install any one of them there would
+# break the real, deployed console - not just this still-inert tenant work - for no functional
+# gain, since nothing in the served app imports them. Install this file separately (a second
+# `pip install -r requirements-tenant.txt`) only in an environment that actually runs the tenant
+# code (tests already do, via the repo's own venv - this file documents the same versions, it
+# doesn't duplicate an install tests don't need).
+psycopg[binary,pool]==3.2.*
+google-cloud-kms==2.*
+google-crc32c==1.*

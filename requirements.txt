@@ -10,10 +10,8 @@ cryptography==50.*
 openpyxl==3.*
 pypdf==5.*
 python-docx==1.*
-# multi-tenant branch only (outreach/tenancy.py, outreach/google_connect.py): the account/
-# connection schema's driver and the real Cloud KMS client, same versions the prior tenant-schema
-# work used. Not needed by anything on main. Lazily imported (only touched by a real KMSVault,
-# never by the offline tests, which inject a fake KMS client).
-psycopg[binary,pool]==3.2.*
-google-cloud-kms==2.*
-google-crc32c==1.*
+# The multi-tenant foundation's own dependencies (psycopg, google-cloud-kms, google-crc32c) live
+# in requirements-tenant.txt, NOT here - this file is what deploy/console.Dockerfile installs
+# into the live console/worker image, and none of those three has ever been proven to install
+# cleanly in that build. Keeping them out means deploying today installs exactly what it always
+# did; see requirements-tenant.txt for why.
