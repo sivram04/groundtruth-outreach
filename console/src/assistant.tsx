@@ -232,7 +232,7 @@ export function Assistant(props: {
   }
 
   const blurb = props.canWrite
-    ? "Ask about your leads and drafts, tell me to add or update a lead, tell me your company info (name, email, website, address…), or attach a playbook (PDF or DOCX). I show what will change and you confirm before anything is written. I never send email."
+    ? "Ask about your leads and drafts, tell me to add or update a lead, tell me your company info (name, email, website, address…) or a link (booking: …, survey: …), or attach a playbook (PDF or DOCX). I show what will change and you confirm before anything is written. I never send email."
     : "Ask about your leads, your drafts and what needs you. I read your Sheet and answer only from it; I cannot send or change anything.";
 
   return (

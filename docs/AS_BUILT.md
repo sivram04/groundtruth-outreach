@@ -1375,6 +1375,23 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-10-10 (roadmap item #4: three optional links, settable by chat)** — founder's "add links
+  via chat" ask, scoped to three (confirmed by the founder): `booking_link` (already existed, read
+  by `outreach/reply.py` for the reply CTA, but only settable by hand-editing the secret),
+  `survey_link`, and `doc_link` (a case-study/doc URL to cite). Added to
+  `outreach/company_settings.py`'s `OPTIONAL_LINKS`, using the same durable `Company`-tab store
+  and chat interpreter as the identity fields - but deliberately **never auto-asked** (not in
+  `FIELD_ORDER`; the guided one-at-a-time flow never nags for a link), only set by naming it
+  explicitly ("booking link: https://…", "survey: …", "case study: …"). Validated with the exact
+  placeholder-rejection regex `outreach/reply.py` already used for `booking_link`
+  (`reply._PLACEHOLDER`), so a left-in `[your link]` or `example.com` is refused the same way
+  everywhere. **Honesty note, by design**: storing `survey_link` and `doc_link` is not the same as
+  using them - nothing reads either one into any draft or follow-up yet. Wiring a link into
+  outbound copy is its own grounding decision (where, when, under what condition it may appear)
+  and is deliberately not bundled into this change; only `booking_link` has a consumer
+  (`reply.booking_link`), and that consumer was already live before this change. 13 new tests
+  (`test_company_settings.py`); full suite 1221 pass.
+
 - **2026-10-10 (wire the Calls/Reply/Experiments env vars — found while closing the Import gap)** —
   the gap flagged but not fixed in the entry below: `enable_calls`, `enable_reply` and
   `enable_experiments` had the same unwired-env problem `enable_import` just had. Fixed in

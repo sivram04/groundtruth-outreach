@@ -1,6 +1,14 @@
 """Company/sender identity fields (name, title, email, phone, website, postal address, product
-name, daily cap), stored durably so they can be set from the chat assistant instead of only by
-hand-editing the ``outreach-settings`` secret with ``gcloud``.
+name, daily cap) and a few optional links (booking, survey, a doc/case-study to cite), stored
+durably so they can be set from the chat assistant instead of only by hand-editing the
+``outreach-settings`` secret with ``gcloud``.
+
+The links are stored here, by the same chat flow, but using them in outbound copy is a separate
+decision per link: ``booking_link`` is already read by ``outreach/reply.py`` for the reply CTA.
+``survey_link`` and ``doc_link`` are stored and can be set, but nothing reads them yet - storing a
+link is not the same as deciding where, when, and under what condition it may appear in an email,
+and that needs its own grounding decision (this system never states a fact or offers a link the
+founder did not deliberately put there for that purpose).
 
 Stored the same way the playbook is (``outreach/handbook_store.py``): an append-only ``Company``
 tab on the leads Sheet, one field per row, latest row for a given field wins. This needs no new
@@ -17,6 +25,7 @@ import re
 from datetime import datetime, timezone
 
 from outreach.drafting import PHONE, TOKEN, _host
+from outreach.reply import _PLACEHOLDER as _LINK_PLACEHOLDER
 from outreach.sheet import SHEET_ID, _api, ensure_tab
 
 TAB = "Company"
@@ -34,7 +43,13 @@ FIELD_ORDER = [
     ("product_name", "the product name to use in the email"),
     ("daily_cap", "how many emails to send per day (1-30)"),
 ]
-LABELS = dict(FIELD_ORDER) | {"sender_phone": "your phone number"}
+# Optional links: never auto-asked (not in FIELD_ORDER), set only by naming them explicitly.
+OPTIONAL_LINKS = {
+    "booking_link": "your booking/scheduling link",
+    "survey_link": "your survey link",
+    "doc_link": "a doc or case-study link to cite",
+}
+LABELS = dict(FIELD_ORDER) | {"sender_phone": "your phone number"} | OPTIONAL_LINKS
 
 ALIASES = {
     "name": "sender_name", "sender name": "sender_name", "your name": "sender_name",
@@ -45,6 +60,10 @@ ALIASES = {
     "address": "postal_address", "postal address": "postal_address",
     "product": "product_name", "product name": "product_name",
     "cap": "daily_cap", "daily cap": "daily_cap",
+    "booking link": "booking_link", "booking": "booking_link", "scheduling link": "booking_link",
+    "survey": "survey_link", "survey link": "survey_link",
+    "doc": "doc_link", "doc link": "doc_link", "document link": "doc_link",
+    "case study": "doc_link", "case study link": "doc_link",
 }
 
 
@@ -99,6 +118,9 @@ def validate(field, raw):
         if not 1 <= n <= 30:
             raise InvalidField(field, "the daily cap must be between 1 and 30")
         value = str(n)
+    elif field in OPTIONAL_LINKS:
+        if not re.match(r"^https?://", value, re.I) or _LINK_PLACEHOLDER.search(value):
+            raise InvalidField(field, "that doesn't look like a real link yet")
     elif field not in LABELS:
         raise InvalidField(field, "that isn't a company field I know")
     return value

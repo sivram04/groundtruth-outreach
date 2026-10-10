@@ -43,6 +43,36 @@ def test_set_field_needs_a_setter():
         company_settings.set_field("sender_name", "John Doe", set_by="", api=FakeApi())
 
 
+@pytest.mark.parametrize("field", list(company_settings.OPTIONAL_LINKS))
+def test_optional_links_accept_a_real_url(field):
+    assert company_settings.validate(field, "https://cal.com/founder") == "https://cal.com/founder"
+
+
+@pytest.mark.parametrize("field", list(company_settings.OPTIONAL_LINKS))
+def test_optional_links_reject_a_non_url(field):
+    with pytest.raises(company_settings.InvalidField, match="real link"):
+        company_settings.validate(field, "cal.com/founder")  # no scheme
+
+
+@pytest.mark.parametrize("field", list(company_settings.OPTIONAL_LINKS))
+def test_optional_links_reject_an_obvious_placeholder(field):
+    with pytest.raises(company_settings.InvalidField, match="real link"):
+        company_settings.validate(field, "https://your-link-here.example.com")
+
+
+def test_optional_links_are_never_auto_asked():
+    # Unset entirely, next_missing still only tracks the required fields.
+    assert company_settings.next_missing({})[0] == "sender_name"
+
+
+def test_booking_link_set_via_chat_is_the_one_reply_py_reads():
+    from outreach import reply
+    api = FakeApi()
+    company_settings.set_field("booking_link", "https://cal.com/founder", set_by="a@x", api=api)
+    merged = company_settings.overrides(api=api)
+    assert reply.booking_link(merged) == "https://cal.com/founder"
+
+
 @pytest.mark.parametrize("field,raw,why", [
     ("sender_email", "not an email", "email"),
     ("sender_phone", "not a phone", "phone"),
@@ -115,3 +145,12 @@ class TestInterpret:
     def test_recognises_the_canonical_field_name_too(self):
         p = company_chat.interpret("daily_cap: 7", {})
         assert p["status"] == "ready" and p["field"] == "daily_cap" and p["value"] == "7"
+
+    def test_a_named_optional_link_is_set_even_though_everything_required_is_still_missing(self):
+        p = company_chat.interpret("booking link: https://cal.com/founder", {})
+        assert p["status"] == "ready" and p["field"] == "booking_link"
+        assert p["value"] == "https://cal.com/founder"
+
+    def test_survey_and_doc_link_aliases(self):
+        assert company_chat.interpret("survey: https://forms.example.com/s", {})["field"] == "survey_link"
+        assert company_chat.interpret("case study: https://x.test/case", {})["field"] == "doc_link"
