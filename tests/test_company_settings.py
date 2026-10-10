@@ -101,6 +101,23 @@ def test_missing_treats_empty_and_bracket_placeholder_as_missing():
     assert company_settings.missing("John Doe") is False
 
 
+def test_missing_never_crashes_on_a_non_string_value():
+    # The real outreach-settings secret stores daily_cap as a JSON integer, not "4" - confirmed
+    # live 2026-10-10. next_missing/missing must not crash the whole snapshot route over it.
+    assert company_settings.missing(4) is False
+    assert company_settings.missing(0) is False  # falsy int, but a real (if odd) value - not "empty"
+    assert company_settings.missing(None) is True
+
+
+def test_next_missing_does_not_crash_when_daily_cap_is_a_real_int():
+    full = {
+        "sender_name": "John Doe", "founder_title": "Owner", "sender_email": "a@x.test",
+        "sender_website": "https://x.test", "postal_address": "123 Main St, Columbus, OH",
+        "product_name": "Lakshyaa", "daily_cap": 4,
+    }
+    assert company_settings.next_missing(full) is None
+
+
 def test_next_missing_is_the_first_unset_required_field_in_order():
     assert company_settings.next_missing({}) == ("sender_name", company_settings.LABELS["sender_name"])
     assert company_settings.next_missing({"sender_name": "John Doe"})[0] == "founder_title"

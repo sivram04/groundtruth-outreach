@@ -76,8 +76,12 @@ class InvalidField(ValueError):
 
 
 def missing(value):
-    """True when a stored field is empty or still a bracket placeholder (e.g. ``[SENDER_NAME]``)."""
-    value = (value or "").strip()
+    """True when a stored field is empty or still a bracket placeholder (e.g. ``[SENDER_NAME]``).
+
+    ``value`` is usually a string, but ``daily_cap`` in the real settings secret is a JSON
+    integer, not ``"4"`` - coerce first so a real deployment never crashes on it."""
+    value = str(value) if value is not None else ""
+    value = value.strip()
     return not value or bool(TOKEN.fullmatch(value))
 
 
