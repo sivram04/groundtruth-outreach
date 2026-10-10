@@ -16,6 +16,14 @@
 #     --project=lakshyaa-outreach --to-tags=next=100
 # Never set ENABLE_GMAIL_DRAFTS here: draft creation stays refused until the founder says so.
 #
+# Auto-research (roadmap item 5, first slice, 2026-10-10): POST /jobs/auto runs the email check,
+# fit research and company profile for whatever is pending, in one pass - outreach/job_auto.py.
+# Unlike /jobs/send, this needs no ENABLE_* flag: it only reads and writes Sheet columns a human
+# could already trigger by hand (/jobs/check, /jobs/research, /jobs/profile), never Gmail, never
+# a send. Still no Cloud Scheduler job calls it - creating one (e.g. every 10 minutes, same
+# pattern as outreach-sync) is the founder's own step, so a newly imported or chat-added lead
+# gets assessed without anyone calling a job by hand.
+#
 # Auto-send (owner's roadmap item 3, 2026-10-08): POST /jobs/send drips already-created,
 # already-approved drafts, up to the daily cap - outreach/auto_send.py. ENABLE_AUTO_SEND=true
 # set on this deploy by the founder, 2026-10-08/09 - tested live on the `next` tag (ran clean

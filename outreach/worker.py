@@ -4,8 +4,8 @@ import os
 
 from flask import Flask, jsonify, request
 
-from outreach import (auto_send, followup, job_check, job_draft, job_profile, job_research,
-                      sheet, sync, tracking_job)
+from outreach import (auto_send, followup, job_auto, job_check, job_draft, job_profile,
+                      job_research, sheet, sync, tracking_job)
 
 app = Flask(__name__)
 
@@ -39,6 +39,13 @@ def profile():
         return jsonify(ok=False, error="profile limit is five leads"), 400
     return jsonify(ok=True, **job_profile.run(where="cloud-run", limit=limit, ids=ids,
                                              dry_run=request.args.get("dry_run") == "1"))
+
+
+@app.post("/jobs/auto")
+def auto_research():
+    """Roadmap #5: check, research and profile whatever is pending, in one pass, so a lead added
+    by Import or the chat assistant is assessed without anyone calling a job by hand."""
+    return jsonify(ok=True, **job_auto.run(where="cloud-run"))
 
 
 @app.post("/jobs/draft/preview")

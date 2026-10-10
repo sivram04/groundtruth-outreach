@@ -97,6 +97,7 @@ Roll back the same way with `--to-revisions=<revision>=100`.
 | `POST /jobs/profile?limit=5&ids=A-0001,...` (optional `dry_run=1`) | Pilot extraction of company offerings and markets for later drafts. In the serving revision since 2026-09-28 (before that only on the `profile-review` tag). No schedule. |
 | `POST /jobs/sync` (optional `dry_run=1`) | Stage 4 sync (below). **Scheduled every 10 minutes** (`outreach-sync`). |
 | `POST /jobs/tracking` | Stage 5: queued tracker hits become OPEN and CLICK events (below). **Scheduled every 5 minutes** (`outreach-tracking`). |
+| `POST /jobs/auto` | Roadmap #5 (first slice): `outreach/job_auto.py` runs check → research → profile in one pass for whatever is pending, so a lead added by Import or the chat assistant is assessed without anyone calling a job by hand. No `ENABLE_*` flag (read/Sheet-write only, same as sync/tracking). **Built 2026-10-10, not yet scheduled** - no Cloud Scheduler job calls it. |
 | `POST /jobs/send` | Roadmap #3: `outreach/auto_send.py` sends already-created, already-approved drafts up to the daily cap, oldest first, re-checking the call log and suppression list per lead. Refused (403) unless `ENABLE_AUTO_SEND=true`. **`ENABLE_AUTO_SEND=true` set and deployed 2026-10-09** (worker revision `outreach-worker-00034-jux`, tested live on the `next` tag — `{"ok": true, "sent": [], "skipped": [], "remaining_cap": 4}`, correctly a no-op since no lead currently has a `CREATED` draft). **Still not scheduled**: no Cloud Scheduler job calls it yet, so nothing fires it on its own. `user:admin@lakshyaa.ai` was temporarily granted `roles/run.invoker` on `outreach-worker` to run that manual test (alongside the standing `outreach-scheduler@` grant); remove it once the Scheduler job exists, so only the automation account has standing access, matching every other job. |
 
 **Deployed since 2026-09-28 (revision 00017), draft creation refused there:** `POST /jobs/draft/preview` always uses Gemini with the
@@ -1374,6 +1375,21 @@ the live assistant has never been asked a real question**, so how Gemini answers
 Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
+
+- **2026-10-10 (roadmap item #5, first slice: auto-research, no manual job call)** — founder
+  scoped #5 down to its smallest useful piece: a newly added lead (Import or the chat assistant)
+  gets email-checked, fit-researched and company-profiled automatically, instead of someone
+  calling `/jobs/check`, `/jobs/research` and `/jobs/profile` by hand. `outreach/job_auto.py` is
+  pure orchestration - it calls the three existing jobs in the order their own eligibility rules
+  require (check first; research needs an OK/RISKY email; profile needs OK email and QUALIFIED
+  fit), with no new Sheet columns, no new write path, and each stage still logs its own Runs row
+  exactly as before. Wired as `POST /jobs/auto` on the worker. **No `ENABLE_*` flag** - unlike
+  draft creation or sending, this only fills in columns a human could already trigger by hand, so
+  it carries the same risk level as the already-unflagged `/jobs/sync`/`/jobs/tracking`. **Not yet
+  scheduled**: no Cloud Scheduler job calls it; creating one (e.g. every 10 minutes) and choosing
+  the cadence is the founder's own step. 3 new tests (`test_job_auto.py`); full suite 1224 pass.
+  Still not built: the review/gating half of #5 (the founder said "only edits+approves" - the
+  offer-approval and evidence-review gates still need a human's own action, unchanged).
 
 - **2026-10-10 (roadmap item #4: three optional links, settable by chat)** — founder's "add links
   via chat" ask, scoped to three (confirmed by the founder): `booking_link` (already existed, read
