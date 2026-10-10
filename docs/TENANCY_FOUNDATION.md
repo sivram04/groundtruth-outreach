@@ -75,6 +75,29 @@ test above injects a trivial fake vault, proving `Connector`'s logic but not KMS
 encrypt/decrypt request shape. Worth a focused test with a fake low-level KMS client before this
 goes anywhere near a real key.
 
+## Update, same day: a real, working sign-in - today, no verification wait
+
+`outreach/tenant_console.py` is the account-aware entry point, deliberately separate from
+`outreach/console.py` (IAP-gated, one hardcoded founder identity - wrong model for arbitrary
+external users). It splits two OAuth concepts that are easy to conflate:
+
+- **Sign-in** ("who is this person") uses Google Identity Services: the browser's "Sign in with
+  Google" button hands the backend a signed credential JWT directly - no OAuth redirect, no
+  restricted scope, approved for any app instantly. `POST /api/session/google` verifies it and
+  resolves/creates the account (`tenancy.resolve_identity`), `GET /api/session` reads the signed
+  cookie, `POST /api/session/logout` clears it. **This works today** - nothing here is blocked
+  on Google's verification.
+- **Connect** ("may this app read/draft in Gmail or Drive") is the restricted-scope flow from
+  `google_connect.py` - `POST /api/connections/<kind>/start` and
+  `GET /api/tenant/google/callback`, both signed-in-only. With no `connector` configured yet
+  (true today - no OAuth client exists), they correctly refuse with 503 rather than crash, so
+  there is nothing left to wire the day verification clears.
+
+10 new tests (Flask test client, fake DB cursor, fake credential verifier, fake connector) -
+sign-in creates an account, a repeat sign-in with the same identity resolves to the same one, an
+invalid credential is refused with no session created, connect routes require sign-in, and the
+no-connector-yet 503 path. Full suite 1299 pass.
+
 ## What's still needed before this is usable
 
 1. **A real Postgres connection.** The GCP project `lakshyaa-outreach` already has a Cloud SQL
