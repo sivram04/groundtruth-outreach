@@ -1375,6 +1375,34 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-10-09 (your company info via chat; Import turned on)** — the founder's ask: a way to set
+  sender identity (name, title, email, phone, website, postal address, product name, daily cap)
+  from the product itself, since until now it only lived in the hand-edited `outreach-settings`
+  secret. Built the same way the playbook upload was (#1): `outreach/company_settings.py` is a
+  durable, append-only `Company` tab on the leads Sheet (one field per row, latest wins);
+  `outreach/company_chat.py` is a deterministic (no model) interpreter — name a field explicitly
+  (`email: admin@lakshyaa.ai`) or, when a required field is still unset, just type the bare value
+  and it answers whichever field is next in a fixed order, so the guided one-field-at-a-time feel
+  needs no server-side conversation memory. `_chosen_settings()` (the one place every console
+  route already reads settings from) now merges these stored fields over the base secret/file,
+  exactly how the stored playbook overrides Drive — so every route that was already reading
+  settings picks this up for free. New routes `POST /api/company/interpret` (read-only) and
+  `POST /api/company/apply` (writes one field on confirm, re-validates server-side, reports the
+  next missing field), both under the existing `enable_lead_chat` flag (no new flag). The snapshot
+  now carries `company_next_field`/`company_next_label`; the assistant shows a one-line nudge for
+  it when opened with nothing else said, and the same propose-then-confirm chain used for leads
+  now also recognises a company-field answer before falling back to a plain question. 35 new
+  Python tests (`test_company_settings.py`, `test_console_company.py`) + 5 new frontend tests
+  (`assistant.test.tsx`), full suites: Python 1207 pass, frontend 150 pass, tsc clean, build clean.
+  **Also turned on**: `Import` (paste/upload a CSV/TSV/XLSX list of leads, matched by column name
+  against the Sheet) existed and was tested but was never reachable in production — its
+  `enable_import` flag was never actually read from any environment variable (the same gap
+  `enable_playbook` had before #1). Fixed the wiring in `outreach/console.py`'s `main()` and added
+  `ENABLE_IMPORT: "true"` to `deploy/deploy_console.sh`; the nav link (`console/src/components.tsx`)
+  already existed, gated correctly, just never lit up. **Found but not fixed**: `enable_calls`,
+  `enable_reply` and `enable_experiments` have the identical unwired-env gap — flagged separately,
+  not bundled into this change.
+
 - **2026-10-09 (declutter the lead page: approve leads, everything else collapses)** —
   continuing the founder's "too congested" feedback: `console/src/pages/LeadPage.tsx` now puts
   the actionable area (the draft to approve / the call panel / the reply candidate) directly

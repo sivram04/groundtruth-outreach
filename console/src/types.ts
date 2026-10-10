@@ -310,6 +310,22 @@ export interface LeadChangeResult {
   lead_id: string;
 }
 
+export interface CompanyFieldProposal {
+  status: "ready" | "invalid" | "unclear";
+  field?: string;
+  label?: string;
+  value?: string;
+  reason?: string;
+}
+
+export interface CompanyFieldResult {
+  ok: boolean;
+  field: string;
+  value: string;
+  next_field: string | null;
+  next_label: string | null;
+}
+
 export interface Need {
   order: number;
   label: string;
@@ -400,6 +416,10 @@ export interface Snapshot {
   send_enabled?: boolean;
   /** Whether the lead-management chat (add/update leads by instruction) is switched on (off in deploy). */
   lead_chat_enabled?: boolean;
+  /** The next required company/sender field that has no value yet (and its label), or null when
+   *  every required field is set. Present only when lead_chat_enabled. */
+  company_next_field?: string | null;
+  company_next_label?: string | null;
   /** Whether the A/B test flow is switched on for this server (off by default and in deploy). */
   experiments_enabled?: boolean;
   /** The current experiment's variant-level report, or null when none is defined/assigned. */

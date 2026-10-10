@@ -3,8 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import {
   CallError,
   LoadError,
+  applyCompanyField,
   applyLeadChange,
   askAssistant,
+  interpretCompanyField,
   interpretLeadChange,
   reviewPlaybook,
   setPlaybookText,
@@ -12,7 +14,7 @@ import {
 } from "./api";
 import { NAME } from "./brand";
 import { href, leadHref } from "./router";
-import type { LeadChatProposal } from "./types";
+import type { CompanyFieldProposal, LeadChatProposal } from "./types";
 
 export interface Said {
   from: "you" | "assistant";
@@ -58,15 +60,20 @@ export function Assistant(props: {
   companies: Map<string, string>;
   onClose: () => void;
   canWrite?: boolean;
+  companyNextField?: string | null;
+  companyNextLabel?: string | null;
   onChanged?: () => void;
   ask?: typeof askAssistant;
   interpret?: typeof interpretLeadChange;
   apply?: typeof applyLeadChange;
+  interpretCompany?: typeof interpretCompanyField;
+  applyCompany?: typeof applyCompanyField;
   review?: typeof reviewPlaybook;
   savePlaybook?: typeof setPlaybookText;
 }) {
   const [said, setSaid] = useState<Said[]>([]);
   const [pending, setPending] = useState<LeadChatProposal | null>(null);
+  const [pendingCompany, setPendingCompany] = useState<CompanyFieldProposal | null>(null);
   const [playbook, setPlaybook] = useState<{ text: string; name: string; summary: string } | null>(null);
   const [question, setQuestion] = useState("");
   const [thinking, setThinking] = useState(false);
@@ -76,12 +83,14 @@ export function Assistant(props: {
   const ask = props.ask ?? askAssistant;
   const interpret = props.interpret ?? interpretLeadChange;
   const apply = props.apply ?? applyLeadChange;
+  const interpretCompany = props.interpretCompany ?? interpretCompanyField;
+  const applyCompany = props.applyCompany ?? applyCompanyField;
   const review = props.review ?? reviewPlaybook;
   const savePlaybook = props.savePlaybook ?? setPlaybookText;
 
   useEffect(() => {
     thread.current?.scrollTo?.({ top: thread.current.scrollHeight });
-  }, [said, thinking, pending]);
+  }, [said, thinking, pending, pendingCompany]);
 
   const add = (line: Said) => setSaid((before) => [...before, line]);
 
@@ -103,24 +112,38 @@ export function Assistant(props: {
     add({ from: "you", text: asked });
     setQuestion("");
     setPending(null);
+    setPendingCompany(null);
     setThinking(true);
-    // When writing is on, read the instruction first (deterministic, no model). A recognised lead
-    // action becomes a proposal to confirm or a plain message; anything else is a question to answer.
+    // When writing is on, read the instruction first (deterministic, no model): a recognised lead
+    // action, else a recognised company-info answer, else it was a question to answer.
     if (props.canWrite) {
       interpret(asked).then(
         (p) => {
           if (p.status === "ready") {
             setPending(p);
             setThinking(false);
-          } else {
-            const message = nonActionableMessage(p);
-            if (message) {
-              add({ from: "assistant", text: message });
-              setThinking(false);
-            } else {
-              answer(asked); // "unclear" -> it was a question, not a lead action
-            }
+            return;
           }
+          const message = nonActionableMessage(p);
+          if (message) {
+            add({ from: "assistant", text: message });
+            setThinking(false);
+            return;
+          }
+          interpretCompany(asked).then(
+            (cp) => {
+              if (cp.status === "ready") {
+                setPendingCompany(cp);
+              } else if (cp.status === "invalid") {
+                add({ from: "assistant", text: `For ${cp.label}: ${cp.reason}. Nothing was changed.` });
+              } else {
+                answer(asked); // "unclear" from both -> it was a question
+                return;
+              }
+              setThinking(false);
+            },
+            () => answer(asked),
+          );
         },
         () => answer(asked),
       );
@@ -142,6 +165,25 @@ export function Assistant(props: {
       (error: unknown) => {
         setBusy(false); // keep the proposal so the founder can retry or cancel
         add({ from: "assistant", refused: true, text: error instanceof CallError ? error.message : "The change could not be saved." });
+      },
+    );
+  }
+
+  function confirmCompany() {
+    if (busy || pendingCompany?.status !== "ready" || !pendingCompany.field) return;
+    const { field, label, value } = pendingCompany;
+    setBusy(true);
+    applyCompany(field, value ?? "").then(
+      (result) => {
+        setBusy(false);
+        setPendingCompany(null);
+        const next = result.next_label ? ` Next, what's ${result.next_label}?` : " That's everything I need about your company.";
+        add({ from: "assistant", text: `Saved ${label}.${next}` });
+        props.onChanged?.();
+      },
+      (error: unknown) => {
+        setBusy(false); // keep the proposal so the founder can retry or cancel
+        add({ from: "assistant", refused: true, text: error instanceof CallError ? error.message : "That could not be saved." });
       },
     );
   }
@@ -190,7 +232,7 @@ export function Assistant(props: {
   }
 
   const blurb = props.canWrite
-    ? "Ask about your leads and drafts, tell me to add or update a lead, or attach a playbook (PDF or DOCX) to set what we say about your company. I show what will change and you confirm before anything is written. I never send email."
+    ? "Ask about your leads and drafts, tell me to add or update a lead, tell me your company info (name, email, website, address…), or attach a playbook (PDF or DOCX). I show what will change and you confirm before anything is written. I never send email."
     : "Ask about your leads, your drafts and what needs you. I read your Sheet and answer only from it; I cannot send or change anything.";
 
   return (
@@ -205,13 +247,18 @@ export function Assistant(props: {
       </div>
 
       <div className="thread" ref={thread}>
-        {said.length === 0 && !pending ? (
+        {said.length === 0 && !pending && !pendingCompany ? (
           <div className="opening">
             <span className="assistant-mark" aria-hidden="true">
               <Bot size={22} />
             </span>
             <h2>How can I help?</h2>
             <p className="muted small">{blurb}</p>
+            {props.canWrite && props.companyNextField && (
+              <p className="muted small company-nudge">
+                I still need {props.companyNextLabel} to finish your sender details — just type it below.
+              </p>
+            )}
             <div className="openers">
               {OPENERS.map(([text, key, Icon]) => (
                 <button type="button" key={key} className="opener" onClick={() => put(text)}>
@@ -262,6 +309,22 @@ export function Assistant(props: {
                 <Check size={15} aria-hidden="true" /> {busy ? "Saving…" : "Confirm"}
               </button>
               <button type="button" className="secondary" disabled={busy} onClick={() => setPending(null)}>
+                <X size={15} aria-hidden="true" /> Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {pendingCompany?.status === "ready" && (
+          <div className="bubble assistant proposal">
+            <p className="strong">
+              Set {pendingCompany.label} to "{pendingCompany.value}"?
+            </p>
+            <div className="email-actions">
+              <button type="button" className="primary" disabled={busy} onClick={confirmCompany}>
+                <Check size={15} aria-hidden="true" /> {busy ? "Saving…" : "Confirm"}
+              </button>
+              <button type="button" className="secondary" disabled={busy} onClick={() => setPendingCompany(null)}>
                 <X size={15} aria-hidden="true" /> Cancel
               </button>
             </div>

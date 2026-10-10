@@ -172,6 +172,102 @@ describe("the assistant that also acts (write enabled)", () => {
   });
 });
 
+describe("the assistant sets company info", () => {
+  function writeCompany(opts: {
+    interpretCompany: ReturnType<typeof vi.fn>;
+    applyCompany?: ReturnType<typeof vi.fn>;
+    companyNextField?: string | null;
+    companyNextLabel?: string | null;
+  }) {
+    const applyCompany = opts.applyCompany ?? vi.fn(async () => ({
+      ok: true, field: "sender_name", value: "John Doe", next_field: null, next_label: null,
+    }));
+    const onChanged = vi.fn();
+    render(
+      <Assistant
+        companies={new Map()}
+        onClose={() => {}}
+        canWrite
+        onChanged={onChanged}
+        ask={answering({})}
+        interpret={async () => ({ status: "unclear" })}
+        apply={vi.fn()}
+        interpretCompany={opts.interpretCompany as unknown as Parameters<typeof Assistant>[0]["interpretCompany"]}
+        applyCompany={applyCompany as unknown as Parameters<typeof Assistant>[0]["applyCompany"]}
+        companyNextField={opts.companyNextField}
+        companyNextLabel={opts.companyNextLabel}
+      />,
+    );
+    const panel = screen.getByRole("complementary", { name: "Assistant" });
+    return { panel, applyCompany, onChanged };
+  }
+
+  async function typeAndSend(panel: HTMLElement, text: string) {
+    const box = within(panel).getByLabelText("Ask the assistant");
+    fireEvent.change(box, { target: { value: text } });
+    await act(async () => within(panel).getByRole("button", { name: "Ask" }).click());
+  }
+
+  it("proposes a bare answer for the field it's missing, and writes only on Confirm", async () => {
+    const interpretCompany = vi.fn(async () => ({
+      status: "ready" as const, field: "sender_name", label: "your name, as the sender", value: "John Doe",
+    }));
+    const { panel, applyCompany, onChanged } = writeCompany({
+      interpretCompany,
+      applyCompany: vi.fn(async () => ({
+        ok: true, field: "sender_name", value: "John Doe", next_field: "founder_title", next_label: "your title",
+      })),
+    });
+    await typeAndSend(panel, "John Doe");
+    await waitFor(() => expect(within(panel).getByText(/Set your name, as the sender to "John Doe"/)).toBeTruthy());
+    expect(applyCompany).not.toHaveBeenCalled(); // nothing written until Confirm
+    await act(async () => within(panel).getByRole("button", { name: /Confirm/ }).click());
+    await waitFor(() => expect(applyCompany).toHaveBeenCalledWith("sender_name", "John Doe"));
+    await waitFor(() => expect(within(panel).getByText(/Saved your name, as the sender\. Next, what's your title\?/)).toBeTruthy());
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it("reports an invalid value without writing or proposing anything", async () => {
+    const interpretCompany = vi.fn(async () => ({
+      status: "invalid" as const, field: "sender_email", label: "the email address you send from",
+      reason: "that doesn't look like an email address",
+    }));
+    const { panel, applyCompany } = writeCompany({ interpretCompany });
+    await typeAndSend(panel, "not an email");
+    await waitFor(() =>
+      expect(within(panel).getByText(/that doesn't look like an email address.*Nothing was changed/)).toBeTruthy(),
+    );
+    expect(within(panel).queryByRole("button", { name: /Confirm/ })).toBeNull();
+    expect(applyCompany).not.toHaveBeenCalled();
+  });
+
+  it("falls through to the read-only answer when neither a lead nor a company field is recognised", async () => {
+    const ask = answering({ answer: "Three leads are ready." });
+    const interpretCompany = vi.fn(async () => ({ status: "unclear" as const }));
+    const { panel } = writeCompany({ interpretCompany });
+    // override the default `ask` built into writeCompany by re-rendering is unnecessary; `answering({})`
+    // already used above returns the generic stub text, which is enough to prove the fallback ran.
+    await typeAndSend(panel, "how many leads are ready?");
+    await waitFor(() => expect(interpretCompany).toHaveBeenCalledWith("how many leads are ready?"));
+    await waitFor(() => expect(within(panel).getByText(/Nothing needs you\./)).toBeTruthy());
+    void ask;
+  });
+
+  it("nudges for the still-missing field when first opened", () => {
+    const { panel } = writeCompany({
+      interpretCompany: vi.fn(async () => ({ status: "unclear" as const })),
+      companyNextField: "sender_name",
+      companyNextLabel: "your name, as the sender",
+    });
+    expect(within(panel).getByText(/I still need your name, as the sender/)).toBeTruthy();
+  });
+
+  it("shows no nudge once nothing is missing", () => {
+    const { panel } = writeCompany({ interpretCompany: vi.fn(async () => ({ status: "unclear" as const })), companyNextField: null });
+    expect(within(panel).queryByText(/I still need/)).toBeNull();
+  });
+});
+
 describe("on a phone", () => {
   it("stays closed until it is asked for, and then covers the page", async () => {
     window.matchMedia = ((query: string) => ({

@@ -34,6 +34,7 @@ ENABLE_SEND: "true"
 ENABLE_LEAD_CHAT: "true"
 ENABLE_GMAIL_DRAFTS: "true"
 ENABLE_PLAYBOOK: "true"
+ENABLE_IMPORT: "true"
 YAML
 gcloud run deploy outreach-console --image=$IMAGE --region=$R --project=$P \
   --service-account=outreach-console@$P.iam.gserviceaccount.com \

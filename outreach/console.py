@@ -31,10 +31,10 @@ from pathlib import Path
 from flask import Flask, g, jsonify, request, send_from_directory
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from outreach import (assistant, call_log_chat, calls, channels, console_auth, console_model,
-                      drafts, experiments, followup, handbook_store, importer, job_draft, lead_chat,
-                      playbook, playbook_extract, playbook_select, post_call, reply, review,
-                      suppression, sync)
+from outreach import (assistant, call_log_chat, calls, channels, company_chat, company_settings,
+                      console_auth, console_model, drafts, experiments, followup, handbook_store,
+                      importer, job_draft, lead_chat, playbook, playbook_extract, playbook_select,
+                      post_call, reply, review, suppression, sync)
 from outreach import gmail_drafts
 from outreach import send as send_mod
 from outreach.sheet import LEAD_TABS, DestinationMismatch, Store
@@ -128,11 +128,7 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
 
     def console():
         """The console worked out from the Sheet now, or a refusal to show instead."""
-        try:
-            chosen = settings() or {}
-        except Exception:  # unreadable settings must not close the whole console
-            log.exception("the drafting settings could not be read")
-            chosen = {}
+        chosen = _chosen_settings()  # merges any chat-set company field over the base settings
         try:
             with reading:
                 data = console_model.snapshot(store(), settings=chosen, now=clock(),
@@ -151,6 +147,10 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
         data["reply_enabled"] = enable_reply
         data["send_enabled"] = enable_send
         data["lead_chat_enabled"] = enable_lead_chat
+        if enable_lead_chat:
+            still_missing = company_settings.next_missing(chosen)
+            data["company_next_field"] = still_missing[0] if still_missing else None
+            data["company_next_label"] = still_missing[1] if still_missing else None
         return data, None
 
     @app.get("/api/snapshot")
@@ -215,10 +215,22 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
 
     def _chosen_settings():
         try:
-            return settings() or {}
+            base = settings() or {}
         except Exception:
             log.exception("the drafting settings could not be read")
             return {}
+        # A field set via the chat assistant (company_settings, stored on the Sheet) overrides the
+        # same field in the base secret/file - same pattern as the stored playbook overriding Drive.
+        # Only consulted when a live Sheets client is available, so every settings=lambda: {...}
+        # test fixture is unaffected. A broken store (unreadable Sheet) must not break settings
+        # resolution either - the caller's own Sheet read will separately report that failure.
+        try:
+            api = getattr(store(), "api", None)
+            if api is not None:
+                base = {**base, **company_settings.overrides(api=api)}
+        except Exception:
+            log.exception("company settings could not be read")
+        return base
 
     if enable_review:
         reviews = review.default_store() if review_store is None else review_store
@@ -913,6 +925,35 @@ def create_app(*, verifier=_UNSET, store=Store, settings=job_draft.load_settings
                 log.exception("a lead change could not be applied")
                 return refuse(502, "The change could not be saved just now.")
 
+        # The founder's own sender/company identity (name, title, email, phone, website, postal
+        # address, product name, daily cap) by the same propose-then-confirm shape, so it no longer
+        # needs a hand-edited secret. interpret is read-only; apply writes one field, on confirm,
+        # to the durable Company tab (company_settings.py) - the same resolver _chosen_settings
+        # already merges over the base settings whenever a live Sheets client is available.
+        @app.post("/api/company/interpret")
+        def company_interpret():
+            note = str((request.get_json(silent=True) or {}).get("note", ""))
+            return jsonify(company_chat.interpret(note, _chosen_settings()))
+
+        @app.post("/api/company/apply")
+        def company_apply():
+            body = request.get_json(silent=True) or {}
+            field, value = str(body.get("field", "")), str(body.get("value", ""))
+            try:
+                with reading:
+                    api = getattr(store(), "api", None)
+                clean = company_settings.set_field(field, value, set_by=g.email, api=api)
+            except company_settings.InvalidField as exc:
+                return refuse(422, str(exc))
+            except Exception:
+                log.exception("a company field could not be saved")
+                return refuse(502, "That could not be saved just now.")
+            log.info("company field %s set by %s", field, g.email)
+            still_missing = company_settings.next_missing(_chosen_settings())
+            return jsonify(ok=True, field=field, value=clean,
+                           next_field=(still_missing[0] if still_missing else None),
+                           next_label=(still_missing[1] if still_missing else None))
+
     if enable_experiments:
         # Defining an experiment and assigning leads writes to the Sheet (the A/B tests tab), so this is
         # OFF by default and in deployment. It never sends, drafts, or touches a founder column, and it
@@ -1145,7 +1186,8 @@ def _deployed():
                       review_signer=review.configured_signer_from_env(),
                       enable_send=os.environ.get("ENABLE_SEND") == "true",
                       enable_lead_chat=os.environ.get("ENABLE_LEAD_CHAT") == "true",
-                      enable_playbook=os.environ.get("ENABLE_PLAYBOOK") == "true")
+                      enable_playbook=os.environ.get("ENABLE_PLAYBOOK") == "true",
+                      enable_import=os.environ.get("ENABLE_IMPORT") == "true")
 
 
 app = _deployed()

@@ -2,6 +2,8 @@ import type {
   CallCandidateResult,
   CallProposal,
   CallResult,
+  CompanyFieldProposal,
+  CompanyFieldResult,
   ExperimentAssignResult,
   ExperimentDefineResult,
   ImportPreview,
@@ -684,6 +686,25 @@ export async function applyLeadChange(
   fetcher: typeof fetch = fetch,
 ): Promise<LeadChangeResult> {
   return leadPost<LeadChangeResult>("/api/leads/apply", payload, fetcher);
+}
+
+/** POST /api/company/interpret: read-only; a bare value answers whichever required field is
+ *  still missing, or name one explicitly ("email: a@b.test"). */
+export async function interpretCompanyField(
+  note: string,
+  fetcher: typeof fetch = fetch,
+): Promise<CompanyFieldProposal> {
+  return leadPost<CompanyFieldProposal>("/api/company/interpret", { note }, fetcher);
+}
+
+/** POST /api/company/apply: writes this one field only on confirm; returns what (if anything)
+ *  is still missing so the assistant can ask for it next. */
+export async function applyCompanyField(
+  field: string,
+  value: string,
+  fetcher: typeof fetch = fetch,
+): Promise<CompanyFieldResult> {
+  return leadPost<CompanyFieldResult>("/api/company/apply", { field, value }, fetcher);
 }
 
 async function leadPost<T>(path: string, body: unknown, fetcher: typeof fetch): Promise<T> {

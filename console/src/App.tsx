@@ -155,7 +155,17 @@ export function App({ load = loadSnapshot, ask }: { load?: () => Promise<Snapsho
       experimentsEnabled={data?.experiments_enabled ?? false}
       assistantShown={assistantShown}
       onAssistant={show}
-      assistant={<Assistant companies={companies} ask={ask} canWrite={data?.lead_chat_enabled} onChanged={refresh} onClose={() => show(false)} />}
+      assistant={
+        <Assistant
+          companies={companies}
+          ask={ask}
+          canWrite={data?.lead_chat_enabled}
+          companyNextField={data?.company_next_field}
+          companyNextLabel={data?.company_next_label}
+          onChanged={refresh}
+          onClose={() => show(false)}
+        />
+      }
       onRefresh={refresh}
     >
       {data ? (
