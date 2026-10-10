@@ -571,6 +571,36 @@ def test_an_unconfigured_console_opens_for_nobody_even_with_review_enabled(monke
     assert console._deployed().test_client().get("/api/snapshot").status_code == 503
 
 
+def test_every_feature_flag_is_read_from_its_own_environment_variable(monkeypatch):
+    """Each ENABLE_* flag is independent: unset means off, and setting one does not turn on
+    another. Catches a flag that create_app defaults to False but main() never reads from the
+    environment, so no deploy configuration could ever turn it on."""
+    names = {"enable_send": "ENABLE_SEND", "enable_lead_chat": "ENABLE_LEAD_CHAT",
+             "enable_playbook": "ENABLE_PLAYBOOK", "enable_import": "ENABLE_IMPORT",
+             "enable_calls": "ENABLE_CALLS", "enable_experiments": "ENABLE_EXPERIMENTS",
+             "enable_reply": "ENABLE_REPLY"}
+    for env_name in names.values():
+        monkeypatch.delenv(env_name, raising=False)
+
+    captured = {}
+
+    def fake_create_app(**kwargs):
+        captured.update(kwargs)
+        return None
+
+    monkeypatch.setattr(console, "create_app", fake_create_app)
+    console._deployed()
+    assert all(captured[kwarg] is False for kwarg in names)
+
+    for kwarg, env_name in names.items():
+        monkeypatch.setenv(env_name, "true")
+        captured.clear()
+        console._deployed()
+        assert captured[kwarg] is True
+        assert all(captured[other] is False for other in names if other != kwarg)
+        monkeypatch.delenv(env_name, raising=False)
+
+
 # --- an uncertain write must not be reported as "nothing was changed" ------------------------
 
 class _Uncertain:

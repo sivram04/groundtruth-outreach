@@ -1187,7 +1187,10 @@ def _deployed():
                       enable_send=os.environ.get("ENABLE_SEND") == "true",
                       enable_lead_chat=os.environ.get("ENABLE_LEAD_CHAT") == "true",
                       enable_playbook=os.environ.get("ENABLE_PLAYBOOK") == "true",
-                      enable_import=os.environ.get("ENABLE_IMPORT") == "true")
+                      enable_import=os.environ.get("ENABLE_IMPORT") == "true",
+                      enable_calls=os.environ.get("ENABLE_CALLS") == "true",
+                      enable_experiments=os.environ.get("ENABLE_EXPERIMENTS") == "true",
+                      enable_reply=os.environ.get("ENABLE_REPLY") == "true")
 
 
 app = _deployed()

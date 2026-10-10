@@ -3,7 +3,7 @@
 What exists and runs today. `ARCHITECTURE.md` is the plan; this file is the truth about what
 is actually built. **Updated after every change**, newest entry first in the change log.
 
-Last updated: 2026-10-09.
+Last updated: 2026-10-10.
 
 Pilot-readiness evidence and blockers: `docs/PILOT_READINESS_AUDIT.md`. The founder's own
 Approve-and-send click in the console (`outreach/send.py`) is built and has sent one real email
@@ -1375,6 +1375,19 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-10-10 (wire the Calls/Reply/Experiments env vars — found while closing the Import gap)** —
+  the gap flagged but not fixed in the entry below: `enable_calls`, `enable_reply` and
+  `enable_experiments` had the same unwired-env problem `enable_import` just had. Fixed in
+  `outreach/console.py`'s `main()`: it now reads `ENABLE_CALLS`, `ENABLE_REPLY` and
+  `ENABLE_EXPERIMENTS` from the environment and passes them through to `create_app`, same as the
+  other flags. Added `test_every_feature_flag_is_read_from_its_own_environment_variable` to
+  `tests/test_console_api.py`, which checks each `ENABLE_*` var independently turns on its own
+  flag and no other. Full suite: 1208 Python tests pass. **Not done**: `deploy/deploy_console.sh`
+  still does not set `ENABLE_CALLS`/`ENABLE_REPLY`/`ENABLE_EXPERIMENTS` — deliberately left out of
+  this change, since turning a feature on in production is the founder's own decision, not a
+  wiring fix. The Call panel, Reply-candidate flow and A/B tests page remain off in deploy until
+  the founder says to add those three lines to the heredoc.
+
 - **2026-10-09 (your company info via chat; Import turned on)** — the founder's ask: a way to set
   sender identity (name, title, email, phone, website, postal address, product name, daily cap)
   from the product itself, since until now it only lived in the hand-edited `outreach-settings`
@@ -1399,9 +1412,9 @@ Sheet — and how often the checks refuse it — is unknown.
   `enable_import` flag was never actually read from any environment variable (the same gap
   `enable_playbook` had before #1). Fixed the wiring in `outreach/console.py`'s `main()` and added
   `ENABLE_IMPORT: "true"` to `deploy/deploy_console.sh`; the nav link (`console/src/components.tsx`)
-  already existed, gated correctly, just never lit up. **Found but not fixed**: `enable_calls`,
-  `enable_reply` and `enable_experiments` have the identical unwired-env gap — flagged separately,
-  not bundled into this change.
+  already existed, gated correctly, just never lit up. **Found but not fixed here**: `enable_calls`,
+  `enable_reply` and `enable_experiments` had the identical unwired-env gap — fixed the next day,
+  see the 2026-10-10 entry above.
 
 - **2026-10-09 (declutter the lead page: approve leads, everything else collapses)** —
   continuing the founder's "too congested" feedback: `console/src/pages/LeadPage.tsx` now puts
