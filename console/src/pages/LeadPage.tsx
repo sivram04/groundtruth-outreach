@@ -1,6 +1,4 @@
-import { ArrowLeft, Building2, History, Mail, Send, ShieldCheck } from "lucide-react";
-import { useState } from "react";
-import { createGmailDraft, prepareDraft, sendDraft, CallError, type DraftStepResult, type SendResult } from "../api";
+import { ArrowLeft, Building2, History, Mail, ShieldCheck } from "lucide-react";
 import { Avatar, Card, ExternalLink, Status, leadTone } from "../components";
 import { DraftPreview } from "../draft-view";
 import { gmailSearch, plural, safeHref } from "../format";
@@ -31,164 +29,6 @@ export function postCallReloadKey(lead: Lead, data: Snapshot, generation = 0): s
     data.approvals?.offer ? "1" : "0",
     data.links?.handbook ?? "",
   ].join("|");
-}
-
-/** Approve-and-send: the one place a real email leaves, on the founder's click, for a draft already
- *  created in Gmail. Shown only when the server has send switched on. One click sends one email; a
- *  confirm step stands between the button and the send, and an already-sent lead just reports it. */
-/** The steps that turn a ready lead into a sendable Gmail draft: prepare the candidate, review and
- *  approve it, then create the Gmail draft. Hidden once a Gmail draft exists (Approve-and-send takes over).
- *  `prepare`/`create` are injectable for tests. */
-export function DraftWorkflow({
-  lead,
-  onChanged,
-  prepare = prepareDraft,
-  create = createGmailDraft,
-}: {
-  lead: Lead;
-  onChanged?: () => void;
-  prepare?: typeof prepareDraft;
-  create?: typeof createGmailDraft;
-}) {
-  const [busy, setBusy] = useState("");
-  const [prep, setPrep] = useState<DraftStepResult | null>(null);
-  const [made, setMade] = useState(false);
-  const [error, setError] = useState("");
-
-  if (lead.gmail_drafts?.some((d) => d.status === "CREATED")) return null; // Approve-and-send takes over
-
-  async function runPrepare() {
-    setBusy("prepare");
-    setError("");
-    setMade(false);
-    try {
-      setPrep(await prepare(lead.id));
-    } catch (e) {
-      setError(e instanceof CallError ? e.message : "The draft could not be prepared.");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function runCreate() {
-    setBusy("create");
-    setError("");
-    try {
-      await create(lead.id);
-      setMade(true);
-      onChanged?.();
-    } catch (e) {
-      setError(e instanceof CallError ? e.message : "The draft could not be created.");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  return (
-    <Card title="Prepare the draft" icon={Mail}>
-      <ol className="plain small">
-        <li>Prepare the draft for review.</li>
-        <li>
-          Review and approve it on the <a href={`#/review/${lead.id}`}>review page</a> (the offer wording must be
-          approved too).
-        </li>
-        <li>Create the Gmail draft, then send it below.</li>
-      </ol>
-      <div className="email-actions">
-        <button type="button" className="secondary" disabled={busy !== ""} onClick={runPrepare}>
-          {busy === "prepare" ? "Preparing…" : "Prepare draft for review"}
-        </button>
-        <a className="button secondary" href={`#/review/${lead.id}`}>
-          Open review
-        </a>
-        <button type="button" className="primary" disabled={busy !== ""} onClick={runCreate}>
-          {busy === "create" ? "Creating…" : "Create Gmail draft"}
-        </button>
-      </div>
-      {prep && (
-        <p className="small">
-          Candidate: <strong>{prep.status}</strong>
-          {prep.why ? ` — ${prep.why}` : ""}
-        </p>
-      )}
-      {made && <p className="small good">Gmail draft created — send it below.</p>}
-      {error && <p className="callout amber">{error}</p>}
-    </Card>
-  );
-}
-
-export function ApproveAndSend({ lead, onChanged }: { lead: Lead; onChanged?: () => void }) {
-  const created = lead.gmail_drafts?.find((item) => item.status === "CREATED");
-  const alreadySent = Boolean(lead.cells["Sent at"]);
-  const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<SendResult | null>(null);
-  const [error, setError] = useState("");
-
-  async function send() {
-    setBusy(true);
-    setError("");
-    try {
-      const result = await sendDraft(lead.id);
-      setDone(result);
-      setConfirming(false);
-      onChanged?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "The email could not be sent.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (done || alreadySent) {
-    return (
-      <Card title="Approve and send" icon={Send}>
-        <p className="good">
-          Sent{lead.email ? ` to ${lead.email}` : ""}
-          {alreadySent && lead.cells["Sent at"] ? ` (${lead.cells["Sent at"]})` : ""}.
-        </p>
-        {done && !done.recorded && (
-          <p className="callout amber">
-            The email was sent, but recording it did not confirm. Reload before sending anything else.
-          </p>
-        )}
-      </Card>
-    );
-  }
-
-  if (!created) {
-    return (
-      <Card title="Approve and send" icon={Send}>
-        <p className="muted">
-          No draft is ready in Gmail yet. Review the draft first; once it is created you can send it here.
-        </p>
-      </Card>
-    );
-  }
-
-  return (
-    <Card title="Approve and send" icon={Send}>
-      <p>
-        One click sends this one email to <strong>{lead.email}</strong>. Nothing else is sent, and a second
-        click can never send it twice.
-      </p>
-      {error && <p className="callout amber">{error}</p>}
-      {confirming ? (
-        <div className="email-actions">
-          <button type="button" className="primary" disabled={busy} onClick={send}>
-            <Send size={15} aria-hidden="true" /> {busy ? "Sending…" : `Yes, send to ${lead.email}`}
-          </button>
-          <button type="button" className="secondary" disabled={busy} onClick={() => setConfirming(false)}>
-            Cancel
-          </button>
-        </div>
-      ) : (
-        <button type="button" className="primary" onClick={() => setConfirming(true)}>
-          <Send size={15} aria-hidden="true" /> Approve and send
-        </button>
-      )}
-    </Card>
-  );
 }
 
 export function LeadPage({
@@ -230,86 +70,16 @@ export function LeadPage({
         </div>
       </div>
       {lead.error && <p className="callout amber">Where this lead stands could not be worked out: {lead.error}</p>}
+      {lead.action && <p className="muted lead-next">{lead.action}</p>}
 
-      {lead.action && (
-        <Card title="Next" icon={Send} className="next-card">
-          <p>{lead.action}</p>
-        </Card>
-      )}
-
+      {/* The lead's actionable area leads the page: the draft to approve, then any call or reply
+       *  task. Everything below is reference, not action, and starts collapsed. */}
       {draft && !data.send_enabled && (
         <Card title="The draft" icon={Mail}>
           <DraftPreview draft={draft} from={data.approvals?.sender || account} />
         </Card>
       )}
-
       {data.send_enabled && <ComposeAndSend lead={lead} draft={draft} onChanged={onChanged} />}
-
-      <div className="grid-2">
-        <Card title="The lead" icon={Building2}>
-          <dl className="facts">
-            <dt>Contact</dt>
-            <dd>{lead.contact || "-"}</dd>
-            <dt>Email</dt>
-            <dd>
-              {lead.email ? (
-                <>
-                  {lead.email} · <ExternalLink href={gmailSearch(lead.email, account)}>Open in Gmail</ExternalLink>
-                </>
-              ) : (
-                "-"
-              )}
-            </dd>
-            <dt>Phone</dt>
-            <dd>{lead.phone || "-"}</dd>
-            <dt>How to reach</dt>
-            <dd>
-              {lead.channel === "CALL"
-                ? "Call: no email on file"
-                : lead.channel === "COMPANY_ONLY"
-                  ? "No contact yet — find one"
-                  : "Email"}
-            </dd>
-            <dt>Website</dt>
-            <dd>{site ? <ExternalLink href={site}>{lead.website}</ExternalLink> : lead.website || "-"}</dd>
-            <dt>Company profile</dt>
-            <dd>{lead.profile || "not done"}</dd>
-            <dt>On hold</dt>
-            <dd>{lead.hold ? `yes: ${lead.hold}` : "no"}</dd>
-            <dt>Suppressed</dt>
-            <dd>{lead.suppressed === null ? "cannot tell" : lead.suppressed ? "yes" : "no"}</dd>
-          </dl>
-        </Card>
-
-        <Card title="Checks" icon={ShieldCheck}>
-          <dl className="facts">
-            <dt>Email check</dt>
-            <dd>
-              {lead.email_check || "not done"}
-              {lead.email_reason && `: ${lead.email_reason}`}
-            </dd>
-            <dt>Fit</dt>
-            <dd>
-              {lead.fit || "not researched"}
-              {lead.fit_reason && `: ${lead.fit_reason}`}
-            </dd>
-            <dt>First draft</dt>
-            <dd>
-              {lead.ready ? (
-                "Every check on the lead passes. A draft also needs a usable quote about the company."
-              ) : lead.blockers.length > 0 ? (
-                <ul className="plain">
-                  {lead.blockers.map((why) => (
-                    <li key={why}>{why}</li>
-                  ))}
-                </ul>
-              ) : (
-                "cannot tell"
-              )}
-            </dd>
-          </dl>
-        </Card>
-      </div>
 
       {data.calls_enabled && (
         <>
@@ -329,61 +99,131 @@ export function LeadPage({
         <ReplyCandidate leadId={lead.id} reloadKey={postCallReloadKey(lead, data, generation)} />
       )}
 
-      <Card title="Emails" icon={Mail}>
-        <dl className="facts">
-          <dt>Sent to</dt>
-          <dd>{lead.cells["Sent to"] || "-"}</dd>
-          <dt>First sent</dt>
-          <dd>{lead.cells["Sent at"] || "-"}</dd>
-          <dt>Follow-ups sent</dt>
-          <dd>{lead.cells["Follow-ups sent"] || "-"}</dd>
-          <dt>Replied</dt>
-          <dd>{lead.cells["Replied at"] || "-"}</dd>
-          <dt>Opens and clicks</dt>
-          <dd>
-            {tracked
-              ? `${lead.cells["Opens (est.)"]} opens (an estimate) and ${lead.cells["Clicks"]} clicks, over ${plural(
-                  Number(tracked),
-                  "tracked email",
-                )}`
-              : "Not tracked"}
-          </dd>
-        </dl>
-      </Card>
+      <details className="card" open={!data.send_enabled && !draft}>
+        <summary>More about this lead</summary>
 
-      <Card title="History" icon={History}>
-        {lead.events.length === 0 ? (
-          <p className="muted">Nothing recorded yet.</p>
-        ) : (
-          <ol className="history">
-            {lead.events.map((event, index) => (
-              <li key={index}>
-                <span className="history-when">{event.when}</span>
-                <span>
-                  <strong>{event.event}</strong>
-                  {event.step && <span className="muted"> · {event.step}</span>}
-                  <span className="block small muted">
-                    {event.address}
-                    {event.match && ` · tied to the lead by ${event.match}`}
+        <div className="grid-2">
+          <Card title="The lead" icon={Building2}>
+            <dl className="facts">
+              <dt>Contact</dt>
+              <dd>{lead.contact || "-"}</dd>
+              <dt>Email</dt>
+              <dd>
+                {lead.email ? (
+                  <>
+                    {lead.email} · <ExternalLink href={gmailSearch(lead.email, account)}>Open in Gmail</ExternalLink>
+                  </>
+                ) : (
+                  "-"
+                )}
+              </dd>
+              <dt>Phone</dt>
+              <dd>{lead.phone || "-"}</dd>
+              <dt>How to reach</dt>
+              <dd>
+                {lead.channel === "CALL"
+                  ? "Call: no email on file"
+                  : lead.channel === "COMPANY_ONLY"
+                    ? "No contact yet — find one"
+                    : "Email"}
+              </dd>
+              <dt>Website</dt>
+              <dd>{site ? <ExternalLink href={site}>{lead.website}</ExternalLink> : lead.website || "-"}</dd>
+              <dt>Company profile</dt>
+              <dd>{lead.profile || "not done"}</dd>
+              <dt>On hold</dt>
+              <dd>{lead.hold ? `yes: ${lead.hold}` : "no"}</dd>
+              <dt>Suppressed</dt>
+              <dd>{lead.suppressed === null ? "cannot tell" : lead.suppressed ? "yes" : "no"}</dd>
+            </dl>
+          </Card>
+
+          <Card title="Checks" icon={ShieldCheck}>
+            <dl className="facts">
+              <dt>Email check</dt>
+              <dd>
+                {lead.email_check || "not done"}
+                {lead.email_reason && `: ${lead.email_reason}`}
+              </dd>
+              <dt>Fit</dt>
+              <dd>
+                {lead.fit || "not researched"}
+                {lead.fit_reason && `: ${lead.fit_reason}`}
+              </dd>
+              <dt>First draft</dt>
+              <dd>
+                {lead.ready ? (
+                  "Every check on the lead passes. A draft also needs a usable quote about the company."
+                ) : lead.blockers.length > 0 ? (
+                  <ul className="plain">
+                    {lead.blockers.map((why) => (
+                      <li key={why}>{why}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  "cannot tell"
+                )}
+              </dd>
+            </dl>
+          </Card>
+        </div>
+
+        <Card title="Emails" icon={Mail}>
+          <dl className="facts">
+            <dt>Sent to</dt>
+            <dd>{lead.cells["Sent to"] || "-"}</dd>
+            <dt>First sent</dt>
+            <dd>{lead.cells["Sent at"] || "-"}</dd>
+            <dt>Follow-ups sent</dt>
+            <dd>{lead.cells["Follow-ups sent"] || "-"}</dd>
+            <dt>Replied</dt>
+            <dd>{lead.cells["Replied at"] || "-"}</dd>
+            <dt>Opens and clicks</dt>
+            <dd>
+              {tracked
+                ? `${lead.cells["Opens (est.)"]} opens (an estimate) and ${lead.cells["Clicks"]} clicks, over ${plural(
+                    Number(tracked),
+                    "tracked email",
+                  )}`
+                : "Not tracked"}
+            </dd>
+          </dl>
+        </Card>
+
+        <Card title="History" icon={History}>
+          {lead.events.length === 0 ? (
+            <p className="muted">Nothing recorded yet.</p>
+          ) : (
+            <ol className="history">
+              {lead.events.map((event, index) => (
+                <li key={index}>
+                  <span className="history-when">{event.when}</span>
+                  <span>
+                    <strong>{event.event}</strong>
+                    {event.step && <span className="muted"> · {event.step}</span>}
+                    <span className="block small muted">
+                      {event.address}
+                      {event.match && ` · tied to the lead by ${event.match}`}
+                    </span>
+                    {event.detail && <span className="block small">{event.detail}</span>}
                   </span>
-                  {event.detail && <span className="block small">{event.detail}</span>}
-                </span>
-              </li>
-            ))}
-          </ol>
-        )}
-      </Card>
+                </li>
+              ))}
+            </ol>
+          )}
+        </Card>
 
-      <details className="card">
-        <summary>Every column of this lead in the Sheet</summary>
-        <dl className="facts">
-          {lead.columns.map(([column, value]) => (
-            <div className="pair" key={column}>
-              <dt>{column}</dt>
-              <dd>{value || "-"}</dd>
-            </div>
-          ))}
-        </dl>
+        <details className="card nested">
+          <summary>Every column of this lead in the Sheet</summary>
+          <dl className="facts">
+            {lead.columns.map(([column, value]) => (
+              <div className="pair" key={column}>
+                <dt>{column}</dt>
+                <dd>{value || "-"}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
       </details>
     </>
   );

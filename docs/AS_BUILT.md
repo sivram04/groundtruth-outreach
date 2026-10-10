@@ -1375,6 +1375,20 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-10-09 (declutter the lead page: approve leads, everything else collapses)** —
+  continuing the founder's "too congested" feedback: `console/src/pages/LeadPage.tsx` now puts
+  the actionable area (the draft to approve / the call panel / the reply candidate) directly
+  under the header, and folds everything that is reference rather than action — lead facts,
+  checks, emails, history, the raw-column dump — into one collapsible "More about this lead"
+  (open by default only when there is nothing actionable to show, e.g. no draft and send is
+  off). Also removed two dead components that were never actually rendered on the page —
+  `DraftWorkflow` (the old prepare/review/create three-step card, superseded by
+  `ComposeAndSend`) and the standalone `ApproveAndSend` (superseded by `ComposeAndSend`'s own
+  send path) — along with their now-orphaned test files
+  (`DraftWorkflow.test.tsx`, `ApproveAndSend.test.tsx`). Frontend suite 145 pass (was 153; the 8
+  removed were exclusively for the deleted dead components), tsc clean, build clean. Same
+  caveat as the table change above: checked via component tests + build, not a live browser.
+
 - **2026-10-09 (list → click → edit, continued: paginated table + batch approve)** — the founder's
   feedback after the first real send: approving a draft took more clicks than sending it manually would,
   and the leads table showed every matching row with no limit. `console/src/pages/Leads.tsx`: capped to

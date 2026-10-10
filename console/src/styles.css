@@ -609,6 +609,14 @@ details.card[open] > summary {
   margin-bottom: 12px;
 }
 
+details.card .nested {
+  margin-top: 14px;
+}
+
+.lead-next {
+  margin: -4px 0 14px;
+}
+
 .grid-dash {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
