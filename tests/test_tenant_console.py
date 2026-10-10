@@ -65,12 +65,19 @@ class FakeConnector:
         return {"id": "conn-1", "kind": "gmail", "email": "sam@example.test"}
 
 
+IDENTITIES = {
+    "good-credential": {"sub": "g-subject-1", "email": "sam@example.test",
+                        "email_verified": True, "name": "Sam"},
+    "good-credential-2": {"sub": "g-subject-2", "email": "sam.referrals@example.test",
+                          "email_verified": True, "name": "Sam (referrals)"},
+}
+
+
 @pytest.fixture
 def client_and_fakes():
     shared_store = {"accounts": {}, "identities": {}}
-    verify_credential = lambda credential: {
-        "sub": "g-subject-1", "email": "sam@example.test", "email_verified": True, "name": "Sam",
-    } if credential == "good-credential" else (_ for _ in ()).throw(ValueError("bad credential"))
+    verify_credential = lambda credential: IDENTITIES[credential] if credential in IDENTITIES \
+        else (_ for _ in ()).throw(ValueError("bad credential"))
     connector = FakeConnector()
     app = tenant_console.create_app(
         conn_factory=lambda: FakeConn(shared_store), verify_credential=verify_credential,
@@ -101,16 +108,76 @@ def test_an_invalid_credential_is_refused_and_creates_no_session(client_and_fake
     client, connector, store = client_and_fakes
     r = client.post("/api/session/google", json={"credential": "forged"})
     assert r.status_code == 401
-    assert client.get("/api/session").get_json() == {"signed_in": False}
+    assert client.get("/api/session").get_json() == {"signed_in": False, "accounts": []}
 
 
 def test_session_reflects_signed_in_state_and_logout_clears_it(client_and_fakes):
     client, connector, store = client_and_fakes
-    assert client.get("/api/session").get_json() == {"signed_in": False}
+    assert client.get("/api/session").get_json() == {"signed_in": False, "accounts": []}
     client.post("/api/session/google", json={"credential": "good-credential"})
     assert client.get("/api/session").get_json()["signed_in"] is True
     client.post("/api/session/logout")
-    assert client.get("/api/session").get_json() == {"signed_in": False}
+    assert client.get("/api/session").get_json() == {"signed_in": False, "accounts": []}
+
+
+def test_signing_into_a_second_account_keeps_the_first_and_makes_the_second_active(client_and_fakes):
+    client, connector, store = client_and_fakes
+    first = client.post("/api/session/google", json={"credential": "good-credential"}).get_json()
+    second = client.post("/api/session/google", json={"credential": "good-credential-2"}).get_json()
+    assert first["account_id"] != second["account_id"]
+    current = client.get("/api/session").get_json()
+    assert current["account_id"] == second["account_id"]  # the one most recently signed into
+    ids = {a["account_id"] for a in current["accounts"]}
+    assert ids == {first["account_id"], second["account_id"]}  # both still signed in
+    active_flags = {a["account_id"]: a["active"] for a in current["accounts"]}
+    assert active_flags[second["account_id"]] is True and active_flags[first["account_id"]] is False
+
+
+def test_switching_to_an_already_signed_in_account_needs_no_credential(client_and_fakes):
+    client, connector, store = client_and_fakes
+    first = client.post("/api/session/google", json={"credential": "good-credential"}).get_json()
+    client.post("/api/session/google", json={"credential": "good-credential-2"})
+    r = client.post("/api/session/switch", json={"account_id": first["account_id"]})
+    assert r.status_code == 200 and r.get_json()["account_id"] == first["account_id"]
+    assert client.get("/api/session").get_json()["account_id"] == first["account_id"]
+
+
+def test_switching_to_an_account_never_signed_into_in_this_browser_is_refused(client_and_fakes):
+    client, connector, store = client_and_fakes
+    client.post("/api/session/google", json={"credential": "good-credential"})
+    r = client.post("/api/session/switch", json={"account_id": "some-other-account-never-seen"})
+    assert r.status_code == 400
+
+
+def test_logging_out_one_account_falls_back_to_another_still_signed_in(client_and_fakes):
+    client, connector, store = client_and_fakes
+    first = client.post("/api/session/google", json={"credential": "good-credential"}).get_json()
+    second = client.post("/api/session/google", json={"credential": "good-credential-2"}).get_json()
+    r = client.post("/api/session/logout", json={"account_id": second["account_id"]})
+    assert r.status_code == 200
+    current = client.get("/api/session").get_json()
+    assert current["signed_in"] is True
+    assert current["account_id"] == first["account_id"]  # the only one left
+    assert {a["account_id"] for a in current["accounts"]} == {first["account_id"]}
+
+
+def test_logging_out_with_all_true_clears_every_signed_in_account(client_and_fakes):
+    client, connector, store = client_and_fakes
+    client.post("/api/session/google", json={"credential": "good-credential"})
+    client.post("/api/session/google", json={"credential": "good-credential-2"})
+    client.post("/api/session/logout", json={"all": True})
+    assert client.get("/api/session").get_json() == {"signed_in": False, "accounts": []}
+
+
+def test_connect_routes_act_on_the_currently_active_account(client_and_fakes):
+    client, connector, store = client_and_fakes
+    first = client.post("/api/session/google", json={"credential": "good-credential"}).get_json()
+    second = client.post("/api/session/google", json={"credential": "good-credential-2"}).get_json()
+    client.post("/api/connections/gmail/start")
+    assert connector.begin_calls[-1][0] == second["account_id"]  # acts on the active (second) one
+    client.post("/api/session/switch", json={"account_id": first["account_id"]})
+    client.post("/api/connections/gmail/start")
+    assert connector.begin_calls[-1][0] == first["account_id"]  # now acts on the first
 
 
 def test_starting_a_connection_requires_signing_in_first(client_and_fakes):

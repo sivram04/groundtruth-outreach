@@ -125,6 +125,35 @@ by this code, but a compromised or misconfigured connection role could still see
 if it was never restricted in the first place. Database role provisioning is infrastructure
 work, not something `tenancy.py` can own.
 
+## Fixed, same day: one browser, several of your own accounts, no re-login to switch
+
+Founder's actual use case: one person, two of their OWN Google accounts for two purposes (a
+leads mailbox and a referral mailbox), plus a friend's separate account on the same product.
+Each purpose gets its own account/tenant (simpler than linking one account to multiple
+connections - see the superseded plan in the change history), but switching between the
+founder's own two accounts in one browser used to mean logging out and back in every time.
+
+`tenant_console.py`'s session now holds a MAP of every account signed into THIS browser
+(`{account_id: {email, name, provider_subject}}`) plus which one is active, instead of a single
+value:
+- Signing into a new account adds it to the map and makes it active - any other account already
+  signed in in this browser stays signed in too.
+- `POST /api/session/switch` makes a different already-signed-in account active with no
+  re-authentication - and can only switch to an account this browser already has a credential
+  for, so it can never activate an account nobody in this browser ever actually signed into.
+- `POST /api/session/logout` takes an optional `account_id` (sign just that one out, falling back
+  to another still-signed-in account if any remain) or `{"all": true}` (clear everything).
+- The connect routes (`start`/`callback`) always act on whichever account is currently active.
+
+This is a client-side convenience only - **it does not relax tenant isolation at all**. Every
+request still resolves to exactly one active `account_id`, and that's still the only id
+`_scope_to_tenant` ever sets for that request's RLS scope. Holding several accounts in one
+session cookie just avoids re-authenticating to switch which one is active.
+
+6 new tests (sign into two accounts, switch without re-auth, refuse switching to an account never
+signed into in this browser, logout-one vs. logout-all, connect routes follow the active
+account). Full suite 1306 pass.
+
 ## What's still needed before this is usable
 
 1. **A real Postgres connection.** The GCP project `lakshyaa-outreach` already has a Cloud SQL
