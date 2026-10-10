@@ -1386,6 +1386,35 @@ Sheet — and how often the checks refuse it — is unknown.
 
 ## Change log
 
+- **2026-10-10 (multi-project merged into main; functional testing found a real production gap)**
+  — the `multi-project` branch (7 increments: a `Project` model, a `Projects` Sheet tab, a
+  per-project handbook resolver, project-aware drafting, a first "referral" project type) had sat
+  in its own worktree (`D:\lakshyaa-outreach-mp`) since 2026-10-07, 23 commits behind `main` and
+  never merged. Rebased it onto today's `main` (one real conflict, in `job_draft._handbook`/
+  `_revalidated`/`create`/`previews`: `main` had grown a stored-playbook override via `api=`
+  since the branch diverged, while `multi-project` added per-lead `doc_id` resolution via
+  `project_handbook` - merged so BOTH apply: an explicit project `doc_id` always wins, falling
+  back to the stored playbook, then the Drive document, exactly as each did alone). Fast-forwarded
+  into `main`; one test's monkeypatched stub needed its signature updated (`handbook_drive.load`
+  now takes `doc_id`) - caught by running the full suite on `main` immediately after, not left for
+  later. Python suite 1252 pass, frontend 153 pass, tsc clean, build clean.
+  **Still true after merging**: no frontend exists for projects at all (no UI to create one,
+  switch between them, or see which project a lead belongs to) - the backend is usable only
+  through direct calls, same as before the merge.
+  **Functional testing against the real, live Sheet** (not synthetic fixtures) found a real,
+  pre-existing production gap, unrelated to this merge: calling `drafts.prepare` for a real,
+  fully-qualified, profiled lead (`A-0062`) raises `DraftsBlocked: handbook unavailable: no
+  handbook document ID is configured`. Confirmed why - **no handbook is configured anywhere in
+  production**: `HANDBOOK_DOC_ID` is set on the console's deploy but never on the worker's; the
+  `outreach-settings` secret has no `handbook_doc_id` key; and no playbook has ever been saved via
+  the chat assistant's paperclip (`company_settings`-style `overrides` for the `Playbook` tab is
+  empty). **This means "Write a first draft for me" on `ComposeAndSend` - the main button on the
+  live Dashboard's new "Ready for a first draft" queue - fails for every single lead right now**,
+  until the founder either uploads a playbook via the chat assistant (built, #1, just never used)
+  or sets a handbook Drive doc. Not a code bug to fix - the system is correctly refusing to guess
+  at content it was never given - but a real blocker the founder should know about before trying
+  the queue this session's Dashboard work surfaced.
+
 - **2026-10-10 (this session's work deployed live; found and fixed a crash before it shipped)** —
   everything built this session (auto-send, the paginated/batch-approve leads table, the
   decluttered lead page, company-info and link settings via chat, Import, the Calls/Reply/
