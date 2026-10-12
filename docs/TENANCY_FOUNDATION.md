@@ -194,3 +194,47 @@ still carrying its own stale automation - not part of this going forward.
 3. **`tenant_console.py` needs to actually be deployed somewhere** and given a real `conn_factory`
    pointed at `outreach-tenant` (connection details: host `35.253.52.165`, the root password
    above) instead of the fakes every test uses - it is still not reachable by anyone right now.
+
+## Update, 2026-10-11: porting the single-tenant outreach engine itself, started
+
+Everything above is the account/tenant layer only - sign-in, connect, isolation. Until now it
+had **zero connection** to the actual outreach engine (leads, research, drafting, sending,
+tracking), which still only existed in its single-tenant form on `main`, reading and writing one
+hardcoded Google Sheet (`outreach/sheet.py`'s module-level `SHEET_ID`) through one hardcoded
+Gmail/Sheets credential (`outreach/google_auth.py`'s `founder_credentials()`). Founder's
+instruction: port that engine so each connected account gets its own Sheet and its own Gmail,
+with the same capabilities as today. Isolated on branch `multi-tenant-engine`, worktree
+`D:\lakshyaa-outreach-engine`.
+
+Checked first whether this is a small or a large port: `Store`/`Tab` (the only code that reads or
+writes the Sheet) already take `api` as a constructor parameter rather than building one
+internally, and the job modules (`writer.py`, `drafting.py`, `research.py`, `calls.py`, etc.) are
+already storage-agnostic pure functions operating on whatever `Store`/`api` they're handed - the
+single-tenant behavior comes entirely from always constructing those with the one hardcoded
+`SHEET_ID`/`founder_credentials()`. So the real work is narrower than a rewrite: thread an
+explicit Sheet ID and an explicit per-account Google credential through, instead of changing the
+job logic itself.
+
+**Slice 1, done**: `Store.__init__`, `Tab.__init__`, the module-level `ensure_tab()` and
+`append_run()` in `outreach/sheet.py` now all accept an explicit `sheet_id`, defaulting to the
+existing `SHEET_ID` constant - every internal reference to the bare constant was replaced with
+`self.sheet_id` (or a threaded parameter, for the two free functions that aren't methods). `main`
+is unaffected: no caller on `main` passes the new parameter, so its behavior is identical.
+Full suite 1306 pass (one test helper in `test_suppression.py` constructs a `Store` via
+`Store.__new__` and needed `sheet_id` added to it by hand, since that bypasses `__init__`).
+
+**Still to do, in order**:
+1. Provision/link a Sheet per connected account - store its id somewhere (`tenant.projects`
+   already has a slot structurally similar to the single-tenant `handbook_doc_id` concept; needs
+   a migration or a reused column).
+2. Build a credentials object from a tenant connection instead of `founder_credentials()`. The
+   pieces already exist: `google_connect.Connector.access_token(conn, account_id, connection_id,
+   kind, required_scope)` already returns a live access token (refreshing and, on `invalid_grant`,
+   revoking the connection) - a thin adapter can wrap that into something `googleapiclient.build()`
+   accepts (`google.oauth2.credentials.Credentials(token=<that access token>)`), replacing
+   `founder_credentials()`'s call site in `outreach/sheet.py`'s `_api()` for the per-account path.
+3. Thread an explicit `(sheet_id, api)` pair through each job (`job_check`, `job_research`,
+   `job_profile`, `job_draft`, sync/send) instead of each one grabbing the global singleton -
+   mechanical once 1 and 2 exist, since the job functions already take `Store`/`api` as parameters.
+4. Gmail drafting/sending (`outreach/gmail_drafts.py`, `outreach/send.py`) have their own
+   singleton client the same way `outreach/sheet.py` does - same pattern of work, not yet touched.
