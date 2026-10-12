@@ -15,6 +15,7 @@ class FakeCursor:
     def __init__(self, store):
         self.store = store
         self._last = None
+        self.rowcount = 0
 
     def execute(self, sql, params=()):
         sql = " ".join(sql.split())
@@ -47,6 +48,17 @@ class FakeCursor:
             self._last = [(hit["refresh_ciphertext"], next(gs for (a, k, gs) in self.store["connections"]
                                                             if a == account_id and k == kind),
                           hit["email"], hit["scopes"])] if hit else []
+        elif sql.startswith("SELECT sheet_id FROM tenant.accounts"):
+            (account_id,) = params
+            self._last = ([(self.store.get("sheet_ids", {}).get(account_id),)]
+                          if account_id in self.store["accounts"] else [])
+        elif sql.startswith("UPDATE tenant.accounts SET sheet_id"):
+            sheet_id, account_id = params
+            if account_id in self.store["accounts"]:
+                self.store.setdefault("sheet_ids", {})[account_id] = sheet_id
+                self.rowcount = 1
+            else:
+                self.rowcount = 0
         else:
             raise AssertionError(f"FakeCursor does not know this query: {sql}")
 
@@ -179,3 +191,39 @@ def test_read_connection_needs_an_explicit_decryptor():
     account = tenancy.resolve_identity(conn, "subj-1", "sam@example.test")
     with pytest.raises(TypeError):
         tenancy.read_connection(conn, account.id, kind="gmail")
+
+
+def test_a_new_account_has_no_sheet_yet():
+    conn = FakeConn()
+    account = tenancy.resolve_identity(conn, "subj-1", "sam@example.test")
+    assert tenancy.get_sheet_id(conn, account.id) is None
+
+
+def test_set_sheet_id_is_then_read_back():
+    conn = FakeConn()
+    account = tenancy.resolve_identity(conn, "subj-1", "sam@example.test")
+    tenancy.set_sheet_id(conn, account.id, "sheet-123")
+    assert tenancy.get_sheet_id(conn, account.id) == "sheet-123"
+
+
+def test_set_sheet_id_refuses_a_blank_id():
+    conn = FakeConn()
+    account = tenancy.resolve_identity(conn, "subj-1", "sam@example.test")
+    with pytest.raises(tenancy.TenancyError):
+        tenancy.set_sheet_id(conn, account.id, "")
+
+
+def test_set_sheet_id_refuses_an_unknown_account():
+    conn = FakeConn()
+    with pytest.raises(tenancy.TenancyError):
+        tenancy.set_sheet_id(conn, "no-such-account", "sheet-123")
+
+
+def test_two_accounts_have_independent_sheets():
+    conn = FakeConn()
+    a = tenancy.resolve_identity(conn, "subj-1", "sam@example.test")
+    b = tenancy.resolve_identity(conn, "subj-2", "pat@example.test")
+    tenancy.set_sheet_id(conn, a.id, "sheet-a")
+    tenancy.set_sheet_id(conn, b.id, "sheet-b")
+    assert tenancy.get_sheet_id(conn, a.id) == "sheet-a"
+    assert tenancy.get_sheet_id(conn, b.id) == "sheet-b"

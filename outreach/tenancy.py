@@ -196,6 +196,31 @@ def get_connection_record(conn, account_id, connection_id, kind):
            "kms_key_name": kms_key_name, "email": email}
 
 
+# --- the account's own connected Sheet (outreach/tenant_sheet.py calls these) ---------------
+
+def get_sheet_id(conn, account_id):
+    """This account's connected Sheet id, or None if it has never provisioned/linked one.
+
+    `tenant.accounts` carries no RLS (see `_scope_to_tenant`'s docstring - account resolution
+    happens before a tenant is known), so this trusts the `account_id` the caller already
+    resolved, exactly like `resolve_identity` and `_account_name` do."""
+    cur = conn.cursor()
+    cur.execute("SELECT sheet_id FROM tenant.accounts WHERE id = %s", (account_id,))
+    row = cur.fetchone()
+    return row[0] if row and row[0] else None
+
+
+def set_sheet_id(conn, account_id, sheet_id):
+    """Record the Sheet this account provisioned or linked. Overwrites any prior value - an
+    account has exactly one connected Sheet at a time."""
+    if not sheet_id or not str(sheet_id).strip():
+        raise TenancyError("a sheet id is required")
+    cur = conn.cursor()
+    cur.execute("UPDATE tenant.accounts SET sheet_id = %s WHERE id = %s", (sheet_id, account_id))
+    if cur.rowcount == 0:
+        raise TenancyError(f"no such account: {account_id}")
+
+
 def revoke_connection(conn, account_id, connection_id):
     """Remove a connection entirely (e.g. its refresh token was rejected - invalid_grant).
 
