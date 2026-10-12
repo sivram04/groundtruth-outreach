@@ -128,6 +128,13 @@ function ConnectCard({ account_id }: { account_id?: string }) {
   );
 }
 
+// A pasted Google Sheets URL (.../spreadsheets/d/<id>/edit...) or a bare id - either works.
+function extractSheetId(value: string): string {
+  const trimmed = value.trim();
+  const fromUrl = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return fromUrl?.[1] ?? trimmed;
+}
+
 function SheetCard({ sheetId, onLinked }: { sheetId: string | null; onLinked: (id: string | null) => void }) {
   const [linkId, setLinkId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -137,7 +144,7 @@ function SheetCard({ sheetId, onLinked }: { sheetId: string | null; onLinked: (i
     setBusy(true);
     setError("");
     try {
-      const result = await api.linkSheet(useExisting ? linkId : undefined);
+      const result = await api.linkSheet(useExisting ? extractSheetId(linkId) : undefined);
       onLinked(result.sheet_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not set up the Sheet.");
@@ -186,7 +193,7 @@ function SheetCard({ sheetId, onLinked }: { sheetId: string | null; onLinked: (i
           <div className="row">
             <input
               type="text"
-              placeholder="Or paste an existing Sheet ID"
+              placeholder="Or paste an existing Sheet's URL or ID"
               value={linkId}
               onChange={(e) => setLinkId(e.target.value)}
             />
