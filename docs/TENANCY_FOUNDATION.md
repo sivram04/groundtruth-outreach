@@ -368,17 +368,48 @@ with no options, which is correct once deployed under a Cloud Run service accoun
 with other unrelated GCP projects' ADC state, not something the application code needs to
 handle.
 
+## Update, 2026-10-12: the OAuth client exists, and a real frontend was built
+
+Founder completed the Cloud Console side (new "Google Auth Platform" UI, successor to the old
+"OAuth consent screen" page): Branding filled in, Audience set to External/Testing with 3 test
+users (the founder, their own personal Gmail, and a friend's), and a Web OAuth client created
+under "Clients" named `outreach-tenant-console`, redirect URI
+`https://outreach-tenant-console-30387157876.us-central1.run.app/api/tenant/google/callback`
+(Cloud Run URLs in this project are deterministic - `<service>-30387157876.us-central1.run.app`
+- so the redirect URI could be fixed before anything was deployed). Client ID and secret stored
+in Secret Manager as `tenant-oauth-client-id`/`tenant-oauth-client-secret` (never typed into
+chat - founder created them directly in the Secret Manager web UI). Gmail API and Sheets API
+were already enabled on the project from the single-tenant work.
+
+Also built a real frontend: `tenant-console/`, a Vite + React + TypeScript app mirroring
+`console/`'s own conventions and design tokens, giving `tenant_console.py`'s JSON API an actual
+UI - sign in with Google (Identity Services), switch between several signed-in accounts, connect
+Gmail/Sheets, create-or-link a Sheet, run check/research/profile, and preview a draft email. Two
+small backend additions to serve it: `GET /api/config` (the OAuth client id only - public, safe
+to expose, unlike the secret) and `GET /`/`GET /assets/<path>` serving the built app, the same
+pattern `console.py` already uses.
+
+**A real bug was found and fixed by actually running this**, not just by unit tests: a relative
+`static_dir` (exactly the shape the real deploy passes, e.g. `"tenant-console/dist"`) made
+`send_from_directory` raise `NotFound` internally even though the file existed and the route
+matched - every page request 404'd. Fixed by resolving `static_dir` to an absolute path; a
+pinned regression test now covers this exact shape. Verified end-to-end against the real Flask
+app (not a fake): built the frontend, ran it with a throwaway local dev server (a fake DB cursor,
+a dev-only credential verifier accepting any string - clearly marked, never shipped), confirmed
+the sign-in page renders, `POST /api/session/google` round-trips into a real session, the
+Dashboard renders every section, and an unconfigured connector's 503 correctly reaches the UI.
+
 **What's still needed before an actual signed-in person (the founder's friend, or the founder's
 own second account) could use this for real, in order**:
-1. **An actual OAuth client in Testing mode** - `docs/OAUTH_VERIFICATION_CHECKLIST.md` on `main`
-   has the (short, no-verification-wait) steps; nothing in this branch is blocked on it, but
-   nothing works against real Google until it exists. **This is the founder's own action in
-   Cloud Console** - nothing further can be proven live without it.
+1. ~~An actual OAuth client in Testing mode~~ - **done above.**
 2. **`tenant_console.py` deployed somewhere real**, given a real `conn_factory` pointed at
    `outreach-tenant` (host `35.253.52.165`, root password in Secret Manager) instead of the fakes
    every test uses, and `GOOGLE_OAUTH_CLIENT_ID`/`_SECRET`/`_REDIRECT_URI`/`TENANT_TOKEN_KMS_KEY`
-   (now a real value: the key name above) wired as real env vars/secrets so
-   `google_connect.from_environment()` builds a real `Connector` instead of `None`.
+   now real values (`tenant-oauth-client-id`/`tenant-oauth-client-secret` secrets, the redirect
+   URI above, and the KMS key name above) so `google_connect.from_environment()` builds a real
+   `Connector` instead of `None`. Needs a production entrypoint (`_deployed()`-equivalent, like
+   `console.py`'s), a Dockerfile building both the frontend and the Python service, and a deploy
+   script - not yet written.
 3. **The founder's own explicit decision on sending for tenant accounts** - whether/how
    `send.py` gets a third sanctioned caller, and what guard(s) it needs beyond what `console.py`
    and `auto_send.py` already have (the daily cap, suppression, call-log checks already live
