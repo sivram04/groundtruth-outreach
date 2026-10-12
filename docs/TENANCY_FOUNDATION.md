@@ -1,9 +1,10 @@
 # Multi-tenant foundation: what this branch is and isn't
 
-Status: **engineering started 2026-10-10, in parallel with the founder starting Google's OAuth
-verification clock** (see `docs/OAUTH_VERIFICATION_CHECKLIST.md` on `main`). Isolated on branch
-`multi-tenant`, worktree `D:\lakshyaa-outreach-tenant`. Nothing here is merged into `main` or
-deployed. `main` stays the live, working, single-tenant product throughout.
+Status: engineering started 2026-10-10, merged into `main` 2026-10-10 (the `multi-tenant` branch
+is fully merged; its worktree can be removed). As of 2026-10-11, **a real Postgres database exists
+and tenant isolation is proven against it, live** - see the update below. Still not deployed
+anywhere; `main`'s existing single-tenant console is completely unaffected and remains what's
+actually live for real users.
 
 ## Why this branch exists, and why it isn't starting from zero
 
@@ -154,23 +155,42 @@ session cookie just avoids re-authenticating to switch which one is active.
 signed into in this browser, logout-one vs. logout-all, connect routes follow the active
 account). Full suite 1306 pass.
 
-## What's still needed before this is usable
+## Update, 2026-10-11: a real Postgres database exists and isolation is proven live
 
-1. **A real Postgres connection.** The GCP project `lakshyaa-outreach` already has a Cloud SQL
-   instance from the codex work (`outreach-staging`, currently **STOPPED** - no compute cost
-   while stopped, small storage cost). Reusable rather than provisioning a new one, once this
-   schema is applied there under its own `tenant` schema (keep it separate from any schema the
-   codex branch may have put there, to avoid cross-contamination of two different designs in the
-   same database).
-2. **Real Cloud KMS wiring** for the refresh-token ciphertext (the codex branch's own KMS
-   provisioning work, `docs/testing/staging-oauth-kms-2026-10-04.md` on that branch, is a
-   reference for how to do this - it got as far as "exact-key runtime access... with 90-day
-   rotation" before being blocked on the OAuth client itself).
-3. **An actual OAuth consent screen + client**, which needs the founder's own verification
-   submission (`docs/OAUTH_VERIFICATION_CHECKLIST.md`) - the ~6-week clock. The connect-flow
-   code (state/PKCE handling against `tenant.google_auth_attempts`) is the next slice after
-   `tenancy.py`, but it cannot be exercised against real Google sign-in until that clock
-   finishes.
-4. **A new, separate console entry point** (or a mode switch on the existing one) that resolves
-   the caller's account from the chosen auth system instead of IAP's single hardcoded identity -
-   not started.
+Reusing `outreach-staging` (the old codex work's instance) turned out not to be worth it: it
+carries leftover automation (a cost-control job auto-stopping the instance based on a label whose
+target timestamp was a week in the past) that fought every attempt to start it for long enough to
+even apply a schema - four separate attempts, via both `gcloud` and the Cloud Console UI, all lost
+the race before a change could be saved. Rather than keep fighting someone else's stale automation,
+provisioned a **new, clean instance instead**: `outreach-tenant` (Postgres 17, `db-f1-micro`,
+`us-central1`, `--edition=ENTERPRISE` - the org's default edition for new instances requires a
+larger minimum tier, so edition had to be set explicitly to get the cheap tier). No leftover
+automation, no race.
+
+Applied both migrations to it directly (`migrations/tenant/0001_registry_and_projects.sql`,
+`0002_google_connections.sql`) - confirmed via `information_schema`: schema `tenant` with tables
+`accounts`, `identities`, `projects`, `google_auth_attempts`, `google_connections`, exactly as
+expected. Then ran `tenancy.py`'s own real functions against this real database (not a fake
+cursor): created an account, confirmed a repeat sign-in resolves to the same one, confirmed a
+second identity gets a separate account, round-tripped an encrypted connection through a real
+write and read, and - the one that actually answers "how does tenant isolation work" - confirmed
+the second account **cannot read the first account's connection**, enforced by the RLS policy
+actually running against real Postgres, not a test double. Test data cleaned up afterward.
+
+The instance is currently **left running** (founder's choice, small ongoing cost at this tier) -
+root password is in Secret Manager as `outreach-tenant-root-password`, never written to this repo
+or shown in plaintext in chat. `outreach-staging` (the old instance) was left alone, untouched,
+still carrying its own stale automation - not part of this going forward.
+
+**Still needed before this is usable by an actual signed-in person:**
+1. **Real Cloud KMS wiring** for the refresh-token ciphertext (currently every test and this
+   real-DB check used an injected fake encrypt/decrypt pair - `KMSVault`'s real Cloud KMS calls
+   have never been exercised against an actual key).
+2. **An actual OAuth client.** Corrected understanding (see `docs/OAUTH_VERIFICATION_CHECKLIST.md`
+   on `main`): the founder's real near-term need is 2 known people (the founder + one external
+   friend), which fits inside Google's unverified-app Testing-mode cap of 100 users - **no
+   verification clock, no CASA, no cost, no wait**. Just needs the OAuth consent screen set up in
+   Testing mode and a client ID/secret created (steps 1-7 in that doc).
+3. **`tenant_console.py` needs to actually be deployed somewhere** and given a real `conn_factory`
+   pointed at `outreach-tenant` (connection details: host `35.253.52.165`, the root password
+   above) instead of the fakes every test uses - it is still not reachable by anyone right now.
