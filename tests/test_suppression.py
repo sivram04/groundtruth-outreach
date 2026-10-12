@@ -137,6 +137,7 @@ def store_reading(values, *, fail=False, titles=(SUPPRESSION_TAB,)):
     store = Store.__new__(Store)
     store.api = FakeApi(values, fail)
     store.titles = list(titles)
+    store.sheet_id = "fake-sheet-id"
     return store
 
 

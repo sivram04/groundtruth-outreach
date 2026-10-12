@@ -132,9 +132,9 @@ class Tab:
     row's founder values together are its fingerprint: the evidence that a row found later is
     the same lead that was read."""
 
-    def __init__(self, api, name, system_columns=()):
-        self.api, self.name, self.system = api, name, set(system_columns)
-        values = api.values().get(spreadsheetId=SHEET_ID, range=f"'{name}'").execute().get("values", [])
+    def __init__(self, api, name, system_columns=(), sheet_id=SHEET_ID):
+        self.api, self.name, self.system, self.sheet_id = api, name, set(system_columns), sheet_id
+        values = api.values().get(spreadsheetId=sheet_id, range=f"'{name}'").execute().get("values", [])
         self.header = values[HEADER_ROW - 1] if len(values) >= HEADER_ROW else []
         self.rows = []
         for offset, raw in enumerate(values[HEADER_ROW:]):
@@ -151,14 +151,14 @@ class Tab:
         if not missing:
             return
         start = len(self.header)
-        grid = next(s for s in self.api.get(spreadsheetId=SHEET_ID).execute()["sheets"]
+        grid = next(s for s in self.api.get(spreadsheetId=self.sheet_id).execute()["sheets"]
                     if s["properties"]["title"] == self.name)["properties"]
         need = start + len(missing) - grid["gridProperties"]["columnCount"]
         if need > 0:
-            self.api.batchUpdate(spreadsheetId=SHEET_ID, body={"requests": [{"appendDimension": {
+            self.api.batchUpdate(spreadsheetId=self.sheet_id, body={"requests": [{"appendDimension": {
                 "sheetId": grid["sheetId"], "dimension": "COLUMNS", "length": need}}]}).execute()
         self.api.values().update(
-            spreadsheetId=SHEET_ID, range=f"'{self.name}'!{col_letter(start)}{HEADER_ROW}",
+            spreadsheetId=self.sheet_id, range=f"'{self.name}'!{col_letter(start)}{HEADER_ROW}",
             valueInputOption="RAW", body={"values": [missing]},
         ).execute()
         self.header = self.header + missing
@@ -179,7 +179,7 @@ class Tab:
         if not updates:
             return result
         read = dict(self.rows)
-        fresh = Tab(self.api, self.name, self.system)
+        fresh = Tab(self.api, self.name, self.system, self.sheet_id)
         by_id, by_print = {}, {}
         for row, v in fresh.rows:
             if v.get("Lead ID"):
@@ -208,25 +208,25 @@ class Tab:
             result["written"] += 1
         if data:
             self.api.values().batchUpdate(
-                spreadsheetId=SHEET_ID, body={"valueInputOption": "RAW", "data": data}
+                spreadsheetId=self.sheet_id, body={"valueInputOption": "RAW", "data": data}
             ).execute()
         return result
 
 
-def ensure_tab(api, name, header):
-    tabs = {t["properties"]["title"] for t in api.get(spreadsheetId=SHEET_ID).execute()["sheets"]}
+def ensure_tab(api, name, header, sheet_id=SHEET_ID):
+    tabs = {t["properties"]["title"] for t in api.get(spreadsheetId=sheet_id).execute()["sheets"]}
     if name in tabs:
         return
-    api.batchUpdate(spreadsheetId=SHEET_ID, body={"requests": [{"addSheet": {"properties": {"title": name}}}]}).execute()
+    api.batchUpdate(spreadsheetId=sheet_id, body={"requests": [{"addSheet": {"properties": {"title": name}}}]}).execute()
     api.values().update(
-        spreadsheetId=SHEET_ID, range=f"'{name}'!A1", valueInputOption="RAW", body={"values": [header]}
+        spreadsheetId=sheet_id, range=f"'{name}'!A1", valueInputOption="RAW", body={"values": [header]}
     ).execute()
 
 
-def append_run(api, job, where, result, detail):
-    ensure_tab(api, RUNS_TAB, RUNS_HEADER)
+def append_run(api, job, where, result, detail, sheet_id=SHEET_ID):
+    ensure_tab(api, RUNS_TAB, RUNS_HEADER, sheet_id)
     api.values().append(
-        spreadsheetId=SHEET_ID, range=f"'{RUNS_TAB}'!A1", valueInputOption="RAW",
+        spreadsheetId=sheet_id, range=f"'{RUNS_TAB}'!A1", valueInputOption="RAW",
         insertDataOption="INSERT_ROWS", body={"values": [[now_utc(), job, where, result, detail]]},
     ).execute()
 
@@ -257,11 +257,12 @@ class Store:
     """The Sheet as the stage 4 jobs see it: the lead tabs, Events, Suppression and Runs, read
     once at the start of a run. Tests use an in-memory double with the same methods."""
 
-    def __init__(self, api=None):
+    def __init__(self, api=None, sheet_id=SHEET_ID):
         self.api = api or _api()
+        self.sheet_id = sheet_id
         self.titles = {s["properties"]["title"]
-                       for s in self.api.get(spreadsheetId=SHEET_ID).execute()["sheets"]}
-        self.tabs = [Tab(self.api, name, SYSTEM_COLUMNS) for name in LEAD_TABS]
+                       for s in self.api.get(spreadsheetId=sheet_id).execute()["sheets"]}
+        self.tabs = [Tab(self.api, name, SYSTEM_COLUMNS, sheet_id) for name in LEAD_TABS]
 
     def leads(self):
         return {row["Lead ID"]: row for tab in self.tabs for _, row in tab.rows if row.get("Lead ID")}
@@ -270,7 +271,7 @@ class Store:
         """(header, rows) of a tab whose header is in row 1, or None when there is no such tab."""
         if name not in self.titles:
             return None
-        values = self.api.values().get(spreadsheetId=SHEET_ID, range=f"'{name}'").execute().get("values", [])
+        values = self.api.values().get(spreadsheetId=self.sheet_id, range=f"'{name}'").execute().get("values", [])
         if not values:
             return [], []
         header = values[0]
@@ -299,7 +300,7 @@ class Store:
             raise suppression.Unreadable(f"there is no {SUPPRESSION_TAB} tab in the Sheet")
         try:
             values = self.api.values().get(
-                spreadsheetId=SHEET_ID, range=f"'{SUPPRESSION_TAB}'").execute().get("values", [])
+                spreadsheetId=self.sheet_id, range=f"'{SUPPRESSION_TAB}'").execute().get("values", [])
         except suppression.Unreadable:
             raise
         except Exception as exc:
@@ -319,7 +320,7 @@ class Store:
         shown, or later sent, with the wrong words."""
         if DRAFTS_TAB not in self.titles:
             return []
-        values = self.api.values().get(spreadsheetId=SHEET_ID,
+        values = self.api.values().get(spreadsheetId=self.sheet_id,
                                        range=f"'{DRAFTS_TAB}'").execute().get("values", [])
         if not values:
             return []
@@ -342,7 +343,7 @@ class Store:
             if moved:
                 raise RuntimeError(f"Drafts rows {moved} changed while drafts were being written; "
                                    f"nothing was rewritten")
-            self.api.values().batchUpdate(spreadsheetId=SHEET_ID, body={
+            self.api.values().batchUpdate(spreadsheetId=self.sheet_id, body={
                 "valueInputOption": "RAW",
                 "data": [{"range": f"'{DRAFTS_TAB}'!A{n}", "values": [[row.get(h, "") for h in DRAFTS_HEADER]]}
                          for n, row in sorted(replace.items())]}).execute()
@@ -360,10 +361,10 @@ class Store:
     def _append(self, name, header, rows):
         if not rows:
             return
-        ensure_tab(self.api, name, header)
+        ensure_tab(self.api, name, header, self.sheet_id)
         self.titles.add(name)
         self.api.values().append(
-            spreadsheetId=SHEET_ID, range=f"'{name}'!A1", valueInputOption="RAW",
+            spreadsheetId=self.sheet_id, range=f"'{name}'!A1", valueInputOption="RAW",
             insertDataOption="INSERT_ROWS", body={"values": rows}).execute()
 
     def append_events(self, events):
@@ -420,12 +421,12 @@ class Store:
         # Recheck presence immediately before writing, from a FRESH read, and skip any Lead ID that is
         # already there. This bounds a late-completing earlier attempt: whichever append runs second
         # sees the row and does not add a second copy. Returns only the ids actually written now.
-        present = {row.get("Lead ID", "") for _, row in Tab(self.api, name, SYSTEM_COLUMNS).rows}
+        present = {row.get("Lead ID", "") for _, row in Tab(self.api, name, SYSTEM_COLUMNS, self.sheet_id).rows}
         fresh = [row for row in rows if row["Lead ID"] not in present]
         if not fresh:
             return []
         self.api.values().append(
-            spreadsheetId=SHEET_ID, range=f"'{name}'!A{HEADER_ROW}", valueInputOption="RAW",
+            spreadsheetId=self.sheet_id, range=f"'{name}'!A{HEADER_ROW}", valueInputOption="RAW",
             insertDataOption="INSERT_ROWS",
             body={"values": [[row.get(h, "") for h in header] for row in fresh]}).execute()
         return [row["Lead ID"] for row in fresh]
@@ -566,11 +567,11 @@ class Store:
         name = {prefix: tab for tab, prefix in LEAD_TABS.items()}.get(lead_id.split("-", 1)[0])
         if not name:
             raise RuntimeError(f"{lead_id} is not a lead ID")
-        tab = Tab(self.api, name, SYSTEM_COLUMNS)
+        tab = Tab(self.api, name, SYSTEM_COLUMNS, self.sheet_id)
         found = [(number, row) for number, row in tab.rows if row.get("Lead ID") == lead_id]
         if len(found) != 1:
             raise RuntimeError(f"{lead_id}: {len(found)} rows found")
         return tab, found[0][0], found[0][1]
 
     def run_row(self, job, where, result, detail):
-        append_run(self.api, job, where, result, detail)
+        append_run(self.api, job, where, result, detail, self.sheet_id)
