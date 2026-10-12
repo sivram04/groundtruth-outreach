@@ -2,21 +2,26 @@
 credential, read the session, start and complete a Gmail connection (fake connector), and log
 out. No real Google, no real Postgres - a fake DB cursor and injected verifiers throughout."""
 
+from pathlib import Path
+
 import pytest
 
 from outreach import google_connect as gc
-from outreach import tenant_console
+from outreach import job_auto, job_draft, tenant_console, tenant_google
 
 
 class FakeCursor:
     def __init__(self, store):
         self.store = store
         self._last = None
+        self.rowcount = 0
 
     def execute(self, sql, params=()):
         sql = " ".join(sql.split())
         s = self.store
-        if sql.startswith("SELECT account_id FROM tenant.identities"):
+        if sql.startswith("SELECT set_config"):
+            pass
+        elif sql.startswith("SELECT account_id FROM tenant.identities"):
             (subject,) = params
             self._last = [(s["identities"][subject],)] if subject in s["identities"] else []
         elif sql.startswith("INSERT INTO tenant.accounts"):
@@ -28,6 +33,22 @@ class FakeCursor:
         elif sql.startswith("SELECT name FROM tenant.accounts"):
             (account_id,) = params
             self._last = [(s["accounts"][account_id],)] if account_id in s["accounts"] else []
+        elif sql.startswith("SELECT sheet_id FROM tenant.accounts"):
+            (account_id,) = params
+            self._last = [(s.get("sheet_ids", {}).get(account_id),)] if account_id in s["accounts"] else []
+        elif sql.startswith("UPDATE tenant.accounts SET sheet_id"):
+            sheet_id, account_id = params
+            if account_id in s["accounts"]:
+                s.setdefault("sheet_ids", {})[account_id] = sheet_id
+                self.rowcount = 1
+        elif sql.startswith("INSERT INTO tenant.google_connections"):
+            (account_id, connection_id, kind, google_subject, email, scopes,
+             ciphertext, kms_key_name) = params
+            s.setdefault("connections", {})[(account_id, kind)] = connection_id
+        elif sql.startswith("SELECT connection_id FROM tenant.google_connections"):
+            account_id, kind = params
+            hit = s.get("connections", {}).get((account_id, kind))
+            self._last = [(hit,)] if hit else []
         else:
             raise AssertionError(f"fake cursor does not know: {sql}")
 
@@ -52,7 +73,7 @@ class FakeConnector:
     routing/session logic, not the connect flow's internals (covered by test_google_connect.py)."""
 
     def __init__(self):
-        self.begin_calls, self.complete_calls = [], []
+        self.begin_calls, self.complete_calls, self.access_token_calls = [], [], []
 
     def begin(self, conn, account_id, provider_subject, kind):
         self.begin_calls.append((account_id, provider_subject, kind))
@@ -62,7 +83,12 @@ class FakeConnector:
         self.complete_calls.append((account_id, provider_subject, state, code))
         if code == "bad-code":
             raise gc.Refused("The Google connection request expired or was already used.")
+        conn.store.setdefault("connections", {})[(account_id, "gmail")] = "conn-1"
         return {"id": "conn-1", "kind": "gmail", "email": "sam@example.test"}
+
+    def access_token(self, conn, account_id, connection_id, kind, required_scope):
+        self.access_token_calls.append((account_id, connection_id, kind, required_scope))
+        return "fake-access-token"
 
 
 IDENTITIES = {
@@ -233,3 +259,130 @@ def test_connections_are_inert_with_no_connector_configured():
     client.post("/api/session/google", json={"credential": "good-credential"})
     r = client.post("/api/connections/gmail/start")
     assert r.status_code == 503
+
+
+class FakeSpreadsheets:
+    """Stands in for `sheets_api()`'s return value: just enough to drive ensure_sheet."""
+
+    def __init__(self, openable=()):
+        self.openable = set(openable)
+        self.created = []
+
+    def create(self, body=None):
+        new_id = f"new-sheet-{len(self.created) + 1}"
+        self.created.append(body["properties"]["title"])
+        self.openable.add(new_id)
+        return _Exec({"spreadsheetId": new_id})
+
+    def get(self, spreadsheetId):
+        if spreadsheetId not in self.openable:
+            raise RuntimeError("404: not found or no access")
+        return _Exec({"spreadsheetId": spreadsheetId})
+
+
+class _Exec:
+    def __init__(self, result):
+        self._result = result
+
+    def execute(self):
+        return self._result
+
+
+def _fake_build(monkeypatch, spreadsheets=None, gmail=None):
+    def build(service, version, **kw):
+        if service == "sheets":
+            return _SheetsBuild(spreadsheets or FakeSpreadsheets())
+        return gmail or "fake-gmail-client"
+    monkeypatch.setattr(tenant_google, "build", build)
+
+
+class _SheetsBuild:
+    def __init__(self, spreadsheets):
+        self._spreadsheets = spreadsheets
+
+    def spreadsheets(self):
+        return self._spreadsheets
+
+
+def _connect_drive(store, account_id):
+    store.setdefault("connections", {})[(account_id, "drive")] = "conn-drive-1"
+
+
+def test_link_sheet_requires_a_drive_connection_first(client_and_fakes):
+    client, connector, store = client_and_fakes
+    client.post("/api/session/google", json={"credential": "good-credential"})
+    r = client.post("/api/account/sheet")
+    assert r.status_code == 400
+    assert "Connect Google Sheets" in r.get_json()["error"]
+
+
+def test_link_sheet_creates_a_new_sheet_when_none_given(client_and_fakes, monkeypatch):
+    client, connector, store = client_and_fakes
+    account = client.post("/api/session/google", json={"credential": "good-credential"}).get_json()
+    _connect_drive(store, account["account_id"])
+    fake_sheets = FakeSpreadsheets()
+    _fake_build(monkeypatch, spreadsheets=fake_sheets)
+    r = client.post("/api/account/sheet")
+    assert r.status_code == 200
+    assert r.get_json()["sheet_id"] == "new-sheet-1"
+    assert fake_sheets.created == ["Lakshyaa outreach leads"]
+
+
+def test_link_sheet_links_an_existing_openable_sheet(client_and_fakes, monkeypatch):
+    client, connector, store = client_and_fakes
+    account = client.post("/api/session/google", json={"credential": "good-credential"}).get_json()
+    _connect_drive(store, account["account_id"])
+    _fake_build(monkeypatch, spreadsheets=FakeSpreadsheets(openable=["existing-sheet"]))
+    r = client.post("/api/account/sheet", json={"sheet_id": "existing-sheet"})
+    assert r.status_code == 200
+    assert r.get_json()["sheet_id"] == "existing-sheet"
+
+
+def test_link_sheet_refuses_a_sheet_this_account_cannot_open(client_and_fakes, monkeypatch):
+    client, connector, store = client_and_fakes
+    account = client.post("/api/session/google", json={"credential": "good-credential"}).get_json()
+    _connect_drive(store, account["account_id"])
+    _fake_build(monkeypatch, spreadsheets=FakeSpreadsheets(openable=[]))
+    r = client.post("/api/account/sheet", json={"sheet_id": "not-mine"})
+    assert r.status_code == 400
+
+
+def test_get_sheet_is_none_before_linking(client_and_fakes):
+    client, connector, store = client_and_fakes
+    client.post("/api/session/google", json={"credential": "good-credential"})
+    assert client.get("/api/account/sheet").get_json() == {"sheet_id": None}
+
+
+def test_jobs_auto_requires_a_sheet_first(client_and_fakes):
+    client, connector, store = client_and_fakes
+    client.post("/api/session/google", json={"credential": "good-credential"})
+    r = client.post("/api/jobs/auto")
+    assert r.status_code == 400
+    assert "no Sheet yet" in r.get_json()["error"]
+
+
+def test_jobs_auto_runs_against_the_accounts_own_sheet(client_and_fakes, monkeypatch):
+    client, connector, store = client_and_fakes
+    account = client.post("/api/session/google", json={"credential": "good-credential"}).get_json()
+    _connect_drive(store, account["account_id"])
+    _fake_build(monkeypatch, spreadsheets=FakeSpreadsheets())
+    sheet_id = client.post("/api/account/sheet").get_json()["sheet_id"]
+
+    captured = {}
+    monkeypatch.setattr(job_auto, "run",
+                       lambda where, **kw: captured.update(kw) or {"checked": {}, "researched": {}, "profiled": {}})
+    r = client.post("/api/jobs/auto")
+    assert r.status_code == 200
+    assert captured["sheet_id"] == sheet_id
+    assert captured["api"] is not None
+
+
+def test_there_is_no_jobs_send_route():
+    """outreach/send.py - the one sanctioned send path - may only be imported by console.py and
+    auto_send.py (tests/test_no_send.py pins this at the repo level). This test pins the same
+    invariant locally: tenant_console.py must never grow a third caller, even behind a signed-in
+    check, without the same kind of explicit founder decision those two had."""
+    import re
+    source = Path(tenant_console.__file__).read_text(encoding="utf-8")
+    assert not re.search(r"^\s*from outreach import .*\bsend\b", source, re.MULTILINE)
+    assert not re.search(r'@app\.(get|post)\("/api/jobs/send"\)', source)
