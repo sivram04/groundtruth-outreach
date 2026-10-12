@@ -156,6 +156,28 @@ def test_complete_stores_a_connection_on_a_valid_callback():
     assert len(conn.store["attempts"]) == 0  # consumed, cannot be replayed
 
 
+def test_a_real_google_scope_response_is_accepted_not_just_the_requested_alias():
+    """Regression, found live 2026-10-12: a real consent grant's token response echoes back the
+    scope "https://www.googleapis.com/auth/userinfo.email", never the literal "email" alias the
+    authorization request used - confirmed against a real Google OAuth flow, where a user who
+    visibly granted every requested permission (screenshot: both Gmail checkboxes checked) still
+    got "requested Google permissions were not granted" because SCOPES compared against the
+    literal alias. This test hardcodes that real response shape directly, not via gc.SCOPES, so
+    it cannot pass merely because SCOPES and the comparison happen to be defined from the same
+    (possibly still-wrong) set."""
+    conn = FakeConn()
+    state, nonce = _begin_and_capture_state(conn)
+    real_granted_scope = ("openid https://www.googleapis.com/auth/userinfo.email "
+                          "https://www.googleapis.com/auth/gmail.readonly "
+                          "https://www.googleapis.com/auth/gmail.compose")
+    post = lambda *a, **k: FakeResponse(200, {"refresh_token": "real-refresh-token",
+                                              "id_token": "opaque-id-token", "scope": real_granted_scope})
+    verify = lambda token: {"sub": "g-subject-1", "email": "sam@example.test",
+                            "email_verified": True, "nonce": nonce}
+    result = connector(post=post, verify=verify).complete(conn, "acct-1", "subj-1", state, "auth-code", now=NOW)
+    assert result["kind"] == "gmail"
+
+
 def test_a_state_can_never_be_reused():
     conn = FakeConn()
     state, nonce = _begin_and_capture_state(conn)

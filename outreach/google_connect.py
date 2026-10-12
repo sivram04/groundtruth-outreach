@@ -31,14 +31,21 @@ from outreach import tenancy
 
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
+USERINFO_EMAIL = "https://www.googleapis.com/auth/userinfo.email"
+# Requesting "email" works - Google accepts it as an alias - but the token response's own
+# `scope` field always echoes back the canonical URL, never the literal alias, confirmed live
+# 2026-10-12 against a real consent grant (every test before this used a fake token response
+# that happened to echo the alias back unchanged, which real Google never does). SCOPES is
+# compared directly against that response, so it must use the canonical form or the granted-
+# scope check always fails regardless of what the user actually approved.
 SCOPES = {
-    "gmail": frozenset({"openid", "email", "https://www.googleapis.com/auth/gmail.readonly",
+    "gmail": frozenset({"openid", USERINFO_EMAIL, "https://www.googleapis.com/auth/gmail.readonly",
                         "https://www.googleapis.com/auth/gmail.compose"}),
     # Full "spreadsheets", not "spreadsheets.readonly": the outreach engine writes lead status,
     # research, drafts and tracking back to the account's own Sheet - read-only would silently
     # block every write once this connection is actually used, matching what the single-tenant
     # founder OAuth (outreach/signin.py) already requests for the same reason.
-    "drive": frozenset({"openid", "email", "https://www.googleapis.com/auth/drive.readonly",
+    "drive": frozenset({"openid", USERINFO_EMAIL, "https://www.googleapis.com/auth/drive.readonly",
                         "https://www.googleapis.com/auth/spreadsheets"}),
 }
 STATE = re.compile(r"^[A-Za-z0-9_-]{30,100}$")
