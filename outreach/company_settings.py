@@ -130,20 +130,20 @@ def validate(field, raw):
     return value
 
 
-def _rows(api):
+def _rows(api, sheet_id=SHEET_ID):
     try:
-        return (api.values().get(spreadsheetId=SHEET_ID, range=f"'{TAB}'")
+        return (api.values().get(spreadsheetId=sheet_id, range=f"'{TAB}'")
                 .execute().get("values", []))
     except Exception:
         return []
 
 
-def overrides(*, api=None):
+def overrides(*, api=None, sheet_id=SHEET_ID):
     """The latest stored value for each field that has one, as a plain ``{key: value}`` dict.
 
     Empty (not None) when the tab is absent, empty, or its header does not match - callers merge
     this OVER the base settings, so an absent/empty result changes nothing."""
-    values = _rows(api or _api())
+    values = _rows(api or _api(), sheet_id)
     if len(values) < 2 or values[0] != HEADER:
         return {}
     latest = {}
@@ -155,7 +155,7 @@ def overrides(*, api=None):
     return latest
 
 
-def set_field(field, value, *, set_by, api=None, now=None):
+def set_field(field, value, *, set_by, api=None, now=None, sheet_id=SHEET_ID):
     """Append one field's new value, after validation. Returns the cleaned value actually stored."""
     if field not in LABELS:
         raise InvalidField(field, "that isn't a company field I know")
@@ -163,9 +163,9 @@ def set_field(field, value, *, set_by, api=None, now=None):
     if not (set_by or "").strip():
         raise ValueError("a company-field change must name who set it")
     api = api or _api()
-    ensure_tab(api, TAB, HEADER)
+    ensure_tab(api, TAB, HEADER, sheet_id)
     stamp = (now or datetime.now(timezone.utc)).isoformat()
     api.values().append(
-        spreadsheetId=SHEET_ID, range=f"'{TAB}'!A1", valueInputOption="RAW",
+        spreadsheetId=sheet_id, range=f"'{TAB}'!A1", valueInputOption="RAW",
         body={"values": [[stamp, set_by, field, clean]]}).execute()
     return clean

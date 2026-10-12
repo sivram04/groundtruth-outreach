@@ -8,8 +8,67 @@ from outreach import company_chat, company_settings
 from test_handbook_store import FakeApi
 
 
+class RecordingApi:
+    """Wraps FakeApi, capturing every spreadsheetId a call was made with - proves an explicit
+    sheet_id is actually threaded through to the Sheets client, not just accepted and ignored."""
+
+    def __init__(self):
+        self._fake = FakeApi()
+        self.spreadsheet_ids = []
+
+    def values(self):
+        inner = self._fake.values()
+        outer = self
+
+        class _Recording:
+            def get(self, spreadsheetId, **kw):
+                outer.spreadsheet_ids.append(spreadsheetId)
+                return inner.get(spreadsheetId=spreadsheetId, **kw)
+
+            def append(self, spreadsheetId, **kw):
+                outer.spreadsheet_ids.append(spreadsheetId)
+                return inner.append(spreadsheetId=spreadsheetId, **kw)
+
+            def update(self, spreadsheetId, **kw):
+                outer.spreadsheet_ids.append(spreadsheetId)
+                return inner.update(spreadsheetId=spreadsheetId, **kw)
+
+        return _Recording()
+
+    def get(self, spreadsheetId):
+        self.spreadsheet_ids.append(spreadsheetId)
+        return self._fake.get(spreadsheetId=spreadsheetId)
+
+    def batchUpdate(self, spreadsheetId, body):
+        self.spreadsheet_ids.append(spreadsheetId)
+        return self._fake.batchUpdate(spreadsheetId=spreadsheetId, body=body)
+
+
 def test_overrides_is_empty_when_nothing_is_stored():
     assert company_settings.overrides(api=FakeApi()) == {}
+
+
+def test_overrides_reads_the_given_sheet_id():
+    api = RecordingApi()
+    company_settings.overrides(api=api, sheet_id="tenant-sheet-9")
+    assert api.spreadsheet_ids == ["tenant-sheet-9"]
+
+
+def test_set_field_writes_to_the_given_sheet_id():
+    api = RecordingApi()
+    company_settings.set_field("sender_name", "Pat", set_by="pat@example.test", api=api,
+                               sheet_id="tenant-sheet-9")
+    assert "tenant-sheet-9" in api.spreadsheet_ids
+
+
+def test_two_accounts_with_different_sheet_ids_never_share_overrides():
+    account_a, account_b = FakeApi(), FakeApi()
+    company_settings.set_field("sender_name", "Account A", set_by="a@example.test", api=account_a,
+                               sheet_id="sheet-a")
+    company_settings.set_field("sender_name", "Account B", set_by="b@example.test", api=account_b,
+                               sheet_id="sheet-b")
+    assert company_settings.overrides(api=account_a, sheet_id="sheet-a") == {"sender_name": "Account A"}
+    assert company_settings.overrides(api=account_b, sheet_id="sheet-b") == {"sender_name": "Account B"}
 
 
 def test_set_field_then_overrides_returns_it():
