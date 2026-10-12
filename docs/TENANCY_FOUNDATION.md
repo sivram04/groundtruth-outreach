@@ -292,17 +292,73 @@ first; asks for the right connection/scope/service; a gmail-kind connection corr
 satisfy a Sheets request; `send_created_draft` actually works end-to-end against an explicit
 `sheet_id`, not just that the parameter is accepted). Full suite 1331 pass.
 
-**Still to do, in order**:
-1. Wire `ensure_sheet` into an actual route in `tenant_console.py` (e.g. right after a Google
-   connection completes, or an explicit "link my Sheet" endpoint) - it exists and is tested but
-   nothing calls it yet.
-2. None of this is wired into an actual HTTP route yet - `tenant_console.py` still only has
-   sign-in/connect, not "run check/research/profile/draft/send for my account." That's the
-   console work that turns these library-level pieces into something a signed-in user can click.
-   Concretely: a route (or a small orchestration module) that, given the active session's
-   `account_id`, builds `connector`, `conn`, `sheet_id = tenant_sheet.ensure_sheet(...)`,
-   `api = tenant_google.sheets_api(...)`, `gmail = tenant_google.gmail_api(...)`, and calls
-   `job_auto.run`/`job_draft.previews`/`job_draft.create`/`send.send_created_draft` with them.
-3. Real Cloud KMS wiring (still open from the account/tenant layer, see above) and the actual
-   OAuth client in Testing mode (also still open) are both prerequisites for step 2 to work
-   against a real signed-in person rather than tests.
+**Slice 7, done**: `tenant_console.py` now has real routes wiring the engine to a signed-in
+session, all gated by `@_signed_in` and resolving everything from the ACTIVE account - never the
+founder:
+
+- `POST /api/account/sheet` - link an existing Sheet (verified openable with this account's own
+  credential before it's trusted, via `tenant_sheet.ensure_sheet`) or create a new one with no
+  body; idempotent, matching `ensure_sheet`'s own guarantee.
+- `GET /api/account/sheet` - the account's current `sheet_id`, or `null`.
+- `POST /api/jobs/auto` - check/research/profile for this account's own leads (`job_auto.run`
+  with this account's `api`/`sheet_id`).
+- `POST /api/jobs/draft/preview` / `POST /api/jobs/draft/create` - preview and create Gmail
+  DRAFTS for this account (`job_draft.previews`/`job_draft.create`), using this account's own
+  Sheets AND Gmail credentials.
+
+`tenant_google.NotConnected`, `tenant_sheet.LinkRefused` and `job_draft.DraftBlocked` all surface
+as 400s through these routes rather than 500s.
+
+**Deliberately no `/api/jobs/send` route.** `outreach/send.py` - the one sanctioned send path -
+may only be imported by `outreach/console.py` (a human's "Approve and send" click) and
+`outreach/auto_send.py` (the scheduled, cap-limited drip), both pinned by `tests/test_no_send.py`
+per the founder's own explicit decision recorded in `CLAUDE.md`: "nothing else may send... ever,
+without the same kind of explicit founder decision these two had." Wiring a third caller in here
+quietly, just because the rest of the engine was being threaded through anyway, would have
+broken that pinned invariant (confirmed: adding the import made `test_no_send.py` fail
+immediately). Actually sending on behalf of a connected tenant account is held back as its own,
+separate decision - not bundled into this slice. A local test
+(`test_there_is_no_jobs_send_route`) pins the same thing inside `tenant_console.py` itself, so a
+future change can't reintroduce it without that test failing too.
+
+9 new tests (sheet create/link/refuse-unreadable; `jobs/auto` requires a sheet first and then
+runs against this account's own `api`/`sheet_id`, not the founder's; the no-send-route pin).
+Full suite 1339 pass.
+
+## Where this leaves the whole multi-tenant engine effort
+
+Every library-level piece of the single-tenant engine now has a tenant-scoped twin, and
+`tenant_console.py` exposes the read/draft half of it over real HTTP routes to a signed-in
+session:
+
+| Single-tenant (main)                          | Multi-tenant (this branch)                          |
+|------------------------------------------------|------------------------------------------------------|
+| `outreach/sheet.py`'s hardcoded `SHEET_ID`     | `tenant_sheet.ensure_sheet` (create or link, per account) |
+| `google_auth.founder_credentials()` (Sheets)   | `tenant_google.sheets_api(connector, conn, account_id)` |
+| `gmail_drafts.client()` (Gmail)                | `tenant_google.gmail_api(connector, conn, account_id)` |
+| `job_check/research/profile/draft.run(...)`    | same functions, now accept `api`/`sheet_id` (slices 4-5) |
+| `console.py` (IAP, one hardcoded identity)     | `tenant_console.py` (real sign-in, multi-account, isolated by RLS) |
+| `send.py` (console click or `auto_send.py`)    | **not wired for tenants - explicit founder decision needed** |
+
+**What's still needed before an actual signed-in person (the founder's friend, or the founder's
+own second account) could use this for real, in order**:
+1. **Real Cloud KMS wiring** for the refresh-token ciphertext - every test so far, including the
+   one live-DB check, used an injected fake encrypt/decrypt pair.
+2. **An actual OAuth client in Testing mode** - `docs/OAUTH_VERIFICATION_CHECKLIST.md` on `main`
+   has the (short, no-verification-wait) steps; nothing in this branch is blocked on it, but
+   nothing works against real Google until it exists.
+3. **`tenant_console.py` deployed somewhere real**, given a real `conn_factory` pointed at
+   `outreach-tenant` (host `35.253.52.165`, root password in Secret Manager) instead of the fakes
+   every test uses.
+4. **The founder's own explicit decision on sending for tenant accounts** - whether/how
+   `send.py` gets a third sanctioned caller, and what guard(s) it needs beyond what `console.py`
+   and `auto_send.py` already have (the daily cap, suppression, call-log checks already live
+   inside `send_created_draft`/`job_draft.create` either way).
+5. **Per-account settings/company identity** (`outreach/company_settings.py`'s product name,
+   sender email, daily cap, etc.) are still a single global, read the same way regardless of
+   which account's jobs are running - not addressed by this effort, and likely the next real gap
+   once routing and sending are both wired.
+6. Follow-ups, sync/reply handling, tracking, calls, and A/B tests (`outreach/sync.py`,
+   `tracking_job.py`, `calls.py`, `experiments.py`) all already take `Store`/`api` as parameters
+   the same way the modules in this doc did, so the same `(api, sheet_id)`-threading pattern
+   applies to them too - not yet done, not yet needed until the above are live.
