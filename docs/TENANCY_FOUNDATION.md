@@ -1,10 +1,12 @@
 # Multi-tenant foundation: what this branch is and isn't
 
 Status: engineering started 2026-10-10, merged into `main` 2026-10-10 (the `multi-tenant` branch
-is fully merged; its worktree can be removed). As of 2026-10-11, **a real Postgres database exists
-and tenant isolation is proven against it, live** - see the update below. Still not deployed
-anywhere; `main`'s existing single-tenant console is completely unaffected and remains what's
-actually live for real users.
+is fully merged; its worktree can be removed). As of 2026-10-11, a real Postgres database exists
+and tenant isolation is proven against it, live. **As of 2026-10-12, this is live on Cloud Run**
+(`outreach-tenant-console`, behind IAP, the founder + two external test accounts granted access)
+- still on branch `multi-tenant-engine`, not merged to `main`. `main`'s existing single-tenant
+console is completely unaffected and remains the product's primary live surface; this is a
+second, separate, additionally-live service, not a replacement (yet).
 
 ## Why this branch exists, and why it isn't starting from zero
 
@@ -399,22 +401,59 @@ a dev-only credential verifier accepting any string - clearly marked, never ship
 the sign-in page renders, `POST /api/session/google` round-trips into a real session, the
 Dashboard renders every section, and an unconfigured connector's 503 correctly reaches the UI.
 
+## Update, 2026-10-12: live on Cloud Run, behind IAP
+
+`tenant_console.py` is deployed for real: service `outreach-tenant-console`, region
+`us-central1`, URL `https://outreach-tenant-console-30387157876.us-central1.run.app`.
+`outreach/tenant_console._deployed()` (the `console.py`-equivalent production entrypoint), a
+Dockerfile building both the frontend and the Python service
+(`deploy/tenant_console.Dockerfile`), a Cloud Build config, and setup/deploy scripts
+(`deploy/setup_tenant_console.sh`, `deploy/deploy_tenant_console.sh`) were all built, then
+actually run against the real project - not just written and left untested.
+
+**Two real deploy-time bugs found and fixed by actually deploying, not by code review**:
+- `gcloud builds submit` uploads the whole working directory unless `.gcloudignore`/
+  `.dockerignore` say otherwise. `tenant-console/node_modules` (installed locally for Windows,
+  with platform-specific native binaries) was never excluded the way `console/`'s already was -
+  `COPY tenant-console/ ./` overwrote the Linux `node_modules` `npm ci` had just installed inside
+  the container, and the build failed with `tsc: Permission denied`. Fixed by adding the same
+  exclusion `console/node_modules` already had.
+- `COPY requirements.txt requirements-tenant.txt .` - Docker refuses a multi-source `COPY` whose
+  destination isn't an explicit directory (`.` vs `./`, the exact form the line above it already
+  used correctly). Both caught by an actual Cloud Build run, confirmed fixed with a local
+  `docker build` before retrying.
+
+**A real infrastructure/org-policy obstacle, not a code bug**: the org's "Domain Restricted
+Sharing" policy (`constraints/iam.allowedPolicyMemberDomains`) refuses `--allow-unauthenticated`
+outright for any Cloud Run service in this project - confirmed the first deploy succeeded but
+returned 403 to everyone, and that even the existing `outreach-public` service was never
+actually public (it's IAP-gated too, despite its name). Switched to `--no-allow-unauthenticated
+--iap`, the same gate `outreach-console` already uses - this doesn't change this app's real
+security boundary (its own Google Identity Services sign-in plus Postgres RLS scoping by
+`account_id`); IAP is only an outer gate on who can reach the sign-in page at all. The SAME org
+policy then also refused granting IAP access to either external email (personal Gmail, the
+friend's) - "not in permitted organization" - because the constraint restricts granting IAM to
+any identity outside the Workspace org's own customer ID, not just `allUsers`. Founder's explicit
+choice (not pushed through silently): a **project-scoped** policy override
+(`projects/lakshyaa-outreach/policies/iam.allowedPolicyMemberDomains`, `allowAll: true`) -
+affects only this one project, the org-wide default is untouched everywhere else. All 3 people
+(founder, founder's own Gmail, the friend) now hold `roles/iap.httpsResourceAccessor` on the
+service; confirmed live (`curl` returns IAP's own sign-in redirect, not a 403, and
+`admin@lakshyaa.ai` is granted access as expected).
+
 **What's still needed before an actual signed-in person (the founder's friend, or the founder's
 own second account) could use this for real, in order**:
 1. ~~An actual OAuth client in Testing mode~~ - **done above.**
-2. **`tenant_console.py` deployed somewhere real**, given a real `conn_factory` pointed at
-   `outreach-tenant` (host `35.253.52.165`, root password in Secret Manager) instead of the fakes
-   every test uses, and `GOOGLE_OAUTH_CLIENT_ID`/`_SECRET`/`_REDIRECT_URI`/`TENANT_TOKEN_KMS_KEY`
-   now real values (`tenant-oauth-client-id`/`tenant-oauth-client-secret` secrets, the redirect
-   URI above, and the KMS key name above) so `google_connect.from_environment()` builds a real
-   `Connector` instead of `None`. Needs a production entrypoint (`_deployed()`-equivalent, like
-   `console.py`'s), a Dockerfile building both the frontend and the Python service, and a deploy
-   script - not yet written.
-3. **The founder's own explicit decision on sending for tenant accounts** - whether/how
+2. ~~`tenant_console.py` deployed somewhere real~~ - **done above, live.**
+3. **A real person has not yet actually signed in and used it** - the deploy and the access
+   grants are proven; an end-to-end real-Google-account walkthrough (IAP sign-in, then the app's
+   own GSI sign-in, connect Gmail/Sheets, create/link a Sheet, run check/research/profile,
+   preview a draft) has not. That's the next real-world verification, not a code change.
+4. **The founder's own explicit decision on sending for tenant accounts** - whether/how
    `send.py` gets a third sanctioned caller, and what guard(s) it needs beyond what `console.py`
    and `auto_send.py` already have (the daily cap, suppression, call-log checks already live
    inside `send_created_draft`/`job_draft.create` either way).
-4. **Per-account settings/company identity** - **done, 2026-10-12**. `outreach/company_settings.
+5. **Per-account settings/company identity** - **done, 2026-10-12**. `outreach/company_settings.
    py`'s `overrides()`/`set_field()` now take the same `sheet_id` as every other engine module
    (defaulting to `SHEET_ID`, `main` unaffected), so sender name/email/product name/daily cap can
    be stored and read per connected account's own Sheet instead of one shared global. 4 new tests
@@ -422,7 +461,7 @@ own second account) could use this for real, in order**:
    identities never mix. Full suite 1342 pass. Not yet wired into a `tenant_console.py` route -
    no UI/API surface exists for a signed-in account to set its own identity yet (library-level
    piece only, same order as everything else in this doc).
-5. **Follow-ups, sync/reply handling, tracking, calls, A/B tests - checked, 2026-10-12, no code
+6. **Follow-ups, sync/reply handling, tracking, calls, A/B tests - checked, 2026-10-12, no code
    needed.** `outreach/sync.py` and `tracking_job.py` already accept an injected `store=None ->
    Store()`; since `Store` already takes `sheet_id` (slice 1), a caller can already do
    `sync.run(store=Store(api, sheet_id=...), gmail=...)` or the same for `tracking_job.run` with
