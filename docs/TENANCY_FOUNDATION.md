@@ -237,18 +237,29 @@ founder/friend's existing accounts want to link an existing Sheet with real data
 future new signup would want one auto-created. 10 new tests, offline against a fake Sheets client
 and fake DB cursor. Full suite 1316 pass.
 
+**Slice 3, done**: `outreach/tenant_google.sheets_api(connector, conn, account_id)` replaces
+`founder_credentials()` for the per-account path - looks up the account's own `drive`-kind
+connection (`tenancy.latest_connection_id`, added for this), asks the already-built `Connector`
+for a fresh access token (it already refreshes and, on `invalid_grant`, revokes a dead
+connection), wraps it in a bare `Credentials(token=...)` and builds a Sheets client authorized
+as that account - never the founder.
+
+Fixed a real gap found wiring this up: the `drive` connection kind in `google_connect.SCOPES`
+only ever requested `spreadsheets.readonly`. The outreach engine *writes* to the Sheet (lead
+status, research, drafts, tracking) - read-only would have silently blocked every one of those
+writes the first time a real account tried to use it. Widened to full `spreadsheets`, matching
+what the single-tenant founder OAuth (`outreach/signin.py`) already requests for exactly this
+reason. 2 new tests (no connection yet refuses with `NotConnected`; the right account, connection
+and scope are asked for, and the returned token reaches the Sheets client). Full suite 1318 pass.
+
 **Still to do, in order**:
-1. Build a credentials object from a tenant connection instead of `founder_credentials()`. The
-   pieces already exist: `google_connect.Connector.access_token(conn, account_id, connection_id,
-   kind, required_scope)` already returns a live access token (refreshing and, on `invalid_grant`,
-   revoking the connection) - a thin adapter can wrap that into something `googleapiclient.build()`
-   accepts (`google.oauth2.credentials.Credentials(token=<that access token>)`), replacing
-   `founder_credentials()`'s call site in `outreach/sheet.py`'s `_api()` for the per-account path.
-2. Thread an explicit `(sheet_id, api)` pair through each job (`job_check`, `job_research`,
+1. Thread an explicit `(sheet_id, api)` pair through each job (`job_check`, `job_research`,
    `job_profile`, `job_draft`, sync/send) instead of each one grabbing the global singleton -
-   mechanical once 1 exists, since the job functions already take `Store`/`api` as parameters.
-3. Gmail drafting/sending (`outreach/gmail_drafts.py`, `outreach/send.py`) have their own
-   singleton client the same way `outreach/sheet.py` does - same pattern of work, not yet touched.
-4. Wire `ensure_sheet` into an actual route in `tenant_console.py` (e.g. right after a Google
+   mechanical now that both pieces (which Sheet, which credential) exist, since the job functions
+   already take `Store`/`api` as parameters.
+2. Gmail drafting/sending (`outreach/gmail_drafts.py`, `outreach/send.py`) have their own
+   singleton client the same way `outreach/sheet.py` did - same pattern of work (a `tenant_google.
+   gmail_api`-shaped twin of `sheets_api`), not yet touched.
+3. Wire `ensure_sheet` into an actual route in `tenant_console.py` (e.g. right after a Google
    connection completes, or an explicit "link my Sheet" endpoint) - it exists and is tested but
    nothing calls it yet.
