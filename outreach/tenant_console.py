@@ -29,6 +29,7 @@ Every route takes its dependencies by injection (``conn_factory``, ``verify_cred
 offline.
 """
 
+import logging
 import os
 from functools import wraps
 from pathlib import Path
@@ -325,3 +326,49 @@ def create_app(*, conn_factory, verify_credential, connector=None, secret_key=No
     # its own explicit decision, matching how the founder's own single-tenant send path was added.
 
     return app
+
+
+def _conn_factory():
+    """A real Postgres connection to the tenant database, per request (closed by `_with_conn`).
+
+    Only ever called lazily, inside a request - importing this module, or building the app with
+    `_deployed()`, never opens a connection or requires these env vars to be set (same convention
+    as `outreach.sheet._api()`/`outreach.google_auth.founder_credentials()`: real I/O deferred
+    until something actually needs it)."""
+    import psycopg
+    return psycopg.connect(
+        host=os.environ["TENANT_DB_HOST"],
+        dbname=os.environ.get("TENANT_DB_NAME", "postgres"),
+        user=os.environ.get("TENANT_DB_USER", "postgres"),
+        password=os.environ["TENANT_DB_PASSWORD"],
+        sslmode=os.environ.get("TENANT_DB_SSLMODE", "require"),
+    )
+
+
+def _verify_credential(credential):
+    """Verifies a Google Identity Services credential JWT against the real OAuth client's id -
+    the same id the frontend was handed via GET /api/config, so a credential issued for a
+    different app is refused."""
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token
+    return id_token.verify_oauth2_token(credential, google_requests.Request(),
+                                        os.environ.get("GOOGLE_OAUTH_CLIENT_ID"))
+
+
+def _deployed():
+    """The real, production app: a real Postgres connection factory, a real Google credential
+    verifier, and a real Connector when the OAuth client's env vars/secrets are present
+    (`google_connect.from_environment()` returns None otherwise, and the connect routes then
+    correctly refuse with 503 rather than crash - see their docstrings)."""
+    logging.basicConfig(level=logging.INFO)
+    return create_app(
+        conn_factory=_conn_factory,
+        verify_credential=_verify_credential,
+        connector=google_connect.from_environment(),
+        secret_key=(os.environ.get("TENANT_CONSOLE_SECRET_KEY") or "").encode() or None,
+        static_dir=os.environ.get("TENANT_CONSOLE_STATIC_DIR") or None,
+        google_client_id=os.environ.get("GOOGLE_OAUTH_CLIENT_ID", ""),
+    )
+
+
+app = _deployed()

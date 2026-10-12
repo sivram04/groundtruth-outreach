@@ -424,3 +424,50 @@ def test_the_page_route_serves_the_built_index_html(tmp_path):
     assert r.status_code == 200 and b"tenant console" in r.data
     r2 = client.get("/assets/app.js")
     assert r2.status_code == 200
+
+
+def test_deployed_builds_cleanly_with_no_environment_configured(monkeypatch):
+    """Importing the module (app = _deployed()) must never require real env vars, real Postgres
+    or real Google credentials - conn_factory/verify_credential/connector are only ever touched
+    per-request, never at app-construction time. Every test in this file already proves this by
+    merely importing tenant_console; this test pins it explicitly against a route that touches
+    neither (GET /api/session only reads the Flask session cookie)."""
+    for name in ("GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REDIRECT_URI",
+                 "TENANT_TOKEN_KMS_KEY", "TENANT_DB_HOST", "TENANT_DB_PASSWORD"):
+        monkeypatch.delenv(name, raising=False)
+    app = tenant_console._deployed()
+    r = app.test_client().get("/api/session")
+    assert r.status_code == 200
+    assert r.get_json() == {"signed_in": False, "accounts": []}
+
+
+def test_deployed_s_conn_factory_needs_real_db_env_vars_only_when_actually_called(monkeypatch):
+    """A route that DOES need a connection (sign-in) fails rather than silently connecting
+    nowhere, if the DB env vars were never set - proving conn_factory is still lazy (deferred to
+    the first request that needs it), not memoized or validated at app-construction time."""
+    for name in ("TENANT_DB_HOST", "TENANT_DB_PASSWORD"):
+        monkeypatch.delenv(name, raising=False)
+    app = tenant_console._deployed()
+    r = app.test_client().post("/api/session/google", json={"credential": "x"})
+    assert r.status_code == 500
+
+
+def test_deployed_passes_each_env_var_to_the_right_create_app_argument(monkeypatch):
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "client-123")
+    monkeypatch.setenv("TENANT_CONSOLE_STATIC_DIR", "/srv/static")
+    monkeypatch.setenv("TENANT_CONSOLE_SECRET_KEY", "a-real-persisted-secret")
+
+    captured = {}
+
+    def fake_create_app(**kwargs):
+        captured.update(kwargs)
+        return "the-app"
+
+    monkeypatch.setattr(tenant_console, "create_app", fake_create_app)
+    result = tenant_console._deployed()
+    assert result == "the-app"
+    assert captured["google_client_id"] == "client-123"
+    assert captured["static_dir"] == "/srv/static"
+    assert captured["secret_key"] == b"a-real-persisted-secret"
+    assert callable(captured["conn_factory"])
+    assert callable(captured["verify_credential"])
