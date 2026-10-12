@@ -38,6 +38,8 @@ from flask import Flask, jsonify, request, send_from_directory, session
 
 from outreach import google_connect, job_auto, job_draft, tenancy, tenant_google, tenant_sheet
 
+log = logging.getLogger("outreach.tenant_console")
+
 ACCOUNTS_KEY = "accounts"  # {account_id: {"email":, "name":, "provider_subject":}}
 ACTIVE_KEY = "active_account_id"
 ASSET_CACHE = "private, max-age=31536000, immutable"
@@ -186,6 +188,7 @@ def create_app(*, conn_factory, verify_credential, connector=None, secret_key=No
         try:
             url = connector.begin(conn, active, subject, kind)
         except (google_connect.Refused, ValueError) as exc:
+            log.warning("connect_start(%s) refused for account %s: %s", kind, active, exc, exc_info=True)
             return jsonify(error=str(exc)), 400
         return jsonify(authorization_url=url)
 
@@ -201,6 +204,7 @@ def create_app(*, conn_factory, verify_credential, connector=None, secret_key=No
         try:
             result = connector.complete(conn, active, subject, state, code)
         except google_connect.Refused as exc:
+            log.warning("connect_callback refused for account %s: %s", active, exc, exc_info=True)
             return jsonify(error=str(exc)), 400
         return jsonify(ok=True, **result)
 
@@ -214,6 +218,7 @@ def create_app(*, conn_factory, verify_credential, connector=None, secret_key=No
         except tenant_google.NotConnected:
             return None, ("Connect Google Sheets for this account first.", 400)
         except google_connect.Refused as exc:
+            log.warning("sheets_api refused for account %s: %s", account_id, exc, exc_info=True)
             return None, (str(exc), 400)
 
     def _gmail_api(conn, account_id):
@@ -224,6 +229,7 @@ def create_app(*, conn_factory, verify_credential, connector=None, secret_key=No
         except tenant_google.NotConnected:
             return None, ("Connect Gmail for this account first.", 400)
         except google_connect.Refused as exc:
+            log.warning("gmail_api refused for account %s: %s", account_id, exc, exc_info=True)
             return None, (str(exc), 400)
 
     @app.post("/api/account/sheet")
