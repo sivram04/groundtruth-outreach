@@ -117,6 +117,23 @@ def save_connection(conn, account_id, *, kind, google_subject, email, scopes, re
     return connection_id
 
 
+def latest_connection_id(conn, account_id, kind):
+    """This account's current connection id for `kind`, or None - the same "most recent wins"
+    row `read_connection` and `save_connection`'s upsert already treat as the live connection.
+    For a caller (like `outreach/tenant_google.py`) that needs the id itself to ask
+    `google_connect.Connector.access_token` for a fresh access token."""
+    if kind not in KINDS:
+        raise TenancyError(f"unknown connection kind: {kind}")
+    _scope_to_tenant(conn, account_id)
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT connection_id FROM tenant.google_connections
+           WHERE account_id = %s AND kind = %s ORDER BY connected_at DESC LIMIT 1""",
+        (account_id, kind))
+    row = cur.fetchone()
+    return str(row[0]) if row else None
+
+
 def read_connection(conn, account_id, *, kind, decrypt):
     """The decrypted refresh token for this account's connection of this kind, or None.
 

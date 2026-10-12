@@ -34,8 +34,12 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 SCOPES = {
     "gmail": frozenset({"openid", "email", "https://www.googleapis.com/auth/gmail.readonly",
                         "https://www.googleapis.com/auth/gmail.compose"}),
+    # Full "spreadsheets", not "spreadsheets.readonly": the outreach engine writes lead status,
+    # research, drafts and tracking back to the account's own Sheet - read-only would silently
+    # block every write once this connection is actually used, matching what the single-tenant
+    # founder OAuth (outreach/signin.py) already requests for the same reason.
     "drive": frozenset({"openid", "email", "https://www.googleapis.com/auth/drive.readonly",
-                        "https://www.googleapis.com/auth/spreadsheets.readonly"}),
+                        "https://www.googleapis.com/auth/spreadsheets"}),
 }
 STATE = re.compile(r"^[A-Za-z0-9_-]{30,100}$")
 KMS_KEY = re.compile(r"^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+$")
