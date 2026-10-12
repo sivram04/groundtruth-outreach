@@ -1,0 +1,6 @@
+# Builds the multi-tenant console's image from deploy/tenant_console.Dockerfile. `gcloud run
+# deploy --source` only reads a Dockerfile at the root, and that one is the worker's.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "deploy/tenant_console.Dockerfile", "-t", "$_IMAGE", "."]
+images: ["$_IMAGE"]
