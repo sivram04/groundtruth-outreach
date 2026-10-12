@@ -96,6 +96,19 @@ def test_it_sends_the_created_draft_and_marks_it_sent(monkeypatch):
     assert lead["Draft status"] == "SENT" and lead["Sent at"]
 
 
+def test_sending_against_a_different_sheet_id_still_works_end_to_end(monkeypatch):
+    """A caller that passes an explicit sheet_id (a connected account's own Sheet, not the
+    founder's) still finds the lead, sends, and records the result - proving the parameter is
+    actually threaded through _find/_set_status, not just accepted and ignored."""
+    monkeypatch.setenv("ENABLE_SEND", "true")
+    api, gmail = sheets(), FakeGmail()
+    result = send.send_created_draft("A-0001", sent_by="admin@lakshyaa.ai", api=api, gmail=gmail,
+                                     sheet_id="tenant-sheet-1")
+    assert result["sent"] and result["recorded"]
+    _, _, lead = send._find(api, "A-0001", "tenant-sheet-1")
+    assert lead["Draft status"] == "SENT" and lead["Sent at"]
+
+
 def test_a_second_click_never_sends_a_second_email(monkeypatch):
     monkeypatch.setenv("ENABLE_SEND", "true")
     api, gmail = sheets(), FakeGmail()

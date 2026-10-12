@@ -13,11 +13,24 @@ from outreach import tenancy
 from outreach.google_connect import SCOPES, Refused
 
 DRIVE_KIND = "drive"
+GMAIL_KIND = "gmail"
 SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
+GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose"
 
 
 class NotConnected(Exception):
     """This account has no (usable) Google connection of the kind an API call needs."""
+
+
+def _client(connector, conn, account_id, *, kind, scope, service, version):
+    if scope not in SCOPES[kind]:
+        raise AssertionError(f"the {kind} connection kind no longer grants the scope this needs")
+    connection_id = tenancy.latest_connection_id(conn, account_id, kind)
+    if connection_id is None:
+        raise NotConnected(f"account {account_id} has no {kind} connection; it must connect first")
+    access_token = connector.access_token(conn, account_id, connection_id, kind, scope)
+    credentials = Credentials(token=access_token)
+    return build(service, version, credentials=credentials, cache_discovery=False)
 
 
 def sheets_api(connector, conn, account_id):
@@ -25,12 +38,13 @@ def sheets_api(connector, conn, account_id):
     credential - never the founder's. Raises `NotConnected` if the account never connected (or
     its connection was revoked), `google_connect.Refused` if Google itself refuses to refresh it
     (expired/revoked token - the caller should ask the account to reconnect)."""
-    connection_id = tenancy.latest_connection_id(conn, account_id, DRIVE_KIND)
-    if connection_id is None:
-        raise NotConnected(
-            f"account {account_id} has no {DRIVE_KIND} connection; it must connect Google Sheets first")
-    if SHEETS_SCOPE not in SCOPES[DRIVE_KIND]:
-        raise AssertionError("the drive connection kind no longer grants Sheets write access")
-    access_token = connector.access_token(conn, account_id, connection_id, DRIVE_KIND, SHEETS_SCOPE)
-    credentials = Credentials(token=access_token)
-    return build("sheets", "v4", credentials=credentials, cache_discovery=False).spreadsheets()
+    return _client(connector, conn, account_id, kind=DRIVE_KIND, scope=SHEETS_SCOPE,
+                  service="sheets", version="v4").spreadsheets()
+
+
+def gmail_api(connector, conn, account_id):
+    """This account's own Gmail client, authorized with ITS connected Google credential - never
+    the founder's. Same failure modes as `sheets_api`: `NotConnected` with no connection yet,
+    `google_connect.Refused` if Google refuses to refresh an expired/revoked token."""
+    return _client(connector, conn, account_id, kind=GMAIL_KIND, scope=GMAIL_COMPOSE_SCOPE,
+                  service="gmail", version="v1")

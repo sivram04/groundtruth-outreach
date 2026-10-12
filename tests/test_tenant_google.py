@@ -60,10 +60,10 @@ class FakeConnector:
         return self.token
 
 
-def _connected_account(conn):
+def _connected_account(conn, kind="drive", scopes=("https://www.googleapis.com/auth/spreadsheets",)):
     account = tenancy.resolve_identity(conn, "subj-1", "sam@example.test")
-    tenancy.save_connection(conn, account.id, kind="drive", google_subject="subj-1",
-                            email="sam@example.test", scopes=["https://www.googleapis.com/auth/spreadsheets"],
+    tenancy.save_connection(conn, account.id, kind=kind, google_subject="subj-1",
+                            email="sam@example.test", scopes=list(scopes),
                             refresh_token="refresh-token", encrypt=lambda p: p, kms_key_name="k")
     return account.id
 
@@ -98,3 +98,42 @@ def test_sheets_api_asks_the_connector_for_the_right_connection_and_scope(monkey
 class _FakeBuild:
     def spreadsheets(self):
         return "sheets-client"
+
+
+def test_gmail_api_needs_a_connection_first():
+    conn = FakeConn()
+    account = tenancy.resolve_identity(conn, "subj-1", "sam@example.test")
+    with pytest.raises(tenant_google.NotConnected):
+        tenant_google.gmail_api(FakeConnector(), conn, account.id)
+
+
+def test_gmail_api_asks_the_connector_for_the_right_connection_and_scope(monkeypatch):
+    conn = FakeConn()
+    account_id = _connected_account(conn, kind="gmail",
+                                   scopes=["https://www.googleapis.com/auth/gmail.compose"])
+    connector = FakeConnector()
+    captured = {}
+
+    def fake_build(service, version, **k):
+        captured["service"], captured["version"], captured["creds"] = service, version, k.get("credentials")
+        return "gmail-client"
+
+    monkeypatch.setattr(tenant_google, "build", fake_build)
+    result = tenant_google.gmail_api(connector, conn, account_id)
+    assert result == "gmail-client"
+    [(called_account, connection_id, kind, scope)] = connector.calls
+    assert called_account == account_id
+    assert kind == "gmail"
+    assert scope == "https://www.googleapis.com/auth/gmail.compose"
+    assert captured["service"] == "gmail" and captured["version"] == "v1"
+    assert captured["creds"].token == "fresh-access-token"
+
+
+def test_gmail_connection_does_not_satisfy_a_sheets_request():
+    """A gmail-kind connection can never be used to authorize a Sheets call - the connection
+    kinds stay separate, each scoped to only what it actually grants."""
+    conn = FakeConn()
+    account_id = _connected_account(conn, kind="gmail",
+                                   scopes=["https://www.googleapis.com/auth/gmail.compose"])
+    with pytest.raises(tenant_google.NotConnected):
+        tenant_google.sheets_api(FakeConnector(), conn, account_id)
