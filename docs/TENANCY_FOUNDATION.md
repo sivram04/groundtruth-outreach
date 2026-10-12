@@ -383,11 +383,20 @@ own second account) could use this for real, in order**:
    `send.py` gets a third sanctioned caller, and what guard(s) it needs beyond what `console.py`
    and `auto_send.py` already have (the daily cap, suppression, call-log checks already live
    inside `send_created_draft`/`job_draft.create` either way).
-4. **Per-account settings/company identity** (`outreach/company_settings.py`'s product name,
-   sender email, daily cap, etc.) are still a single global, read the same way regardless of
-   which account's jobs are running - not addressed by this effort, and likely the next real gap
-   once routing and sending are both wired.
-5. Follow-ups, sync/reply handling, tracking, calls, and A/B tests (`outreach/sync.py`,
-   `tracking_job.py`, `calls.py`, `experiments.py`) all already take `Store`/`api` as parameters
-   the same way the modules in this doc did, so the same `(api, sheet_id)`-threading pattern
-   applies to them too - not yet done, not yet needed until the above are live.
+4. **Per-account settings/company identity** - **done, 2026-10-12**. `outreach/company_settings.
+   py`'s `overrides()`/`set_field()` now take the same `sheet_id` as every other engine module
+   (defaulting to `SHEET_ID`, `main` unaffected), so sender name/email/product name/daily cap can
+   be stored and read per connected account's own Sheet instead of one shared global. 4 new tests
+   prove the given `sheet_id` actually reaches the Sheets calls and that two accounts' stored
+   identities never mix. Full suite 1342 pass. Not yet wired into a `tenant_console.py` route -
+   no UI/API surface exists for a signed-in account to set its own identity yet (library-level
+   piece only, same order as everything else in this doc).
+5. **Follow-ups, sync/reply handling, tracking, calls, A/B tests - checked, 2026-10-12, no code
+   needed.** `outreach/sync.py` and `tracking_job.py` already accept an injected `store=None ->
+   Store()`; since `Store` already takes `sheet_id` (slice 1), a caller can already do
+   `sync.run(store=Store(api, sheet_id=...), gmail=...)` or the same for `tracking_job.run` with
+   no change to either module - every existing test for both already proves the injection point
+   works (they substitute a `MemoryStore`, and a real per-account `Store` satisfies the identical
+   interface). `outreach/calls.py` and `outreach/experiments.py` have no Sheet/API access
+   whatsoever - pure functions over data their caller already read, so there is nothing in them
+   to thread at all.
