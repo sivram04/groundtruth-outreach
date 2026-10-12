@@ -50,6 +50,12 @@ class FakeCursor:
             account_id, kind = params
             hit = s.get("connections", {}).get((account_id, kind))
             self._last = [(hit,)] if hit else []
+        elif sql.startswith("DELETE FROM tenant.google_connections"):
+            account_id, connection_id = params
+            matches = [k for k, v in s.get("connections", {}).items() if v == connection_id]
+            for key in matches:
+                if key[0] == account_id:
+                    del s["connections"][key]
         else:
             raise AssertionError(f"fake cursor does not know: {sql}")
 
@@ -230,21 +236,23 @@ def test_starting_a_connection_refuses_an_unknown_kind(client_and_fakes):
     assert r.status_code == 400
 
 
-def test_the_callback_completes_the_connection(client_and_fakes):
+def test_the_callback_completes_the_connection_and_sends_the_browser_back_to_the_app(client_and_fakes):
+    """A page navigation (Google's own redirect), not a fetch() call - raw JSON here would leave
+    the founder stranded with no way back to the Dashboard, so this must redirect, not render."""
     client, connector, store = client_and_fakes
     client.post("/api/session/google", json={"credential": "good-credential"})
     r = client.get("/api/tenant/google/callback?state=abc&code=good-code")
-    assert r.status_code == 200
-    body = r.get_json()
-    assert body["ok"] is True and body["email"] == "sam@example.test"
+    assert r.status_code == 302
+    assert r.location == "/?connected=gmail"
 
 
-def test_the_callback_surfaces_a_refusal_without_a_500(client_and_fakes):
+def test_the_callback_surfaces_a_refusal_as_a_redirect_not_a_500(client_and_fakes):
     client, connector, store = client_and_fakes
     client.post("/api/session/google", json={"credential": "good-credential"})
     r = client.get("/api/tenant/google/callback?state=abc&code=bad-code")
-    assert r.status_code == 400
-    assert "expired" in r.get_json()["error"]
+    assert r.status_code == 302
+    assert r.location.startswith("/?connect_error=")
+    assert "expired" in r.location
 
 
 def test_connections_are_inert_with_no_connector_configured():
@@ -307,6 +315,84 @@ class _SheetsBuild:
 
 def _connect_drive(store, account_id):
     store.setdefault("connections", {})[(account_id, "drive")] = "conn-drive-1"
+
+
+def test_connections_reports_nothing_connected_for_a_fresh_account(client_and_fakes):
+    client, connector, store = client_and_fakes
+    client.post("/api/session/google", json={"credential": "good-credential"})
+    r = client.get("/api/account/connections")
+    assert r.status_code == 200
+    assert r.get_json() == {"gmail": False, "drive": False}
+
+
+def test_connections_reports_true_for_a_kind_the_account_actually_connected(client_and_fakes):
+    client, connector, store = client_and_fakes
+    account = client.post("/api/session/google", json={"credential": "good-credential"}).get_json()
+    _connect_drive(store, account["account_id"])
+    r = client.get("/api/account/connections")
+    assert r.get_json() == {"gmail": False, "drive": True}
+
+
+def test_connections_requires_signing_in_first(client_and_fakes):
+    client, connector, store = client_and_fakes
+    r = client.get("/api/account/connections")
+    assert r.status_code == 401
+
+
+def test_unlink_sheet_clears_it(client_and_fakes, monkeypatch):
+    client, connector, store = client_and_fakes
+    account = client.post("/api/session/google", json={"credential": "good-credential"}).get_json()
+    _connect_drive(store, account["account_id"])
+    _fake_build(monkeypatch, spreadsheets=FakeSpreadsheets())
+    sheet_id = client.post("/api/account/sheet").get_json()["sheet_id"]
+    assert sheet_id
+
+    r = client.delete("/api/account/sheet")
+    assert r.status_code == 200 and r.get_json() == {"ok": True}
+    assert client.get("/api/account/sheet").get_json() == {"sheet_id": None}
+
+
+def test_unlink_sheet_requires_signing_in_first(client_and_fakes):
+    client, connector, store = client_and_fakes
+    r = client.delete("/api/account/sheet")
+    assert r.status_code == 401
+
+
+def test_disconnect_revokes_an_existing_connection(client_and_fakes):
+    client, connector, store = client_and_fakes
+    account = client.post("/api/session/google", json={"credential": "good-credential"}).get_json()
+    _connect_drive(store, account["account_id"])
+    assert client.get("/api/account/connections").get_json()["drive"] is True
+
+    r = client.delete("/api/connections/drive")
+    assert r.status_code == 200 and r.get_json() == {"ok": True}
+    assert client.get("/api/account/connections").get_json()["drive"] is False
+
+
+def test_disconnect_a_never_connected_kind_is_a_no_op():
+    verify_credential = lambda credential: {"sub": "g-subject-1", "email": "sam@example.test",
+                                            "email_verified": True, "name": "Sam"}
+    app = tenant_console.create_app(
+        conn_factory=lambda: FakeConn(), verify_credential=verify_credential,
+        connector=FakeConnector(), secret_key=b"test-secret",
+    )
+    client = app.test_client()
+    client.post("/api/session/google", json={"credential": "good-credential"})
+    r = client.delete("/api/connections/gmail")
+    assert r.status_code == 200 and r.get_json() == {"ok": True}
+
+
+def test_disconnect_refuses_an_unknown_kind(client_and_fakes):
+    client, connector, store = client_and_fakes
+    client.post("/api/session/google", json={"credential": "good-credential"})
+    r = client.delete("/api/connections/calendar")
+    assert r.status_code == 400
+
+
+def test_disconnect_requires_signing_in_first(client_and_fakes):
+    client, connector, store = client_and_fakes
+    r = client.delete("/api/connections/gmail")
+    assert r.status_code == 401
 
 
 def test_link_sheet_requires_a_drive_connection_first(client_and_fakes):

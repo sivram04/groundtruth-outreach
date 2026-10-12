@@ -33,8 +33,9 @@ import logging
 import os
 from functools import wraps
 from pathlib import Path
+from urllib.parse import quote
 
-from flask import Flask, jsonify, request, send_from_directory, session
+from flask import Flask, jsonify, redirect, request, send_from_directory, session
 
 from outreach import google_connect, job_auto, job_draft, tenancy, tenant_google, tenant_sheet
 
@@ -211,8 +212,12 @@ def create_app(*, conn_factory, verify_credential, connector=None, secret_key=No
     @_signed_in
     @_with_conn
     def connect_callback(conn):
+        """Google redirects the browser here after consent - a page navigation, not a fetch()
+        call - so this sends the browser back to the app itself (never raw JSON, which left the
+        founder stranded on a blank JSON page with no way back to the Dashboard) with the
+        outcome in the query string for the frontend to show as a notice."""
         if connector is None:
-            return jsonify(error="Google connections are not configured yet."), 503
+            return redirect("/?connect_error=" + quote("Google connections are not configured yet."))
         active = session[ACTIVE_KEY]
         subject = session[ACCOUNTS_KEY][active]["provider_subject"]
         state, code = request.args.get("state", ""), request.args.get("code", "")
@@ -220,8 +225,8 @@ def create_app(*, conn_factory, verify_credential, connector=None, secret_key=No
             result = connector.complete(conn, active, subject, state, code)
         except google_connect.Refused as exc:
             log.warning("connect_callback refused for account %s: %s", active, exc, exc_info=True)
-            return jsonify(error=str(exc)), 400
-        return jsonify(ok=True, **result)
+            return redirect("/?connect_error=" + quote(str(exc)))
+        return redirect("/?connected=" + quote(result["kind"]))
 
     def _sheets_api(conn, account_id):
         """This account's own Sheets client, or None with a (message, status) pair explaining
@@ -247,6 +252,16 @@ def create_app(*, conn_factory, verify_credential, connector=None, secret_key=No
             log.warning("gmail_api refused for account %s: %s", account_id, exc, exc_info=True)
             return None, (str(exc), 400)
 
+    @app.get("/api/account/connections")
+    @_signed_in
+    @_with_conn
+    def connections(conn):
+        """Which Google connection kinds the active account actually has, for the Dashboard to
+        show "Connected" instead of always showing the same two buttons with no state."""
+        active = session[ACTIVE_KEY]
+        return jsonify({kind: tenancy.latest_connection_id(conn, active, kind) is not None
+                        for kind in google_connect.SCOPES})
+
     @app.post("/api/account/sheet")
     @_signed_in
     @_with_conn
@@ -271,6 +286,31 @@ def create_app(*, conn_factory, verify_credential, connector=None, secret_key=No
     @_with_conn
     def get_sheet(conn):
         return jsonify(sheet_id=tenancy.get_sheet_id(conn, session[ACTIVE_KEY]))
+
+    @app.delete("/api/account/sheet")
+    @_signed_in
+    @_with_conn
+    def unlink_sheet(conn):
+        """Unlink the active account's Sheet (the Sheet itself is untouched, only the stored
+        reference is removed) - lets a wrong link/create be undone without touching data."""
+        tenancy.clear_sheet_id(conn, session[ACTIVE_KEY])
+        return jsonify(ok=True)
+
+    @app.delete("/api/connections/<kind>")
+    @_signed_in
+    @_with_conn
+    def disconnect(conn, kind):
+        """Revoke the active account's connection of this kind. Does not touch the Sheet (a
+        Drive/Sheets disconnect and a Sheet link are independent - disconnecting Google access
+        does not un-link a Sheet already recorded, since the Sheet itself is unaffected)."""
+        if kind not in google_connect.SCOPES:
+            return jsonify(error="Choose gmail or drive."), 400
+        active = session[ACTIVE_KEY]
+        connection_id = tenancy.latest_connection_id(conn, active, kind)
+        if connection_id is None:
+            return jsonify(ok=True)  # already disconnected - same end state, no error
+        tenancy.revoke_connection(conn, active, connection_id)
+        return jsonify(ok=True)
 
     def _sheet_context(conn, account_id):
         """(sheet_id, api) for this account's own Sheet, or None with a (message, status) pair -

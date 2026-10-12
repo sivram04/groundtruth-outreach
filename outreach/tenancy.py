@@ -238,6 +238,16 @@ def set_sheet_id(conn, account_id, sheet_id):
         raise TenancyError(f"no such account: {account_id}")
 
 
+def clear_sheet_id(conn, account_id):
+    """Unlink this account's Sheet (the Sheet itself is untouched - only the stored reference is
+    removed), so `tenant_sheet.ensure_sheet` will create or link a new one next time instead of
+    treating the account as already having one."""
+    cur = conn.cursor()
+    cur.execute("UPDATE tenant.accounts SET sheet_id = %s WHERE id = %s", (None, account_id))
+    if cur.rowcount == 0:
+        raise TenancyError(f"no such account: {account_id}")
+
+
 def revoke_connection(conn, account_id, connection_id):
     """Remove a connection entirely (e.g. its refresh token was rejected - invalid_grant).
 

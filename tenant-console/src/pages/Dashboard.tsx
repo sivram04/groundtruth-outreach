@@ -38,8 +38,35 @@ function AccountBar({
   );
 }
 
-function ConnectCard() {
+function connectRedirectNotice(): { kind: "ok" | "error"; text: string } | null {
+  // The OAuth callback is a page navigation (Google's own redirect), not a fetch() call, so it
+  // sends the outcome back as a query string on "/" rather than a JSON body nothing would read.
+  const params = new URLSearchParams(window.location.search);
+  const connected = params.get("connected");
+  const error = params.get("connect_error");
+  if (!connected && !error) return null;
+  window.history.replaceState({}, "", window.location.pathname);
+  if (error) return { kind: "error", text: error };
+  return { kind: "ok", text: `${connected === "gmail" ? "Gmail" : "Sheets"} connected.` };
+}
+
+function ConnectCard({ account_id }: { account_id?: string }) {
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState(connectRedirectNotice);
+  const [status, setStatus] = useState<{ gmail: boolean; drive: boolean } | null>(null);
+  const [busyKind, setBusyKind] = useState<"gmail" | "drive" | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setStatus(await api.connections());
+    } catch {
+      setStatus(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load, account_id]);
 
   const start = async (kind: "gmail" | "drive") => {
     setError("");
@@ -51,24 +78,57 @@ function ConnectCard() {
     }
   };
 
+  const stop = async (kind: "gmail" | "drive") => {
+    setError("");
+    setBusyKind(kind);
+    try {
+      await api.disconnect(kind);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not disconnect.");
+    } finally {
+      setBusyKind(null);
+    }
+  };
+
+  const row = (kind: "gmail" | "drive", label: string) => {
+    const on = status?.[kind];
+    return (
+      <div className="row" style={{ marginBottom: 6 }}>
+        <span className={`pill${on ? " pill-active" : ""}`}>{on ? "Connected" : "Not connected"}</span>
+        {on ? (
+          <button className="btn btn-ghost" onClick={() => stop(kind)} disabled={busyKind === kind}>
+            Disconnect {label}
+          </button>
+        ) : (
+          <button className="btn" onClick={() => start(kind)}>
+            Connect {label}
+          </button>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="card">
       <h2>Connect Google</h2>
       <p>Grant this account's own Gmail (to draft) and Sheets (to read/write leads) access.</p>
+      {notice && (
+        <div className={`notice ${notice.kind === "ok" ? "notice-ok" : "notice-error"}`}>
+          {notice.text}
+          <button className="btn btn-ghost" style={{ float: "right" }} onClick={() => setNotice(null)}>
+            ×
+          </button>
+        </div>
+      )}
       {error && <div className="notice notice-error">{error}</div>}
-      <div className="row">
-        <button className="btn" onClick={() => start("gmail")}>
-          Connect Gmail
-        </button>
-        <button className="btn" onClick={() => start("drive")}>
-          Connect Sheets
-        </button>
-      </div>
+      {row("gmail", "Gmail")}
+      {row("drive", "Sheets")}
     </div>
   );
 }
 
-function SheetCard({ sheetId, onLinked }: { sheetId: string | null; onLinked: (id: string) => void }) {
+function SheetCard({ sheetId, onLinked }: { sheetId: string | null; onLinked: (id: string | null) => void }) {
   const [linkId, setLinkId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -86,20 +146,38 @@ function SheetCard({ sheetId, onLinked }: { sheetId: string | null; onLinked: (i
     }
   };
 
+  const unlink = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await api.unlinkSheet();
+      onLinked(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not unlink the Sheet.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="card">
       <h2>Your leads Sheet</h2>
+      {error && <div className="notice notice-error">{error}</div>}
       {sheetId ? (
-        <p>
-          Connected:{" "}
-          <a href={`https://docs.google.com/spreadsheets/d/${sheetId}/edit`} target="_blank" rel="noreferrer">
-            open in Google Sheets
-          </a>
-        </p>
+        <div className="row">
+          <p style={{ margin: 0 }}>
+            Connected:{" "}
+            <a href={`https://docs.google.com/spreadsheets/d/${sheetId}/edit`} target="_blank" rel="noreferrer">
+              open in Google Sheets
+            </a>
+          </p>
+          <button className="btn btn-ghost" onClick={unlink} disabled={busy}>
+            Unlink
+          </button>
+        </div>
       ) : (
         <>
           <p>Create a brand-new Sheet, or link one you already have (Connect Sheets first).</p>
-          {error && <div className="notice notice-error">{error}</div>}
           <div className="row" style={{ marginBottom: 8 }}>
             <button className="btn btn-primary" onClick={() => link(false)} disabled={busy}>
               Create a new Sheet
@@ -247,7 +325,7 @@ export function Dashboard({
   return (
     <div className="shell">
       <AccountBar session={session} onSwitch={switchAccount} onSignInAnother={onAddAccount} onLogout={logout} />
-      <ConnectCard />
+      <ConnectCard account_id={session.account_id} />
       <SheetCard sheetId={sheetId} onLinked={(id) => setSheetId(id)} />
       {!loadingSheet && (
         <>

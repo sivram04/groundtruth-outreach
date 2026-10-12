@@ -62,6 +62,11 @@ export const logout = (options: { accountId?: string; all?: boolean } = {}) =>
 export const connectStart = (kind: "gmail" | "drive") =>
   call<{ authorization_url: string }>(`/api/connections/${kind}/start`, { method: "POST" });
 
+export const connections = () => call<{ gmail: boolean; drive: boolean }>("/api/account/connections");
+
+export const disconnect = (kind: "gmail" | "drive") =>
+  call<{ ok: true }>(`/api/connections/${kind}`, { method: "DELETE" });
+
 export const getSheet = () => call<{ sheet_id: string | null }>("/api/account/sheet");
 
 export const linkSheet = (sheetId?: string) =>
@@ -69,6 +74,8 @@ export const linkSheet = (sheetId?: string) =>
     method: "POST",
     body: JSON.stringify(sheetId ? { sheet_id: sheetId } : {}),
   });
+
+export const unlinkSheet = () => call<{ ok: true }>("/api/account/sheet", { method: "DELETE" });
 
 export const runAuto = () => call<AutoRunResult>("/api/jobs/auto", { method: "POST" });
 

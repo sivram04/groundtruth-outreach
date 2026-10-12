@@ -227,3 +227,17 @@ def test_two_accounts_have_independent_sheets():
     tenancy.set_sheet_id(conn, b.id, "sheet-b")
     assert tenancy.get_sheet_id(conn, a.id) == "sheet-a"
     assert tenancy.get_sheet_id(conn, b.id) == "sheet-b"
+
+
+def test_clear_sheet_id_unlinks_it():
+    conn = FakeConn()
+    account = tenancy.resolve_identity(conn, "subj-1", "sam@example.test")
+    tenancy.set_sheet_id(conn, account.id, "sheet-123")
+    tenancy.clear_sheet_id(conn, account.id)
+    assert tenancy.get_sheet_id(conn, account.id) is None
+
+
+def test_clear_sheet_id_refuses_an_unknown_account():
+    conn = FakeConn()
+    with pytest.raises(tenancy.TenancyError):
+        tenancy.clear_sheet_id(conn, "no-such-account")
