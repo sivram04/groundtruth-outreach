@@ -504,3 +504,67 @@ def test_conn_factory_falls_back_to_a_public_host_with_tls(monkeypatch):
     tenant_console._conn_factory()
     assert fake.calls[0]["host"] == "35.253.52.165"
     assert fake.calls[0]["sslmode"] == "require"
+
+
+class _TransactionalConn:
+    """A real DB-API connection commits/rolls back explicitly - closing it uncommitted silently
+    discards any write (this is psycopg's actual default behavior, autocommit=False). Tracks
+    calls so a test can prove the route wrapper commits on success and rolls back on failure."""
+
+    def __init__(self, store):
+        self.store = store
+        self.calls = []
+
+    def cursor(self):
+        return FakeCursor(self.store)
+
+    def commit(self):
+        self.calls.append("commit")
+
+    def rollback(self):
+        self.calls.append("rollback")
+
+    def close(self):
+        self.calls.append("close")
+
+
+def test_with_conn_commits_a_successful_write_instead_of_silently_discarding_it():
+    """Regression: _with_conn never called commit(), so a route's write (e.g. sign-in creating
+    an account) looked successful - no exception, a normal response - but psycopg's connection
+    defaults to autocommit=False, and closing it uncommitted rolls the transaction back. The
+    account only ever existed inside that one request; the next request's session cookie
+    referenced an account_id nothing in the database actually had, and every later route failed
+    with a foreign-key violation. Caught live, not by this test first."""
+    store = {"accounts": {}, "identities": {}}
+    conn = _TransactionalConn(store)
+    app = tenant_console.create_app(
+        conn_factory=lambda: conn,
+        verify_credential=lambda c: {"sub": "g-subject-1", "email": "sam@example.test",
+                                     "email_verified": True, "name": "Sam"},
+        connector=None, secret_key=b"test-secret",
+    )
+    r = app.test_client().post("/api/session/google", json={"credential": "good-credential"})
+    assert r.status_code == 200
+    assert conn.calls == ["commit", "close"]
+    assert store["accounts"]  # actually persisted, not just returned in the response
+
+
+def test_with_conn_rolls_back_a_failed_request_instead_of_leaving_it_dangling():
+    """sign_in only catches a verify_credential failure itself; a DB-layer exception past that
+    point (here, simulated inside resolve_identity's own cursor) is NOT caught by the route and
+    must reach _with_conn, which should roll back rather than commit a partial write."""
+
+    class _BrokenConn(_TransactionalConn):
+        def cursor(self):
+            raise RuntimeError("the database is unreachable")
+
+    conn = _BrokenConn({"accounts": {}, "identities": {}})
+    app = tenant_console.create_app(
+        conn_factory=lambda: conn,
+        verify_credential=lambda c: {"sub": "g-subject-1", "email": "sam@example.test",
+                                     "email_verified": True, "name": "Sam"},
+        connector=None, secret_key=b"test-secret",
+    )
+    r = app.test_client().post("/api/session/google", json={"credential": "good-credential"})
+    assert r.status_code == 500
+    assert conn.calls == ["rollback", "close"]

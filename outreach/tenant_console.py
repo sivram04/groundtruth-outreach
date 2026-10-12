@@ -68,7 +68,22 @@ def create_app(*, conn_factory, verify_credential, connector=None, secret_key=No
         def wrapped(*a, **kw):
             conn = conn_factory()
             try:
-                return fn(conn, *a, **kw)
+                result = fn(conn, *a, **kw)
+            except Exception:
+                rollback = getattr(conn, "rollback", None)
+                if rollback:
+                    rollback()
+                raise
+            else:
+                # A real DB-API connection (psycopg among them) opens an implicit transaction on
+                # the first statement and defaults to autocommit=False - closing it uncommitted
+                # silently discards every write the route just made, which looked like success
+                # (no exception) right up until the next request referenced data that was never
+                # actually persisted. Every route wrapped by this must commit on success.
+                commit = getattr(conn, "commit", None)
+                if commit:
+                    commit()
+                return result
             finally:
                 close = getattr(conn, "close", None)
                 if close:
