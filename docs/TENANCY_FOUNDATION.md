@@ -276,15 +276,33 @@ draft-and-approve path - not just the three autorun jobs - can now run against o
 account's own Sheet and Google credential instead of the founder's. 5 new tests prove each
 helper actually reads the given `sheet_id`. Full suite 1327 pass.
 
+**Slice 6, done**: `outreach/tenant_google.gmail_api(connector, conn, account_id)` is the Gmail
+twin of `sheets_api` - looks up the account's own `gmail`-kind connection (already granted
+`gmail.compose`) and builds a Gmail client authorized as that account, never the founder. Both
+credential functions now share one `_client()` helper parameterized by kind/scope/service/
+version, so the two paths can't drift apart. `outreach/send.py` - the one sanctioned send path -
+gets the same `sheet_id` threading as everything else (`_find`, `_set_status`,
+`send_created_draft`), defaulting to `SHEET_ID` so `main` is unaffected.
+
+With this, every piece needed to run the full engine for one connected account exists: its own
+Sheet (`tenant_sheet.ensure_sheet`), its own Sheets credential (`tenant_google.sheets_api`), and
+its own Gmail credential (`tenant_google.gmail_api`) - with check/research/profile/draft/send all
+able to take them instead of the founder's singletons. 6 new tests (gmail_api needs a connection
+first; asks for the right connection/scope/service; a gmail-kind connection correctly cannot
+satisfy a Sheets request; `send_created_draft` actually works end-to-end against an explicit
+`sheet_id`, not just that the parameter is accepted). Full suite 1331 pass.
+
 **Still to do, in order**:
-1. Gmail drafting/sending (`outreach/gmail_drafts.py`, `outreach/send.py`) have their own
-   singleton client the same way `outreach/sheet.py` did - same pattern of work (a `tenant_google.
-   gmail_api`-shaped twin of `sheets_api`), not yet touched. This is the last piece standing
-   between "the engine can READ/write one account's own Sheet" and "the engine can also draft
-   and send through that account's own Gmail, not the founder's."
-2. Wire `ensure_sheet` into an actual route in `tenant_console.py` (e.g. right after a Google
+1. Wire `ensure_sheet` into an actual route in `tenant_console.py` (e.g. right after a Google
    connection completes, or an explicit "link my Sheet" endpoint) - it exists and is tested but
    nothing calls it yet.
-3. None of this is wired into an actual HTTP route yet - `tenant_console.py` still only has
-   sign-in/connect, not "run check/research/profile/draft for my account." That's the console
-   work that turns these library-level pieces into something a signed-in user can click.
+2. None of this is wired into an actual HTTP route yet - `tenant_console.py` still only has
+   sign-in/connect, not "run check/research/profile/draft/send for my account." That's the
+   console work that turns these library-level pieces into something a signed-in user can click.
+   Concretely: a route (or a small orchestration module) that, given the active session's
+   `account_id`, builds `connector`, `conn`, `sheet_id = tenant_sheet.ensure_sheet(...)`,
+   `api = tenant_google.sheets_api(...)`, `gmail = tenant_google.gmail_api(...)`, and calls
+   `job_auto.run`/`job_draft.previews`/`job_draft.create`/`send.send_created_draft` with them.
+3. Real Cloud KMS wiring (still open from the account/tenant layer, see above) and the actual
+   OAuth client in Testing mode (also still open) are both prerequisites for step 2 to work
+   against a real signed-in person rather than tests.
