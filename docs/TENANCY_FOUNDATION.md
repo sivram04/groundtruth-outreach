@@ -252,11 +252,23 @@ what the single-tenant founder OAuth (`outreach/signin.py`) already requests for
 reason. 2 new tests (no connection yet refuses with `NotConnected`; the right account, connection
 and scope are asked for, and the returned token reaches the Sheets client). Full suite 1318 pass.
 
+**Slice 4, done**: `job_check.run`, `job_research.run` and `job_profile.run` now take optional
+`api`/`sheet_id` keyword arguments, defaulting to the founder's own singleton/`SHEET_ID` exactly
+as before - `main`'s scheduled jobs are unaffected. `job_auto.run` passes the same pair to all
+three stages it chains. A caller that has both pieces from slices 2 and 3 (`tenant_google.
+sheets_api`, `tenant_sheet.ensure_sheet`) can now run the whole check/research/profile pipeline
+against one connected account's own Sheet - never the founder's - just by passing those two
+values through. 4 new tests assert the values actually reach `append_run` and every chained
+stage, not just that the parameters exist. Full suite 1322 pass.
+
+**`job_draft.py` deliberately NOT touched in this slice**: unlike the three autorun jobs above,
+it's the console-route-driven module behind drafting/approval (handbook lookups, quote gating,
+Gmail draft creation) and references `SHEET_ID` directly in several smaller helpers
+(`_records`, `_suppressed`, `_call_effect`, `_read`) rather than through `Store`/`Tab` alone -
+a bigger, separate piece of surface than the three CLI-shaped jobs, worth its own slice.
+
 **Still to do, in order**:
-1. Thread an explicit `(sheet_id, api)` pair through each job (`job_check`, `job_research`,
-   `job_profile`, `job_draft`, sync/send) instead of each one grabbing the global singleton -
-   mechanical now that both pieces (which Sheet, which credential) exist, since the job functions
-   already take `Store`/`api` as parameters.
+1. Thread `(api, sheet_id)` through `job_draft.py` the same way - its own slice, see above.
 2. Gmail drafting/sending (`outreach/gmail_drafts.py`, `outreach/send.py`) have their own
    singleton client the same way `outreach/sheet.py` did - same pattern of work (a `tenant_google.
    gmail_api`-shaped twin of `sheets_api`), not yet touched.
