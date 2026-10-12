@@ -2,15 +2,19 @@
 # Build the multi-tenant console (tenant-console/'s React pages and the Python service that
 # serves them their data) and deploy it. Run from anywhere; deploy/setup_tenant_console.sh first.
 #
-# Behind IAP, like the single-tenant console - NOT because this needs IAP's one-org-identity
-# model (it doesn't; this app's own Google sign-in is what actually resolves an account), but
-# because the org's own "Domain Restricted Sharing" policy refuses to let any Cloud Run service
-# in this project go truly public (--allow-unauthenticated's IAM binding fails outright - tried
-# first, 2026-10-12). IAP is the same gate the founder already uses elsewhere, needs no org
-# policy change, and setup_tenant_console.sh's `after-deploy` step grants exactly the people
-# already on the OAuth consent screen's test-user list - nobody else can even reach the sign-in
-# page. This does mean signing in twice (IAP's own Google check, then this app's own GSI
-# sign-in) - redundant, but adds defense in depth rather than removing any.
+# Public (allUsers), not behind IAP - this app's own Google sign-in is the real authentication
+# (plus Postgres RLS scoping by account_id), so IAP was never load-bearing here, only an outer
+# gate. Tried IAP first (2026-10-12, matching the single-tenant console's own pattern), but the
+# org's "Domain Restricted Sharing" policy blocked granting IAP access to external (non-org)
+# emails too, not just allUsers - and even after a project-scoped policy override
+# (projects/lakshyaa-outreach/policies/iam.allowedPolicyMemberDomains, allowAll: true) let the
+# IAP grant succeed, external accounts still couldn't get past IAP's own enforcement (consistent
+# "You don't have access" across multiple retries and many minutes - not propagation delay).
+# Founder's explicit choice: drop IAP, go public instead - same project-scoped override now makes
+# --allow-unauthenticated's IAM binding succeed too. `gcloud run services update --no-iap` plus
+# `gcloud run services add-iam-policy-binding ... --member=allUsers --role=roles/run.invoker` were
+# run once by hand to flip the already-deployed revision; every deploy from here on needs the
+# equivalent (no --iap flag below, and the allUsers binding - set once, survives new revisions).
 #
 # The OAuth client id/secret, the tenant database's password, and the persisted Flask secret all
 # come from Secret Manager (deploy/setup_tenant_console.sh creates/grants them). Update the OAuth
@@ -42,13 +46,10 @@ TENANT_DB_NAME: "postgres"
 YAML
 gcloud run deploy outreach-tenant-console --image=$IMAGE --region=$R --project=$P \
   --service-account=outreach-tenant-console@$P.iam.gserviceaccount.com \
-  --no-allow-unauthenticated --iap --add-cloudsql-instances=$SQL_CONNECTION \
+  --allow-unauthenticated --add-cloudsql-instances=$SQL_CONNECTION \
   --max-instances=2 --concurrency=8 --timeout=60 --memory=512Mi \
   --set-secrets=GOOGLE_OAUTH_CLIENT_ID=tenant-oauth-client-id:latest,GOOGLE_OAUTH_CLIENT_SECRET=tenant-oauth-client-secret:latest,TENANT_DB_PASSWORD=outreach-tenant-root-password:latest,TENANT_CONSOLE_SECRET_KEY=tenant-console-flask-secret:latest \
   --env-vars-file=$ENV_FILE \
   --quiet
 # Always move 100% of traffic to the revision just deployed (see deploy_console.sh for why).
 gcloud run services update-traffic outreach-tenant-console --region=$R --project=$P --to-latest --quiet
-echo
-echo "First deploy only: run 'sh deploy/setup_tenant_console.sh after-deploy' once to let IAP"
-echo "call the service and let the founder + test users through its gate."

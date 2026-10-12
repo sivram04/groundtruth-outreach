@@ -2,14 +2,13 @@
 # One-time setup for the multi-tenant console. Run from the repository root, before the first
 # deploy/deploy_tenant_console.sh.
 #
-# Behind IAP, like the single-tenant console - not because this app needs IAP's one-org-identity
-# model (its own Google Identity Services sign-in is the real authentication; IAP is only an
-# outer gate on who can even reach the sign-in page), but because the org's "Domain Restricted
-# Sharing" policy refuses --allow-unauthenticated outright (confirmed 2026-10-12: the IAM binding
-# for allUsers fails even when the flag is passed). Run this script once before the first deploy,
-# then once more as `sh deploy/setup_tenant_console.sh after-deploy` right after it, to let IAP
-# call the now-existing service and let the founder + test users through its gate - the same
-# two-step order deploy_console.sh/setup_console.sh already use.
+# Public (allUsers), not behind IAP - see deploy_tenant_console.sh for the full story of why IAP
+# was tried first and dropped (2026-10-12): the org's "Domain Restricted Sharing" policy blocked
+# IAP access for external accounts even after a project-scoped policy override, so the founder
+# chose public access instead - this app's own Google sign-in plus Postgres RLS is the real
+# security boundary either way. The allUsers invoker binding and the policy override are both
+# one-time, already applied to the live service; this script no longer needs an `after-deploy`
+# IAP-grant step.
 #
 # Creates:
 #   1. The service's own service account - may read the OAuth client secret, the tenant
@@ -29,19 +28,22 @@ P=lakshyaa-outreach
 R=us-central1
 SA=outreach-tenant-console@$P.iam.gserviceaccount.com
 KMS_KEY=projects/$P/locations/$R/keyRings/outreach-tenant/cryptoKeys/google-refresh
-NUMBER=$(gcloud projects describe $P --format='value(projectNumber)')
 
 if [ "$1" = "after-deploy" ]; then
+  # A project-scoped override of the org's "Domain Restricted Sharing" policy - without it,
+  # --allow-unauthenticated's own IAM binding is refused outright (confirmed 2026-10-12). Affects
+  # only this one project; every other project in the org keeps the strict default untouched.
+  gcloud services enable orgpolicy.googleapis.com --project=$P
+  cat > /tmp/allow-external-members.yaml <<YAML
+name: projects/$P/policies/iam.allowedPolicyMemberDomains
+spec:
+  rules:
+  - allowAll: true
+YAML
+  gcloud org-policies set-policy /tmp/allow-external-members.yaml --project=$P
+  rm -f /tmp/allow-external-members.yaml
   gcloud run services add-iam-policy-binding outreach-tenant-console --region=$R --project=$P \
-    --member=serviceAccount:service-$NUMBER@gcp-sa-iap.iam.gserviceaccount.com \
-    --role=roles/run.invoker
-  # The same 3 people already on the OAuth consent screen's test-user list - nobody else can
-  # even reach the sign-in page, let alone complete Google sign-in once there.
-  for EMAIL in admin@lakshyaa.ai sivmm29@gmail.com marketing@finaccrual.com; do
-    gcloud iap web add-iam-policy-binding --project=$P --region=$R \
-      --resource-type=cloud-run --service=outreach-tenant-console \
-      --member=user:$EMAIL --role=roles/iap.httpsResourceAccessor
-  done
+    --member=allUsers --role=roles/run.invoker
   exit 0
 fi
 
