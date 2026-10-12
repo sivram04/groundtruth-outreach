@@ -267,11 +267,24 @@ Gmail draft creation) and references `SHEET_ID` directly in several smaller help
 (`_records`, `_suppressed`, `_call_effect`, `_read`) rather than through `Store`/`Tab` alone -
 a bigger, separate piece of surface than the three CLI-shaped jobs, worth its own slice.
 
+**Slice 5, done**: `job_draft.py`'s own Sheet-reading helpers (`_records`, `_suppressed`,
+`_call_effect`, `_read`) and `handbook_store.active`/`set_active` now take the same optional
+`sheet_id`, defaulting to `SHEET_ID` - `main` unaffected. Threaded through every public entry
+point (`previews`, `create`, `create_edited`, `reconcile`) and the internal handbook lookups
+(`_handbook`, `project_handbook`, `_revalidated`). Together with slices 2-4, the entire
+draft-and-approve path - not just the three autorun jobs - can now run against one connected
+account's own Sheet and Google credential instead of the founder's. 5 new tests prove each
+helper actually reads the given `sheet_id`. Full suite 1327 pass.
+
 **Still to do, in order**:
-1. Thread `(api, sheet_id)` through `job_draft.py` the same way - its own slice, see above.
-2. Gmail drafting/sending (`outreach/gmail_drafts.py`, `outreach/send.py`) have their own
+1. Gmail drafting/sending (`outreach/gmail_drafts.py`, `outreach/send.py`) have their own
    singleton client the same way `outreach/sheet.py` did - same pattern of work (a `tenant_google.
-   gmail_api`-shaped twin of `sheets_api`), not yet touched.
-3. Wire `ensure_sheet` into an actual route in `tenant_console.py` (e.g. right after a Google
+   gmail_api`-shaped twin of `sheets_api`), not yet touched. This is the last piece standing
+   between "the engine can READ/write one account's own Sheet" and "the engine can also draft
+   and send through that account's own Gmail, not the founder's."
+2. Wire `ensure_sheet` into an actual route in `tenant_console.py` (e.g. right after a Google
    connection completes, or an explicit "link my Sheet" endpoint) - it exists and is tested but
    nothing calls it yet.
+3. None of this is wired into an actual HTTP route yet - `tenant_console.py` still only has
+   sign-in/connect, not "run check/research/profile/draft for my account." That's the console
+   work that turns these library-level pieces into something a signed-in user can click.
