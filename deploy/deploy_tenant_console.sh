@@ -2,11 +2,15 @@
 # Build the multi-tenant console (tenant-console/'s React pages and the Python service that
 # serves them their data) and deploy it. Run from anywhere; deploy/setup_tenant_console.sh first.
 #
-# Public, not behind IAP: anyone can reach the sign-in page, but every /api/* route beyond
-# /api/config and /api/session enforces its own sign-in (outreach/tenant_console.py's
-# @_signed_in), and every write is scoped to the active account's own data by Postgres RLS
-# (outreach/tenancy.py). In Testing mode, only the OAuth consent screen's test users can actually
-# complete Google sign-in/connect - see docs/OAUTH_VERIFICATION_CHECKLIST.md.
+# Behind IAP, like the single-tenant console - NOT because this needs IAP's one-org-identity
+# model (it doesn't; this app's own Google sign-in is what actually resolves an account), but
+# because the org's own "Domain Restricted Sharing" policy refuses to let any Cloud Run service
+# in this project go truly public (--allow-unauthenticated's IAM binding fails outright - tried
+# first, 2026-10-12). IAP is the same gate the founder already uses elsewhere, needs no org
+# policy change, and setup_tenant_console.sh's `after-deploy` step grants exactly the people
+# already on the OAuth consent screen's test-user list - nobody else can even reach the sign-in
+# page. This does mean signing in twice (IAP's own Google check, then this app's own GSI
+# sign-in) - redundant, but adds defense in depth rather than removing any.
 #
 # The OAuth client id/secret, the tenant database's password, and the persisted Flask secret all
 # come from Secret Manager (deploy/setup_tenant_console.sh creates/grants them). Update the OAuth
@@ -38,10 +42,13 @@ TENANT_DB_NAME: "postgres"
 YAML
 gcloud run deploy outreach-tenant-console --image=$IMAGE --region=$R --project=$P \
   --service-account=outreach-tenant-console@$P.iam.gserviceaccount.com \
-  --allow-unauthenticated --add-cloudsql-instances=$SQL_CONNECTION \
+  --no-allow-unauthenticated --iap --add-cloudsql-instances=$SQL_CONNECTION \
   --max-instances=2 --concurrency=8 --timeout=60 --memory=512Mi \
   --set-secrets=GOOGLE_OAUTH_CLIENT_ID=tenant-oauth-client-id:latest,GOOGLE_OAUTH_CLIENT_SECRET=tenant-oauth-client-secret:latest,TENANT_DB_PASSWORD=outreach-tenant-root-password:latest,TENANT_CONSOLE_SECRET_KEY=tenant-console-flask-secret:latest \
   --env-vars-file=$ENV_FILE \
   --quiet
 # Always move 100% of traffic to the revision just deployed (see deploy_console.sh for why).
 gcloud run services update-traffic outreach-tenant-console --region=$R --project=$P --to-latest --quiet
+echo
+echo "First deploy only: run 'sh deploy/setup_tenant_console.sh after-deploy' once to let IAP"
+echo "call the service and let the founder + test users through its gate."
