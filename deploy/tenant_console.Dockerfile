@@ -15,7 +15,7 @@ RUN npm run build
 
 FROM python:3.12-slim
 WORKDIR /app
-COPY requirements.txt requirements-tenant.txt .
+COPY requirements.txt requirements-tenant.txt ./
 RUN pip install --no-cache-dir -r requirements.txt -r requirements-tenant.txt
 COPY outreach ./outreach
 COPY --from=pages /console/dist ./tenant-console_dist
