@@ -334,14 +334,22 @@ def _conn_factory():
     Only ever called lazily, inside a request - importing this module, or building the app with
     `_deployed()`, never opens a connection or requires these env vars to be set (same convention
     as `outreach.sheet._api()`/`outreach.google_auth.founder_credentials()`: real I/O deferred
-    until something actually needs it)."""
+    until something actually needs it).
+
+    On Cloud Run, `TENANT_DB_SOCKET` (the Cloud SQL Auth Proxy's Unix socket directory, e.g.
+    ``/cloudsql/lakshyaa-outreach:us-central1:outreach-tenant``, mounted automatically by
+    `--add-cloudsql-instances`) is preferred over `TENANT_DB_HOST` - the socket never depends on
+    an authorized-networks IP allowlist, unlike the public IP a local/dev connection uses."""
     import psycopg
+    socket_dir = os.environ.get("TENANT_DB_SOCKET")
+    host = socket_dir if socket_dir else os.environ["TENANT_DB_HOST"]
+    kwargs = {} if socket_dir else {"sslmode": os.environ.get("TENANT_DB_SSLMODE", "require")}
     return psycopg.connect(
-        host=os.environ["TENANT_DB_HOST"],
+        host=host,
         dbname=os.environ.get("TENANT_DB_NAME", "postgres"),
         user=os.environ.get("TENANT_DB_USER", "postgres"),
         password=os.environ["TENANT_DB_PASSWORD"],
-        sslmode=os.environ.get("TENANT_DB_SSLMODE", "require"),
+        **kwargs,
     )
 
 

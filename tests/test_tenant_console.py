@@ -2,6 +2,7 @@
 credential, read the session, start and complete a Gmail connection (fake connector), and log
 out. No real Google, no real Postgres - a fake DB cursor and injected verifiers throughout."""
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -471,3 +472,35 @@ def test_deployed_passes_each_env_var_to_the_right_create_app_argument(monkeypat
     assert captured["secret_key"] == b"a-real-persisted-secret"
     assert callable(captured["conn_factory"])
     assert callable(captured["verify_credential"])
+
+
+class _FakePsycopg:
+    def __init__(self):
+        self.calls = []
+
+    def connect(self, **kwargs):
+        self.calls.append(kwargs)
+        return "a-connection"
+
+
+def test_conn_factory_prefers_the_cloud_sql_socket_over_a_public_host(monkeypatch):
+    fake = _FakePsycopg()
+    monkeypatch.setitem(sys.modules, "psycopg", fake)
+    monkeypatch.setenv("TENANT_DB_SOCKET", "/cloudsql/lakshyaa-outreach:us-central1:outreach-tenant")
+    monkeypatch.setenv("TENANT_DB_HOST", "35.253.52.165")
+    monkeypatch.setenv("TENANT_DB_PASSWORD", "secret")
+    result = tenant_console._conn_factory()
+    assert result == "a-connection"
+    assert fake.calls[0]["host"] == "/cloudsql/lakshyaa-outreach:us-central1:outreach-tenant"
+    assert "sslmode" not in fake.calls[0]  # the socket needs no TLS negotiation
+
+
+def test_conn_factory_falls_back_to_a_public_host_with_tls(monkeypatch):
+    fake = _FakePsycopg()
+    monkeypatch.setitem(sys.modules, "psycopg", fake)
+    monkeypatch.delenv("TENANT_DB_SOCKET", raising=False)
+    monkeypatch.setenv("TENANT_DB_HOST", "35.253.52.165")
+    monkeypatch.setenv("TENANT_DB_PASSWORD", "secret")
+    tenant_console._conn_factory()
+    assert fake.calls[0]["host"] == "35.253.52.165"
+    assert fake.calls[0]["sslmode"] == "require"
