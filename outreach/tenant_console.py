@@ -31,24 +31,31 @@ offline.
 
 import os
 from functools import wraps
+from pathlib import Path
 
-from flask import Flask, jsonify, request, session
+from flask import Flask, jsonify, request, send_from_directory, session
 
 from outreach import google_connect, job_auto, job_draft, tenancy, tenant_google, tenant_sheet
 
 ACCOUNTS_KEY = "accounts"  # {account_id: {"email":, "name":, "provider_subject":}}
 ACTIVE_KEY = "active_account_id"
+ASSET_CACHE = "private, max-age=31536000, immutable"
+NO_STORE = "no-store"
+DEFAULT_STATIC = Path(__file__).resolve().parent.parent / "tenant-console_dist"
 
 
 def create_app(*, conn_factory, verify_credential, connector=None, secret_key=None,
-              static_dir=None):
+              static_dir=None, google_client_id=""):
     """``conn_factory()`` returns a DB connection per call (closed by the caller - see
     ``_with_conn``). ``verify_credential(credential_jwt) -> {"sub", "email", "email_verified"}``
     checks a Google Identity Services credential; real use wraps
     ``google.oauth2.id_token.verify_oauth2_token``. ``connector`` is a
     ``google_connect.Connector`` (or ``None`` until the OAuth client exists, in which case the
-    connect routes correctly refuse with 503 rather than crash)."""
-    app = Flask(__name__, static_folder=static_dir)
+    connect routes correctly refuse with 503 rather than crash). ``google_client_id`` is the
+    OAuth client's public id - safe to expose to the browser (unlike the client secret) - read
+    by the frontend from ``GET /api/config`` to render Google's own Sign-In button."""
+    app = Flask(__name__, static_folder=None)
+    static = Path(static_dir).resolve() if static_dir else DEFAULT_STATIC
     # A random per-process secret is fine for tests; production needs one real, persisted secret
     # (e.g. Secret Manager) - a restart that changes it logs out every session.
     app.secret_key = secret_key or os.urandom(32)
@@ -77,6 +84,28 @@ def create_app(*, conn_factory, verify_credential, connector=None, secret_key=No
         active = session.get(ACTIVE_KEY)
         return [{"account_id": aid, **info, "active": aid == active}
                for aid, info in session.get(ACCOUNTS_KEY, {}).items()]
+
+    @app.get("/api/config")
+    def config():
+        return jsonify(google_client_id=google_client_id)
+
+    @app.get("/")
+    def page():
+        if not (static / "index.html").is_file():
+            return jsonify(error="The console's pages have not been built."), 503
+        answer = send_from_directory(static, "index.html", max_age=0)
+        # Never kept, not even for a moment: a browser holding this page would keep running an
+        # older console after a deploy, and the founder would see no change.
+        answer.headers["Cache-Control"] = NO_STORE
+        answer.headers.pop("ETag", None)
+        answer.headers.pop("Last-Modified", None)
+        return answer
+
+    @app.get("/assets/<path:name>")
+    def asset(name):
+        response = send_from_directory(static / "assets", name)
+        response.headers["Cache-Control"] = ASSET_CACHE
+        return response
 
     @app.post("/api/session/google")
     @_with_conn

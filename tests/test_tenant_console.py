@@ -386,3 +386,41 @@ def test_there_is_no_jobs_send_route():
     source = Path(tenant_console.__file__).read_text(encoding="utf-8")
     assert not re.search(r"^\s*from outreach import .*\bsend\b", source, re.MULTILINE)
     assert not re.search(r'@app\.(get|post)\("/api/jobs/send"\)', source)
+
+
+def test_config_exposes_the_public_client_id_with_no_sign_in_required():
+    app = tenant_console.create_app(
+        conn_factory=lambda: FakeConn(), verify_credential=lambda c: {},
+        connector=None, secret_key=b"test-secret", google_client_id="123-abc.apps.googleusercontent.com",
+    )
+    r = app.test_client().get("/api/config")
+    assert r.status_code == 200
+    assert r.get_json() == {"google_client_id": "123-abc.apps.googleusercontent.com"}
+
+
+def test_the_page_route_refuses_cleanly_when_no_build_exists(tmp_path):
+    app = tenant_console.create_app(
+        conn_factory=lambda: FakeConn(), verify_credential=lambda c: {},
+        connector=None, secret_key=b"test-secret", static_dir=str(tmp_path),
+    )
+    r = app.test_client().get("/")
+    assert r.status_code == 503
+
+
+def test_the_page_route_serves_the_built_index_html(tmp_path):
+    """Regression: a relative static_dir (e.g. "tenant-console/dist", as the real deploy passes)
+    must resolve the same way send_from_directory does internally - a bare relative Path once
+    produced a 404 for every request regardless of cwd, even though the file genuinely existed."""
+    (tmp_path / "index.html").write_text("<html>tenant console</html>", encoding="utf-8")
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "app.js").write_text("console.log('ok')", encoding="utf-8")
+    app = tenant_console.create_app(
+        conn_factory=lambda: FakeConn(), verify_credential=lambda c: {},
+        connector=None, secret_key=b"test-secret", static_dir=str(tmp_path),
+    )
+    client = app.test_client()
+    r = client.get("/")
+    assert r.status_code == 200 and b"tenant console" in r.data
+    r2 = client.get("/assets/app.js")
+    assert r2.status_code == 200

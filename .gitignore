@@ -15,3 +15,8 @@ console/node_modules/
 console/dist/
 console/dist-demo/
 .console-env.yaml
+
+# The multi-tenant console's React app: same, never committed
+tenant-console/node_modules/
+tenant-console/dist/
+.tenant-console-env.yaml
