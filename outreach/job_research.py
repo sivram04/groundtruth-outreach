@@ -34,9 +34,9 @@ def select(tabs, limit, ids=None):
     return chosen if ids is not None else chosen[:limit]
 
 
-def run(where, limit=DEFAULT_LIMIT, ids=None, model=gemini.generate_json):
-    api = _api()
-    tabs = [Tab(api, name, SYSTEM_COLUMNS) for name in LEAD_TABS]
+def run(where, limit=DEFAULT_LIMIT, ids=None, model=gemini.generate_json, *, api=None, sheet_id=SHEET_ID):
+    api = api or _api()
+    tabs = [Tab(api, name, SYSTEM_COLUMNS, sheet_id) for name in LEAD_TABS]
     for tab in tabs:
         tab.ensure_columns(RESEARCH_COLUMNS)
     chosen = select(tabs, limit, ids)
@@ -74,8 +74,8 @@ def run(where, limit=DEFAULT_LIMIT, ids=None, model=gemini.generate_json):
         written += r["written"]
         skipped += [f"{tab.name} row {row}: {why}" for row, why in r["skipped"]]
     if research_rows:
-        ensure_tab(api, RESEARCH_TAB, RESEARCH_HEADER)
-        api.values().append(spreadsheetId=SHEET_ID, range=f"'{RESEARCH_TAB}'!A1", valueInputOption="RAW",
+        ensure_tab(api, RESEARCH_TAB, RESEARCH_HEADER, sheet_id)
+        api.values().append(spreadsheetId=sheet_id, range=f"'{RESEARCH_TAB}'!A1", valueInputOption="RAW",
                             insertDataOption="INSERT_ROWS", body={"values": research_rows}).execute()
 
     detail = (f"researched {sum(counts.values())}: " + ", ".join(f"{k} {n}" for k, n in sorted(counts.items()))
@@ -85,7 +85,7 @@ def run(where, limit=DEFAULT_LIMIT, ids=None, model=gemini.generate_json):
         detail += f"; failed {len(failures)} (left blank): " + "; ".join(failures[:3])
     if skipped:
         detail += f"; skipped {len(skipped)} changed rows"
-    append_run(api, "research", where, "OK" if not (failures or skipped) else "PARTIAL", detail)
+    append_run(api, "research", where, "OK" if not (failures or skipped) else "PARTIAL", detail, sheet_id)
     return {"results": dict(counts), "written": written, "failed": failures, "skipped": skipped,
             "tokens": dict(tokens)}
 

@@ -29,11 +29,12 @@ def select(tabs, limit=MAX_LIMIT, ids=None):
     return chosen[:limit]
 
 
-def run(where, limit=MAX_LIMIT, ids=None, dry_run=False, model=gemini.generate_json):
+def run(where, limit=MAX_LIMIT, ids=None, dry_run=False, model=gemini.generate_json, *,
+        api=None, sheet_id=SHEET_ID):
     if not 1 <= limit <= MAX_LIMIT:
         raise ValueError(f"limit must be between 1 and {MAX_LIMIT}")
-    api = _api()
-    tabs = [Tab(api, name, SYSTEM_COLUMNS) for name in LEAD_TABS]
+    api = api or _api()
+    tabs = [Tab(api, name, SYSTEM_COLUMNS, sheet_id) for name in LEAD_TABS]
     if not dry_run:
         for tab in tabs:
             tab.ensure_columns(PROFILE_COLUMNS)
@@ -89,8 +90,8 @@ def run(where, limit=MAX_LIMIT, ids=None, dry_run=False, model=gemini.generate_j
         skipped_keys.update((tab.name, row) for row, _ in outcome["skipped"])
     rows = [fact for tab_name, row, facts in records if (tab_name, row) not in skipped_keys for fact in facts]
     if rows:
-        ensure_tab(api, PROFILE_TAB, PROFILE_HEADER)
-        api.values().append(spreadsheetId=SHEET_ID, range=f"'{PROFILE_TAB}'!A1", valueInputOption="RAW",
+        ensure_tab(api, PROFILE_TAB, PROFILE_HEADER, sheet_id)
+        api.values().append(spreadsheetId=sheet_id, range=f"'{PROFILE_TAB}'!A1", valueInputOption="RAW",
                             insertDataOption="INSERT_ROWS", body={"values": rows}).execute()
     detail = (f"profiled {written}: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items()))
               + f"; quotes stored {len(rows)}; tokens in {tokens['promptTokenCount']}, "
@@ -99,6 +100,6 @@ def run(where, limit=MAX_LIMIT, ids=None, dry_run=False, model=gemini.generate_j
         detail += f"; failed {len(failures)} (left blank)"
     if skipped:
         detail += f"; skipped {len(skipped)} changed rows"
-    append_run(api, "profile", where, "OK" if not (failures or skipped) else "PARTIAL", detail)
+    append_run(api, "profile", where, "OK" if not (failures or skipped) else "PARTIAL", detail, sheet_id)
     return {"dry_run": False, "results": dict(counts), "written": written,
             "failed": failures, "skipped": skipped, "tokens": dict(tokens)}

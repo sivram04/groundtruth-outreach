@@ -110,7 +110,8 @@ def test_dry_run_reads_and_models_without_writing(monkeypatch):
     tab = FakeTab("A_Contact_Now", [(3, {"Lead ID": "A-0001", "Company": "Example",
                                             "Website": "https://example.test/", "Email check": "OK",
                                             "Fit": "QUALIFIED"})])
-    monkeypatch.setattr(job_profile, "Tab", lambda api, name, system: tab if name == tab.name else FakeTab(name, []))
+    monkeypatch.setattr(job_profile, "Tab",
+                       lambda api, name, system, sheet_id=None: tab if name == tab.name else FakeTab(name, []))
     monkeypatch.setattr(job_profile, "append_run", lambda *a: (_ for _ in ()).throw(AssertionError("no run row")))
     result = job_profile.run("test", limit=1, ids={"A-0001"}, dry_run=True, model=model_with(
         (1, "We install electrical distribution systems for commercial buildings.", "OFFERING")))

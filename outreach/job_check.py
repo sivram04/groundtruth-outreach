@@ -10,15 +10,16 @@ import re
 from collections import Counter
 
 from outreach import checks
-from outreach.sheet import CHECK_COLUMNS, LEAD_TABS, SYSTEM_COLUMNS, Tab, _api, append_run, now_utc
+from outreach.sheet import (CHECK_COLUMNS, LEAD_TABS, SHEET_ID, SYSTEM_COLUMNS, Tab, _api,
+                            append_run, now_utc)
 
 ID_RE = re.compile(r"^([A-Z])-(\d{4,})$")
 
 
-def read_leads(api):
+def read_leads(api, sheet_id=SHEET_ID):
     """Read A and B, add missing system columns, and describe every lead.
     Returns (tabs, pending, first_seen); pending holds (tab, sheet_row, lead, row_values)."""
-    tabs = [Tab(api, name, SYSTEM_COLUMNS) for name in LEAD_TABS]
+    tabs = [Tab(api, name, SYSTEM_COLUMNS, sheet_id) for name in LEAD_TABS]
     for tab in tabs:
         tab.ensure_columns(CHECK_COLUMNS)
 
@@ -56,9 +57,9 @@ def write_all(tabs, updates):
     return written, skipped
 
 
-def run(where):
-    api = _api()
-    tabs, pending, first_seen = read_leads(api)
+def run(where, *, api=None, sheet_id=SHEET_ID):
+    api = api or _api()
+    tabs, pending, first_seen = read_leads(api, sheet_id)
 
     to_check = [(t, r, l, v) for t, r, l, v in pending if not v.get("Email check")]
     mx, live, published = checks.lookups([l for _, _, l, _ in to_check])
@@ -82,7 +83,7 @@ def run(where):
               if counts else "no new rows to check")
     if skipped:
         detail += f"; skipped {len(skipped)} rows that changed during the run: " + "; ".join(skipped[:5])
-    append_run(api, "check", where, "OK" if not skipped else "PARTIAL", detail)
+    append_run(api, "check", where, "OK" if not skipped else "PARTIAL", detail, sheet_id)
     return {"results": dict(counts), "written": written, "skipped": skipped}
 
 

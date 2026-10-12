@@ -9,15 +9,15 @@ from outreach import job_auto, job_check, job_profile, job_research
 def test_runs_check_research_then_profile_in_order(monkeypatch):
     order = []
 
-    def fake_check(where):
+    def fake_check(where, **kwargs):
         order.append("check")
         return {"results": {}, "written": 0, "skipped": []}
 
-    def fake_research(where, limit=job_research.DEFAULT_LIMIT, ids=None):
+    def fake_research(where, limit=job_research.DEFAULT_LIMIT, ids=None, **kwargs):
         order.append("research")
         return {"results": {}, "written": 0, "skipped": [], "failures": []}
 
-    def fake_profile(where, limit=job_profile.MAX_LIMIT, ids=None, dry_run=False):
+    def fake_profile(where, limit=job_profile.MAX_LIMIT, ids=None, dry_run=False, **kwargs):
         order.append("profile")
         return {"results": {}, "written": 0, "skipped": [], "failures": []}
 
@@ -33,11 +33,11 @@ def test_runs_check_research_then_profile_in_order(monkeypatch):
 def test_passes_through_where_and_limits(monkeypatch):
     seen = {}
 
-    monkeypatch.setattr(job_check, "run", lambda where: seen.setdefault("check", where) and {})
+    monkeypatch.setattr(job_check, "run", lambda where, **kw: seen.setdefault("check", where) and {})
     monkeypatch.setattr(job_research, "run",
-                       lambda where, limit=None, ids=None: seen.update(research_where=where, research_limit=limit) or {})
+                       lambda where, limit=None, ids=None, **kw: seen.update(research_where=where, research_limit=limit) or {})
     monkeypatch.setattr(job_profile, "run",
-                       lambda where, limit=None, ids=None, dry_run=False: seen.update(profile_where=where, profile_limit=limit) or {})
+                       lambda where, limit=None, ids=None, dry_run=False, **kw: seen.update(profile_where=where, profile_limit=limit) or {})
 
     job_auto.run("cloud-run", research_limit=10, profile_limit=3)
     assert seen["check"] == "cloud-run"
