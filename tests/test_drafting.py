@@ -257,7 +257,7 @@ def test_reconcile_only_finalizes_one_matching_draft(monkeypatch):
     row = lead(**{"Draft action": "action-1", "Draft status": "RESERVED",
                   "Draft hash": "hash", "Draft action at": "2026-09-22T12:00:00+00:00"})
     tab = FakeTab(row)
-    monkeypatch.setattr(job_draft, "_read", lambda api, ids: ([tab], [(tab, 3, row)], []))
+    monkeypatch.setattr(job_draft, "_read", lambda api, ids, sheet_id=None: ([tab], [(tab, 3, row)], []))
     monkeypatch.setattr(gmail_drafts, "drafts_for_action", lambda gmail, action: [])
     assert job_draft.reconcile("A-0001", api=object(), gmail=Mailbox())["status"] == "UNRESOLVED"
     assert tab.writes == []

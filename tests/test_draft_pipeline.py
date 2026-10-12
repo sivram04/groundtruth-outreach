@@ -334,13 +334,13 @@ def ready(monkeypatch):
     monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
     row = lead()
     tab = FakeTab(row)
-    monkeypatch.setattr(job_draft, "_read", lambda api, ids: ([tab], [(tab, 3, row)], facts()))
-    monkeypatch.setattr(job_draft, "_suppressed", lambda api, email: False)
+    monkeypatch.setattr(job_draft, "_read", lambda api, ids, sheet_id=None: ([tab], [(tab, 3, row)], facts()))
+    monkeypatch.setattr(job_draft, "_suppressed", lambda api, email, sheet_id=None: False)
     # By default no call decision restricts this lead; the call-gate tests restore the real reader.
-    monkeypatch.setattr(job_draft, "_call_effect", lambda api, lead_id: calls.CONTINUE)
+    monkeypatch.setattr(job_draft, "_call_effect", lambda api, lead_id, sheet_id=None: calls.CONTINUE)
     monkeypatch.setattr(gmail_drafts, "prior_sends", lambda gmail, recipient: False)
     monkeypatch.setattr(gmail_drafts, "existing_drafts", lambda gmail, recipient: [])
-    monkeypatch.setattr(job_draft, "Tab", lambda api, name, cols: tab)
+    monkeypatch.setattr(job_draft, "Tab", lambda api, name, cols, sheet_id=None: tab)
     # The candidate is confirmed by an authorized human, so the happy path clears the review gate.
     # Built once here (the model is available now); the review-gate tests override the store.
     store = confirmed_store(row)
@@ -543,13 +543,13 @@ def test_the_default_review_store_is_fail_closed(monkeypatch):
     monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
     row = lead()
     tab = FakeTab(row)
-    monkeypatch.setattr(job_draft, "_read", lambda api, ids: ([tab], [(tab, 3, row)], facts()))
-    monkeypatch.setattr(job_draft, "_suppressed", lambda api, email: False)
+    monkeypatch.setattr(job_draft, "_read", lambda api, ids, sheet_id=None: ([tab], [(tab, 3, row)], facts()))
+    monkeypatch.setattr(job_draft, "_suppressed", lambda api, email, sheet_id=None: False)
     # By default no call decision restricts this lead; the call-gate tests restore the real reader.
-    monkeypatch.setattr(job_draft, "_call_effect", lambda api, lead_id: calls.CONTINUE)
+    monkeypatch.setattr(job_draft, "_call_effect", lambda api, lead_id, sheet_id=None: calls.CONTINUE)
     monkeypatch.setattr(gmail_drafts, "prior_sends", lambda gmail, recipient: False)
     monkeypatch.setattr(gmail_drafts, "existing_drafts", lambda gmail, recipient: [])
-    monkeypatch.setattr(job_draft, "Tab", lambda api, name, cols: tab)
+    monkeypatch.setattr(job_draft, "Tab", lambda api, name, cols, sheet_id=None: tab)
     created = []
     monkeypatch.setattr(gmail_drafts, "create",
                         lambda gmail, **kw: created.append(kw) or {"id": "draft-1"})

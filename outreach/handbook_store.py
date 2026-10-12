@@ -27,21 +27,21 @@ MIN_CHARS = 200
 MAX_CHARS = 60_000
 
 
-def _rows(api):
+def _rows(api, sheet_id=SHEET_ID):
     try:
-        return (api.values().get(spreadsheetId=SHEET_ID, range=f"'{TAB}'")
+        return (api.values().get(spreadsheetId=sheet_id, range=f"'{TAB}'")
                 .execute().get("values", []))
     except Exception:
         return []
 
 
-def active(*, api=None):
+def active(*, api=None, sheet_id=SHEET_ID):
     """The active stored playbook as a handbook dict, or None.
 
     None when the tab is absent or empty, its header is not exactly the schema, or the latest row's
     text is too short to be a playbook. A None result means the Drive handbook stays the source.
     """
-    values = _rows(api or _api())
+    values = _rows(api or _api(), sheet_id)
     if len(values) < 2 or values[0] != HEADER:
         return None
     row = dict(zip(HEADER, values[-1]))  # append order is the authority; the latest row is active
@@ -56,7 +56,7 @@ def active(*, api=None):
             "version": content_hash[:12], "source": "stored"}
 
 
-def set_active(text, *, set_by, name="", source="upload", api=None, now=None):
+def set_active(text, *, set_by, name="", source="upload", api=None, now=None, sheet_id=SHEET_ID):
     """Append a new active playbook row from the founder's own text. Returns its content hash.
 
     The text is the founder's product/outreach guidance (uploaded or typed); it is stored verbatim
@@ -69,10 +69,10 @@ def set_active(text, *, set_by, name="", source="upload", api=None, now=None):
     if not (set_by or "").strip():
         raise ValueError("a playbook change must name who set it")
     api = api or _api()
-    ensure_tab(api, TAB, HEADER)
+    ensure_tab(api, TAB, HEADER, sheet_id)
     content_hash = playbook.content_hash(text)
     stamp = (now or datetime.now(timezone.utc)).isoformat()
     api.values().append(
-        spreadsheetId=SHEET_ID, range=f"'{TAB}'!A1", valueInputOption="RAW",
+        spreadsheetId=sheet_id, range=f"'{TAB}'!A1", valueInputOption="RAW",
         body={"values": [[stamp, set_by, source, name, content_hash, text]]}).execute()
     return content_hash

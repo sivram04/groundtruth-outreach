@@ -35,8 +35,8 @@ def load_settings(path=CONFIG_PATH):
     return json.loads(Path(path).read_text(encoding="utf-8-sig")) if Path(path).exists() else {}
 
 
-def _records(api, tab_name, header_row=1):
-    values = api.values().get(spreadsheetId=SHEET_ID, range=f"'{tab_name}'").execute().get("values", [])
+def _records(api, tab_name, header_row=1, sheet_id=SHEET_ID):
+    values = api.values().get(spreadsheetId=sheet_id, range=f"'{tab_name}'").execute().get("values", [])
     if len(values) < header_row:
         return []
     header = values[header_row - 1]
@@ -44,14 +44,14 @@ def _records(api, tab_name, header_row=1):
             for row in values[header_row:]]
 
 
-def _suppressed(api, email):
+def _suppressed(api, email, sheet_id=SHEET_ID):
     """Whether the address is suppressed, or None when the list cannot be read: never a guess.
 
     `drafting.preview` treats None as unknown and blocks on it. The tab is read through the one
     contract in `outreach/suppression.py`, the same one the Store uses, so this reader and that
     one accept the same headers and refuse the same rows."""
     try:
-        values = api.values().get(spreadsheetId=SHEET_ID,
+        values = api.values().get(spreadsheetId=sheet_id,
                                   range="'Suppression'").execute().get("values", [])
         entries = suppression.of_values(values)
     except Exception:
@@ -59,7 +59,7 @@ def _suppressed(api, email):
     return suppression.covers(entries, email)
 
 
-def _call_effect(api, lead_id):
+def _call_effect(api, lead_id, sheet_id=SHEET_ID):
     """The lead's email effect from the Call log (STOP / HOLD / CONTINUE), read at the draft-creation
     boundary. Raises DraftBlocked when the Call log exists but cannot be read (fail closed) - unreadable
     call history never means unrestricted outreach. A missing Call log tab means no calls (CONTINUE); its
@@ -68,13 +68,13 @@ def _call_effect(api, lead_id):
     approval is still honoured."""
     try:
         titles = {s["properties"]["title"]
-                  for s in api.get(spreadsheetId=SHEET_ID).execute().get("sheets", [])}
+                  for s in api.get(spreadsheetId=sheet_id).execute().get("sheets", [])}
     except Exception:
         raise DraftBlocked("the call log could not be read; no draft is created") from None
     if CALLS_TAB not in titles:
         return calls.CONTINUE  # no Call log tab: this company has no call decisions (as Store does)
     try:
-        values = (api.values().get(spreadsheetId=SHEET_ID, range=f"'{CALLS_TAB}'")
+        values = (api.values().get(spreadsheetId=sheet_id, range=f"'{CALLS_TAB}'")
                   .execute().get("values", []))
     except Exception:
         # The tab exists but cannot be read: fail closed rather than treat it as no restriction.
@@ -90,19 +90,19 @@ def _call_effect(api, lead_id):
     return calls.outreach_effect([r for r in rows if r.get("Lead ID") == lead_id])
 
 
-def _read(api, ids):
+def _read(api, ids, sheet_id=SHEET_ID):
     if not 1 <= len(ids) <= MAX_PILOT or len(set(ids)) != len(ids):
         raise DraftBlocked("supply one to four distinct Lead IDs")
-    tabs = [Tab(api, name, SYSTEM_COLUMNS) for name in LEAD_TABS]
+    tabs = [Tab(api, name, SYSTEM_COLUMNS, sheet_id) for name in LEAD_TABS]
     matches = [(tab, row, lead) for tab in tabs for row, lead in tab.rows
                if lead.get("Lead ID") in ids]
     if len(matches) != len(ids) or {lead.get("Lead ID") for _, _, lead in matches} != set(ids):
         raise DraftBlocked("a Lead ID is missing or duplicated")
-    facts = _records(api, "Research")
+    facts = _records(api, "Research", sheet_id=sheet_id)
     return tabs, matches, facts
 
 
-def _handbook(settings, handbook=None, drive=None, api=None, doc_id=None):
+def _handbook(settings, handbook=None, drive=None, api=None, doc_id=None, sheet_id=SHEET_ID):
     """The active playbook, or the reason there is none. Never a local substitute.
 
     An explicit ``handbook`` wins (tests, and callers that already hold one). A ``doc_id`` (a
@@ -117,7 +117,7 @@ def _handbook(settings, handbook=None, drive=None, api=None, doc_id=None):
         return handbook, None
     try:
         if api is not None and doc_id is None:
-            stored = handbook_store.active(api=api)
+            stored = handbook_store.active(api=api, sheet_id=sheet_id)
             if stored is not None:
                 return stored, None
         return handbook_drive.load(settings, drive=drive, doc_id=doc_id), None
@@ -132,7 +132,7 @@ def _projects(projects, settings):
     return projects if projects is not None else {proj.DEFAULT_ID: proj.default_project(settings)}
 
 
-def project_handbook(lead, settings, projects, *, handbook=None, drive=None, api=None):
+def project_handbook(lead, settings, projects, *, handbook=None, drive=None, api=None, sheet_id=SHEET_ID):
     """The handbook a lead drafts from, chosen by its project (`projects.handbook_doc_for`), or the
     reason there is none. A lead in a project with no handbook, and no settings fallback, is refused -
     the handbook is never guessed. `handbook` (a preloaded book) short-circuits for tests.
@@ -146,7 +146,7 @@ def project_handbook(lead, settings, projects, *, handbook=None, drive=None, api
     doc_id = proj.handbook_doc_for(lead, projects, settings)
     if not doc_id:
         if api is not None:
-            return _handbook(settings, drive=drive, api=api)
+            return _handbook(settings, drive=drive, api=api, sheet_id=sheet_id)
         return None, "handbook unavailable: this lead's project has no handbook configured"
     return _handbook(settings, drive=drive, doc_id=doc_id)
 
@@ -244,7 +244,8 @@ def _gate_hash(result, handbook, settings, review_store):
 
 
 def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
-             write=False, model=None, drive=None, handbook=None, review_store=None, projects=None):
+             write=False, model=None, drive=None, handbook=None, review_store=None, projects=None,
+             sheet_id=SHEET_ID):
     settings = load_settings() if settings is None else settings
     projects = _projects(projects, settings)
     quote_choices = quote_choices or {}
@@ -272,20 +273,21 @@ def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
                            None, settings, review_store)
                 for lead_id in ids]
     api = api or _api()
-    _, matches, facts = _read(api, ids)
+    _, matches, facts = _read(api, ids, sheet_id)
     by_id = {lead["Lead ID"]: lead for _, _, lead in matches}
     if write:
         out = []
         for i in ids:
-            book, why = project_handbook(by_id[i], settings, projects, handbook=handbook, drive=drive, api=api)
+            book, why = project_handbook(by_id[i], settings, projects, handbook=handbook, drive=drive,
+                                        api=api, sheet_id=sheet_id)
             out.append(written_preview(by_id[i], facts, settings, book,
-                                       suppressed=_suppressed(api, by_id[i].get("BEST EMAIL", "")),
+                                       suppressed=_suppressed(api, by_id[i].get("BEST EMAIL", ""), sheet_id),
                                        model=model or gemini.generate_json,
                                        quote_id=quote_choices.get(i), review_store=review_store)
                        if book else _blocked(by_id[i], [], [why]))
         return out
     return [_gate_hash(drafting.preview(by_id[lead_id], facts, settings,
-                                        suppressed=_suppressed(api, by_id[lead_id].get("BEST EMAIL", "")),
+                                        suppressed=_suppressed(api, by_id[lead_id].get("BEST EMAIL", ""), sheet_id),
                                         subject_template=settings.get("subject_template"),
                                         selected_quote_id=quote_choices.get(lead_id)),
                        None, settings, review_store)
@@ -311,7 +313,7 @@ def _actions_today(tabs):
 
 
 def _revalidated(lead, facts, written, settings, handbook=None, drive=None, pages=None, api=None,
-                 projects=None):
+                 projects=None, sheet_id=SHEET_ID):
     """Re-judge an approved written draft against the live handbook, quotes and company name.
 
     The company name is re-derived from the company's own site exactly as the preview did, so
@@ -319,7 +321,7 @@ def _revalidated(lead, facts, written, settings, handbook=None, drive=None, page
     project handbook, so revalidation uses the same document the candidate was drafted from.
     """
     book, why = project_handbook(lead, settings, _projects(projects, settings), handbook=handbook,
-                                 drive=drive, api=api)
+                                 drive=drive, api=api, sheet_id=sheet_id)
     if not book:
         raise DraftBlocked(why)
     company, verified = drafting.verified_company_name(
@@ -354,7 +356,8 @@ def regate(lead, facts, written, settings, *, suppressed, handbook=None, drive=N
 
 
 def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
-           gmail=None, drive=None, handbook=None, pages=None, review_store=None, projects=None):
+           gmail=None, drive=None, handbook=None, pages=None, review_store=None, projects=None,
+           sheet_id=SHEET_ID):
     """Reserve in Sheets, create one Gmail draft, then finalize the Sheet row.
 
     A failed/uncertain create leaves RESERVED. No second create is attempted for that
@@ -374,21 +377,21 @@ def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
         raise DraftBlocked("a Drive-handbook written draft is required")
     settings = load_settings() if settings is None else settings
     api = api or _api()
-    tabs, matches, facts = _read(api, [lead_id])
+    tabs, matches, facts = _read(api, [lead_id], sheet_id)
     tab, row, lead = matches[0]
     # Enforce a recorded call decision at the real creation boundary. This is read now (not a cached
     # decision from candidate selection), so an approval granted before a later do-not-contact /
     # not-interested (STOP) or interested / callback (HOLD) cannot bypass it; unreadable call history
     # fails closed. Candidate selection (`drafts.plan`) also checks this, but a candidate approved before
     # the call would still reach here, so the final gate must live at the write boundary.
-    call_effect = _call_effect(api, lead_id)
+    call_effect = _call_effect(api, lead_id, sheet_id)
     if calls.blocks_outreach(call_effect):
         raise DraftBlocked(f"a recorded call outcome ({call_effect.lower()}) blocks emailing this lead; "
                            "no draft is created")
     book, rebuilt, company = _revalidated(lead, facts, written, settings, handbook, drive, pages,
-                                          api=api, projects=projects)
+                                          api=api, projects=projects, sheet_id=sheet_id)
     result = drafting.preview(lead, facts, settings,
-                             suppressed=_suppressed(api, lead.get("BEST EMAIL", "")),
+                             suppressed=_suppressed(api, lead.get("BEST EMAIL", ""), sheet_id),
                              handbook=book, written=rebuilt, company=company)
     if result["blockers"]:
         raise DraftBlocked("; ".join(result["blockers"]))
@@ -446,7 +449,7 @@ def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
     draft_id = draft.get("id")
     if not draft_id:
         raise DraftBlocked("Gmail did not return a draft ID; action remains RESERVED")
-    fresh = Tab(api, tab.name, SYSTEM_COLUMNS)
+    fresh = Tab(api, tab.name, SYSTEM_COLUMNS, sheet_id)
     match = [(r, v) for r, v in fresh.rows if v.get("Lead ID") == lead_id]
     if len(match) != 1 or match[0][1].get("Draft action") != action_id:
         raise DraftBlocked("draft exists in Gmail but Sheet reservation changed; reconcile manually")
@@ -460,7 +463,8 @@ def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
             "status": "CREATED"}
 
 
-def create_edited(lead_id, subject, body, *, approver, settings=None, api=None, gmail=None):
+def create_edited(lead_id, subject, body, *, approver, settings=None, api=None, gmail=None,
+                  sheet_id=SHEET_ID):
     """Create ONE Gmail draft from the founder's OWN final words, for the editable approve-and-send
     flow. These are the founder's words, approved by their authenticated click, so the model-grounding
     and evidence-review gate do not apply here - the founder owns and is accountable for the text.
@@ -482,17 +486,17 @@ def create_edited(lead_id, subject, body, *, approver, settings=None, api=None, 
         raise DraftBlocked("the subject line is too long")
     settings = load_settings() if settings is None else settings
     api = api or _api()
-    tabs, matches, facts = _read(api, [lead_id])
+    tabs, matches, facts = _read(api, [lead_id], sheet_id)
     if not matches:
         raise DraftBlocked(f"no lead {lead_id}")
     tab, row, lead = matches[0]
     to = (lead.get("BEST EMAIL") or "").strip().lower()
     if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", to):
         raise DraftBlocked("the lead has no valid email address")
-    call_effect = _call_effect(api, lead_id)
+    call_effect = _call_effect(api, lead_id, sheet_id)
     if calls.blocks_outreach(call_effect):
         raise DraftBlocked(f"a recorded call outcome ({call_effect.lower()}) blocks emailing this lead")
-    if _suppressed(api, lead.get("BEST EMAIL", "")):
+    if _suppressed(api, lead.get("BEST EMAIL", ""), sheet_id):
         raise DraftBlocked("this recipient is on the suppression list")
     # CAN-SPAM: the opt-out line always goes out, even if the founder edited around it.
     if drafting.OPT_OUT not in body:
@@ -532,7 +536,7 @@ def create_edited(lead_id, subject, body, *, approver, settings=None, api=None, 
     draft_id = draft.get("id")
     if not draft_id:
         raise DraftBlocked("Gmail did not return a draft ID; action remains RESERVED")
-    fresh = Tab(api, tab.name, SYSTEM_COLUMNS)
+    fresh = Tab(api, tab.name, SYSTEM_COLUMNS, sheet_id)
     match = [(r, v) for r, v in fresh.rows if v.get("Lead ID") == lead_id]
     if len(match) != 1 or match[0][1].get("Draft action") != action_id:
         raise DraftBlocked("draft exists in Gmail but Sheet reservation changed; reconcile manually")
@@ -544,12 +548,12 @@ def create_edited(lead_id, subject, body, *, approver, settings=None, api=None, 
     return {"lead_id": lead_id, "draft_id": draft_id, "action_id": action_id, "status": "CREATED"}
 
 
-def reconcile(lead_id, *, api=None, gmail=None):
+def reconcile(lead_id, *, api=None, gmail=None, sheet_id=SHEET_ID):
     """Find one reserved Gmail draft; never attempt to create a replacement."""
     if os.environ.get("ENABLE_GMAIL_DRAFTS") != "true":
         raise DraftBlocked("Gmail draft reconciliation is disabled")
     api = api or _api()
-    _, matches, _ = _read(api, [lead_id])
+    _, matches, _ = _read(api, [lead_id], sheet_id)
     tab, row, lead = matches[0]
     if lead.get("Draft status") != "RESERVED" or not lead.get("Draft action"):
         raise DraftBlocked("lead has no reserved draft action")
