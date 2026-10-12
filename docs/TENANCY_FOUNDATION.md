@@ -340,25 +340,54 @@ session:
 | `console.py` (IAP, one hardcoded identity)     | `tenant_console.py` (real sign-in, multi-account, isolated by RLS) |
 | `send.py` (console click or `auto_send.py`)    | **not wired for tenants - explicit founder decision needed** |
 
+## Update, 2026-10-12: real Cloud KMS wiring, proven live
+
+Provisioned a fresh KMS key for this work rather than reusing the abandoned codex branch's
+(`outreach-staging/google-refresh`, left untouched): `outreach-tenant/google-refresh`
+(`projects/lakshyaa-outreach/locations/us-central1/keyRings/outreach-tenant/cryptoKeys/
+google-refresh`, `GOOGLE_SYMMETRIC_ENCRYPTION`, 90-day rotation). `google-cloud-kms` and
+`grpcio`/`grpcio-status`/`grpc-google-iam-v1` installed into the shared venv (`google-crc32c`
+was already there) - the plain `pip install -r requirements-tenant.txt` hit pip's
+`resolution-too-deep` error in this environment; installing each package individually with
+`--no-deps`, pinned, worked around it without touching `requirements-tenant.txt` itself (still
+correct, just not what made this particular install succeed today).
+
+Ran `KMSVault`'s real `encrypt`/`decrypt` directly against the new key (not a fake client this
+time): encrypted a test refresh token, decrypted it back to the exact original, and confirmed
+the AAD binding actually enforces account isolation - decrypting the same ciphertext under a
+different `account_id` was refused (`Refused`) rather than silently succeeding. Test data was
+never written to the real database, only exercised in-memory.
+
+One environment wrinkle worth recording: this machine's ambient Application Default Credentials
+have `quota_project_id` set to an unrelated project (`jobradar-pilot-20261009`, from other work
+on this shared machine), so the KMS client had to be built with an explicit
+`client_options={"quota_project_id": "lakshyaa-outreach"}` for this one-off test. Production
+code never hits this: `KMSVault._get_client()` builds a plain `kms_v1.KeyManagementServiceClient()`
+with no options, which is correct once deployed under a Cloud Run service account scoped to
+`lakshyaa-outreach` - this wrinkle was purely an artifact of testing from a shared dev machine
+with other unrelated GCP projects' ADC state, not something the application code needs to
+handle.
+
 **What's still needed before an actual signed-in person (the founder's friend, or the founder's
 own second account) could use this for real, in order**:
-1. **Real Cloud KMS wiring** for the refresh-token ciphertext - every test so far, including the
-   one live-DB check, used an injected fake encrypt/decrypt pair.
-2. **An actual OAuth client in Testing mode** - `docs/OAUTH_VERIFICATION_CHECKLIST.md` on `main`
+1. **An actual OAuth client in Testing mode** - `docs/OAUTH_VERIFICATION_CHECKLIST.md` on `main`
    has the (short, no-verification-wait) steps; nothing in this branch is blocked on it, but
-   nothing works against real Google until it exists.
-3. **`tenant_console.py` deployed somewhere real**, given a real `conn_factory` pointed at
+   nothing works against real Google until it exists. **This is the founder's own action in
+   Cloud Console** - nothing further can be proven live without it.
+2. **`tenant_console.py` deployed somewhere real**, given a real `conn_factory` pointed at
    `outreach-tenant` (host `35.253.52.165`, root password in Secret Manager) instead of the fakes
-   every test uses.
-4. **The founder's own explicit decision on sending for tenant accounts** - whether/how
+   every test uses, and `GOOGLE_OAUTH_CLIENT_ID`/`_SECRET`/`_REDIRECT_URI`/`TENANT_TOKEN_KMS_KEY`
+   (now a real value: the key name above) wired as real env vars/secrets so
+   `google_connect.from_environment()` builds a real `Connector` instead of `None`.
+3. **The founder's own explicit decision on sending for tenant accounts** - whether/how
    `send.py` gets a third sanctioned caller, and what guard(s) it needs beyond what `console.py`
    and `auto_send.py` already have (the daily cap, suppression, call-log checks already live
    inside `send_created_draft`/`job_draft.create` either way).
-5. **Per-account settings/company identity** (`outreach/company_settings.py`'s product name,
+4. **Per-account settings/company identity** (`outreach/company_settings.py`'s product name,
    sender email, daily cap, etc.) are still a single global, read the same way regardless of
    which account's jobs are running - not addressed by this effort, and likely the next real gap
    once routing and sending are both wired.
-6. Follow-ups, sync/reply handling, tracking, calls, and A/B tests (`outreach/sync.py`,
+5. Follow-ups, sync/reply handling, tracking, calls, and A/B tests (`outreach/sync.py`,
    `tracking_job.py`, `calls.py`, `experiments.py`) all already take `Store`/`api` as parameters
    the same way the modules in this doc did, so the same `(api, sheet_id)`-threading pattern
    applies to them too - not yet done, not yet needed until the above are live.
