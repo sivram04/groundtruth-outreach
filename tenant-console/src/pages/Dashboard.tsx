@@ -207,6 +207,110 @@ function SheetCard({ sheetId, onLinked }: { sheetId: string | null; onLinked: (i
   );
 }
 
+// Edited/shown as "TabName:Prefix" lines - the system default is
+// "A_Contact_Now:A" / "B_Contact_Now:B", but every account can use its own tab names/prefixes.
+function formatLeadTabs(leadTabs: Record<string, string>): string {
+  return Object.entries(leadTabs)
+    .map(([name, prefix]) => `${name}:${prefix}`)
+    .join("\n");
+}
+
+function parseLeadTabs(text: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    const [name, prefix] = line.split(":").map((s) => s.trim());
+    if (name && prefix) result[name] = prefix;
+  }
+  return result;
+}
+
+function LeadTabsCard() {
+  const [text, setText] = useState("");
+  const [isCustom, setIsCustom] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const result = await api.getLeadTabs();
+      setText(formatLeadTabs(result.lead_tabs));
+      setIsCustom(result.is_custom);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load the lead tab layout.");
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const save = async () => {
+    setBusy(true);
+    setError("");
+    setSaved(false);
+    try {
+      const parsed = parseLeadTabs(text);
+      const result = await api.setLeadTabs(parsed);
+      setText(formatLeadTabs(result.lead_tabs));
+      setIsCustom(true);
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save the lead tab layout.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reset = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.clearLeadTabs();
+      setText(formatLeadTabs(result.lead_tabs));
+      setIsCustom(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not reset the lead tab layout.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card">
+      <h2>Lead tab layout</h2>
+      <p>
+        Which Sheet tabs hold your leads, one per line as <code>TabName:Prefix</code> (the prefix goes in
+        front of each Lead ID, e.g. A-0001). {isCustom ? "Using your own layout." : "Using the system default."}
+      </p>
+      {error && <div className="notice notice-error">{error}</div>}
+      {saved && <div className="notice notice-ok">Saved.</div>}
+      <textarea
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          setSaved(false);
+        }}
+        rows={4}
+        style={{
+          width: "100%", fontFamily: "monospace", fontSize: 13, padding: 8,
+          border: "1px solid var(--line-strong)", borderRadius: "var(--r)", marginBottom: 8,
+        }}
+      />
+      <div className="row">
+        <button className="btn btn-primary" onClick={save} disabled={busy || !text.trim()}>
+          Save
+        </button>
+        {isCustom && (
+          <button className="btn btn-ghost" onClick={reset} disabled={busy}>
+            Reset to default
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function JobsCard({ sheetReady }: { sheetReady: boolean }) {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<AutoRunResult | null>(null);
@@ -334,6 +438,7 @@ export function Dashboard({
       <AccountBar session={session} onSwitch={switchAccount} onSignInAnother={onAddAccount} onLogout={logout} />
       <ConnectCard account_id={session.account_id} />
       <SheetCard sheetId={sheetId} onLinked={(id) => setSheetId(id)} />
+      {!loadingSheet && sheetId && <LeadTabsCard />}
       {!loadingSheet && (
         <>
           <JobsCard sheetReady={Boolean(sheetId)} />

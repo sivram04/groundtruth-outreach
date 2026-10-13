@@ -12,6 +12,7 @@ Token encryption is NOT implemented yet. ``save_connection``/``read_connection``
 storing a refresh token in plain text by accident.
 """
 
+import json
 import uuid
 from dataclasses import dataclass
 
@@ -241,9 +242,47 @@ def set_sheet_id(conn, account_id, sheet_id):
 def clear_sheet_id(conn, account_id):
     """Unlink this account's Sheet (the Sheet itself is untouched - only the stored reference is
     removed), so `tenant_sheet.ensure_sheet` will create or link a new one next time instead of
-    treating the account as already having one."""
+    treating the account as already having one.
+    """
     cur = conn.cursor()
     cur.execute("UPDATE tenant.accounts SET sheet_id = %s WHERE id = %s", (None, account_id))
+    if cur.rowcount == 0:
+        raise TenancyError(f"no such account: {account_id}")
+
+
+# --- the account's own lead-tab layout (which Sheet tabs hold leads, and each one's Lead ID
+# prefix) - outreach.sheet.LEAD_TABS is the system default every account starts on ----------
+
+def get_lead_tabs(conn, account_id):
+    """This account's lead-tab layout ({tab name: Lead ID prefix}), or None if it has never set
+    one - the caller should fall back to `outreach.sheet.LEAD_TABS` (the system default every
+    account implicitly uses until it configures its own)."""
+    cur = conn.cursor()
+    cur.execute("SELECT lead_tabs FROM tenant.accounts WHERE id = %s", (account_id,))
+    row = cur.fetchone()
+    if not row or not row[0]:
+        return None
+    return json.loads(row[0])
+
+
+def set_lead_tabs(conn, account_id, lead_tabs):
+    """Record this account's own lead-tab layout, replacing any prior one."""
+    if not lead_tabs or not isinstance(lead_tabs, dict):
+        raise TenancyError("a non-empty {tab name: prefix} mapping is required")
+    for name, prefix in lead_tabs.items():
+        if not str(name).strip() or not str(prefix).strip():
+            raise TenancyError("every tab name and prefix must be non-empty")
+    cur = conn.cursor()
+    cur.execute("UPDATE tenant.accounts SET lead_tabs = %s WHERE id = %s",
+               (json.dumps(lead_tabs), account_id))
+    if cur.rowcount == 0:
+        raise TenancyError(f"no such account: {account_id}")
+
+
+def clear_lead_tabs(conn, account_id):
+    """Reset this account back to the system default lead-tab layout."""
+    cur = conn.cursor()
+    cur.execute("UPDATE tenant.accounts SET lead_tabs = %s WHERE id = %s", (None, account_id))
     if cur.rowcount == 0:
         raise TenancyError(f"no such account: {account_id}")
 

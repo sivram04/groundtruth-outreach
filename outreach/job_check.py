@@ -16,16 +16,16 @@ from outreach.sheet import (CHECK_COLUMNS, LEAD_TABS, SHEET_ID, SYSTEM_COLUMNS, 
 ID_RE = re.compile(r"^([A-Z])-(\d{4,})$")
 
 
-def read_leads(api, sheet_id=SHEET_ID):
+def read_leads(api, sheet_id=SHEET_ID, lead_tabs=LEAD_TABS):
     """Read A and B, add missing system columns, and describe every lead.
     Returns (tabs, pending, first_seen); pending holds (tab, sheet_row, lead, row_values)."""
-    tabs = [Tab(api, name, SYSTEM_COLUMNS, sheet_id) for name in LEAD_TABS]
+    tabs = [Tab(api, name, SYSTEM_COLUMNS, sheet_id) for name in lead_tabs]
     for tab in tabs:
         tab.ensure_columns(CHECK_COLUMNS)
 
     pending, first_seen = [], {}
     for tab in tabs:
-        prefix = LEAD_TABS[tab.name]
+        prefix = lead_tabs[tab.name]
         used = [int(m.group(2)) for _, v in tab.rows if (m := ID_RE.match(v.get("Lead ID", "")))]
         next_n = max(used, default=0) + 1
         for sheet_row, v in tab.rows:
@@ -57,9 +57,9 @@ def write_all(tabs, updates):
     return written, skipped
 
 
-def run(where, *, api=None, sheet_id=SHEET_ID):
+def run(where, *, api=None, sheet_id=SHEET_ID, lead_tabs=LEAD_TABS):
     api = api or _api()
-    tabs, pending, first_seen = read_leads(api, sheet_id)
+    tabs, pending, first_seen = read_leads(api, sheet_id, lead_tabs)
 
     to_check = [(t, r, l, v) for t, r, l, v in pending if not v.get("Email check")]
     mx, live, published = checks.lookups([l for _, _, l, _ in to_check])

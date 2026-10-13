@@ -59,6 +59,17 @@ class FakeCursor:
                 self.rowcount = 1
             else:
                 self.rowcount = 0
+        elif sql.startswith("SELECT lead_tabs FROM tenant.accounts"):
+            (account_id,) = params
+            self._last = ([(self.store.get("lead_tabs", {}).get(account_id),)]
+                          if account_id in self.store["accounts"] else [])
+        elif sql.startswith("UPDATE tenant.accounts SET lead_tabs"):
+            lead_tabs, account_id = params
+            if account_id in self.store["accounts"]:
+                self.store.setdefault("lead_tabs", {})[account_id] = lead_tabs
+                self.rowcount = 1
+            else:
+                self.rowcount = 0
         else:
             raise AssertionError(f"FakeCursor does not know this query: {sql}")
 
@@ -227,6 +238,53 @@ def test_two_accounts_have_independent_sheets():
     tenancy.set_sheet_id(conn, b.id, "sheet-b")
     assert tenancy.get_sheet_id(conn, a.id) == "sheet-a"
     assert tenancy.get_sheet_id(conn, b.id) == "sheet-b"
+
+
+def test_a_new_account_has_no_lead_tabs_layout_yet():
+    conn = FakeConn()
+    account = tenancy.resolve_identity(conn, "subj-1", "sam@example.test")
+    assert tenancy.get_lead_tabs(conn, account.id) is None
+
+
+def test_set_lead_tabs_is_then_read_back():
+    conn = FakeConn()
+    account = tenancy.resolve_identity(conn, "subj-1", "sam@example.test")
+    tenancy.set_lead_tabs(conn, account.id, {"Leads": "L"})
+    assert tenancy.get_lead_tabs(conn, account.id) == {"Leads": "L"}
+
+
+def test_set_lead_tabs_refuses_an_empty_mapping():
+    conn = FakeConn()
+    account = tenancy.resolve_identity(conn, "subj-1", "sam@example.test")
+    with pytest.raises(tenancy.TenancyError):
+        tenancy.set_lead_tabs(conn, account.id, {})
+
+
+def test_set_lead_tabs_refuses_a_blank_name_or_prefix():
+    conn = FakeConn()
+    account = tenancy.resolve_identity(conn, "subj-1", "sam@example.test")
+    with pytest.raises(tenancy.TenancyError):
+        tenancy.set_lead_tabs(conn, account.id, {"": "L"})
+    with pytest.raises(tenancy.TenancyError):
+        tenancy.set_lead_tabs(conn, account.id, {"Leads": ""})
+
+
+def test_clear_lead_tabs_resets_to_the_system_default():
+    conn = FakeConn()
+    account = tenancy.resolve_identity(conn, "subj-1", "sam@example.test")
+    tenancy.set_lead_tabs(conn, account.id, {"Leads": "L"})
+    tenancy.clear_lead_tabs(conn, account.id)
+    assert tenancy.get_lead_tabs(conn, account.id) is None
+
+
+def test_two_accounts_have_independent_lead_tab_layouts():
+    conn = FakeConn()
+    a = tenancy.resolve_identity(conn, "subj-1", "sam@example.test")
+    b = tenancy.resolve_identity(conn, "subj-2", "pat@example.test")
+    tenancy.set_lead_tabs(conn, a.id, {"Leads A": "A"})
+    tenancy.set_lead_tabs(conn, b.id, {"Leads B": "B", "Referrals B": "R"})
+    assert tenancy.get_lead_tabs(conn, a.id) == {"Leads A": "A"}
+    assert tenancy.get_lead_tabs(conn, b.id) == {"Leads B": "B", "Referrals B": "R"}
 
 
 def test_clear_sheet_id_unlinks_it():

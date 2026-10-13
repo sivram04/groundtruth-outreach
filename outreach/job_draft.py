@@ -90,10 +90,10 @@ def _call_effect(api, lead_id, sheet_id=SHEET_ID):
     return calls.outreach_effect([r for r in rows if r.get("Lead ID") == lead_id])
 
 
-def _read(api, ids, sheet_id=SHEET_ID):
+def _read(api, ids, sheet_id=SHEET_ID, lead_tabs=LEAD_TABS):
     if not 1 <= len(ids) <= MAX_PILOT or len(set(ids)) != len(ids):
         raise DraftBlocked("supply one to four distinct Lead IDs")
-    tabs = [Tab(api, name, SYSTEM_COLUMNS, sheet_id) for name in LEAD_TABS]
+    tabs = [Tab(api, name, SYSTEM_COLUMNS, sheet_id) for name in lead_tabs]
     matches = [(tab, row, lead) for tab in tabs for row, lead in tab.rows
                if lead.get("Lead ID") in ids]
     if len(matches) != len(ids) or {lead.get("Lead ID") for _, _, lead in matches} != set(ids):
@@ -245,7 +245,7 @@ def _gate_hash(result, handbook, settings, review_store):
 
 def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
              write=False, model=None, drive=None, handbook=None, review_store=None, projects=None,
-             sheet_id=SHEET_ID):
+             sheet_id=SHEET_ID, lead_tabs=LEAD_TABS):
     settings = load_settings() if settings is None else settings
     projects = _projects(projects, settings)
     quote_choices = quote_choices or {}
@@ -273,7 +273,7 @@ def previews(ids, *, settings=None, api=None, fixture=None, quote_choices=None,
                            None, settings, review_store)
                 for lead_id in ids]
     api = api or _api()
-    _, matches, facts = _read(api, ids, sheet_id)
+    _, matches, facts = _read(api, ids, sheet_id, lead_tabs)
     by_id = {lead["Lead ID"]: lead for _, _, lead in matches}
     if write:
         out = []
@@ -357,7 +357,7 @@ def regate(lead, facts, written, settings, *, suppressed, handbook=None, drive=N
 
 def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
            gmail=None, drive=None, handbook=None, pages=None, review_store=None, projects=None,
-           sheet_id=SHEET_ID):
+           sheet_id=SHEET_ID, lead_tabs=LEAD_TABS):
     """Reserve in Sheets, create one Gmail draft, then finalize the Sheet row.
 
     A failed/uncertain create leaves RESERVED. No second create is attempted for that
@@ -377,7 +377,7 @@ def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
         raise DraftBlocked("a Drive-handbook written draft is required")
     settings = load_settings() if settings is None else settings
     api = api or _api()
-    tabs, matches, facts = _read(api, [lead_id], sheet_id)
+    tabs, matches, facts = _read(api, [lead_id], sheet_id, lead_tabs)
     tab, row, lead = matches[0]
     # Enforce a recorded call decision at the real creation boundary. This is read now (not a cached
     # decision from candidate selection), so an approval granted before a later do-not-contact /
@@ -464,7 +464,7 @@ def create(lead_id, approved_hash, *, written=None, settings=None, api=None,
 
 
 def create_edited(lead_id, subject, body, *, approver, settings=None, api=None, gmail=None,
-                  sheet_id=SHEET_ID):
+                  sheet_id=SHEET_ID, lead_tabs=LEAD_TABS):
     """Create ONE Gmail draft from the founder's OWN final words, for the editable approve-and-send
     flow. These are the founder's words, approved by their authenticated click, so the model-grounding
     and evidence-review gate do not apply here - the founder owns and is accountable for the text.
@@ -486,7 +486,7 @@ def create_edited(lead_id, subject, body, *, approver, settings=None, api=None, 
         raise DraftBlocked("the subject line is too long")
     settings = load_settings() if settings is None else settings
     api = api or _api()
-    tabs, matches, facts = _read(api, [lead_id], sheet_id)
+    tabs, matches, facts = _read(api, [lead_id], sheet_id, lead_tabs)
     if not matches:
         raise DraftBlocked(f"no lead {lead_id}")
     tab, row, lead = matches[0]
@@ -548,12 +548,12 @@ def create_edited(lead_id, subject, body, *, approver, settings=None, api=None, 
     return {"lead_id": lead_id, "draft_id": draft_id, "action_id": action_id, "status": "CREATED"}
 
 
-def reconcile(lead_id, *, api=None, gmail=None, sheet_id=SHEET_ID):
+def reconcile(lead_id, *, api=None, gmail=None, sheet_id=SHEET_ID, lead_tabs=LEAD_TABS):
     """Find one reserved Gmail draft; never attempt to create a replacement."""
     if os.environ.get("ENABLE_GMAIL_DRAFTS") != "true":
         raise DraftBlocked("Gmail draft reconciliation is disabled")
     api = api or _api()
-    _, matches, _ = _read(api, [lead_id], sheet_id)
+    _, matches, _ = _read(api, [lead_id], sheet_id, lead_tabs)
     tab, row, lead = matches[0]
     if lead.get("Draft status") != "RESERVED" or not lead.get("Draft action"):
         raise DraftBlocked("lead has no reserved draft action")

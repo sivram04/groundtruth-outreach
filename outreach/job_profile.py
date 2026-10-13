@@ -30,11 +30,11 @@ def select(tabs, limit=MAX_LIMIT, ids=None):
 
 
 def run(where, limit=MAX_LIMIT, ids=None, dry_run=False, model=gemini.generate_json, *,
-        api=None, sheet_id=SHEET_ID):
+        api=None, sheet_id=SHEET_ID, lead_tabs=LEAD_TABS):
     if not 1 <= limit <= MAX_LIMIT:
         raise ValueError(f"limit must be between 1 and {MAX_LIMIT}")
     api = api or _api()
-    tabs = [Tab(api, name, SYSTEM_COLUMNS, sheet_id) for name in LEAD_TABS]
+    tabs = [Tab(api, name, SYSTEM_COLUMNS, sheet_id) for name in lead_tabs]
     if not dry_run:
         for tab in tabs:
             tab.ensure_columns(PROFILE_COLUMNS)

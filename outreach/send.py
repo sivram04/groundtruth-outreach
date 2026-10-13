@@ -24,8 +24,8 @@ class SendBlocked(Exception):
     """A send could not safely proceed; no email was sent."""
 
 
-def _find(api, lead_id, sheet_id=SHEET_ID):
-    for name in LEAD_TABS:
+def _find(api, lead_id, sheet_id=SHEET_ID, lead_tabs=LEAD_TABS):
+    for name in lead_tabs:
         tab = Tab(api, name, SYSTEM_COLUMNS, sheet_id)
         for row, lead in tab.rows:
             if lead.get("Lead ID") == lead_id:
@@ -33,20 +33,21 @@ def _find(api, lead_id, sheet_id=SHEET_ID):
     raise SendBlocked(f"no lead {lead_id}")
 
 
-def _set_status(api, lead_id, *, expect, cells, sheet_id=SHEET_ID):
+def _set_status(api, lead_id, *, expect, cells, sheet_id=SHEET_ID, lead_tabs=LEAD_TABS):
     """Re-read the lead and write ``cells`` only while its Draft status still equals ``expect``.
 
     Returns True when the write landed, False when the row changed underneath (optimistic
     concurrency, like every other system write) so the caller never assumes a write it did not make.
     """
-    tab, row, lead = _find(api, lead_id, sheet_id)
+    tab, row, lead = _find(api, lead_id, sheet_id, lead_tabs)
     if (lead.get("Draft status") or "").upper() != expect:
         return False
     outcome = tab.write({row: cells})
     return outcome["written"] == 1 and not outcome["skipped"]
 
 
-def send_created_draft(lead_id, *, sent_by, api=None, gmail=None, now=None, sheet_id=SHEET_ID):
+def send_created_draft(lead_id, *, sent_by, api=None, gmail=None, now=None, sheet_id=SHEET_ID,
+                       lead_tabs=LEAD_TABS):
     """Send the Gmail draft already created for ``lead_id``, on a human's approval.
 
     Guards (any failure sends nothing): the send flag must be on; an approver must be named; the
@@ -59,7 +60,7 @@ def send_created_draft(lead_id, *, sent_by, api=None, gmail=None, now=None, shee
     if not (sent_by or "").strip():
         raise SendBlocked("a send must name the person who approved it")
     api = api or _api()
-    _, _, lead = _find(api, lead_id, sheet_id)
+    _, _, lead = _find(api, lead_id, sheet_id, lead_tabs)
 
     status = (lead.get("Draft status") or "").upper()
     if status in ("SENT", "SENDING") or (lead.get("Sent at") or "").strip():
@@ -70,7 +71,8 @@ def send_created_draft(lead_id, *, sent_by, api=None, gmail=None, now=None, shee
 
     # Reserve the send BEFORE touching Gmail. If this does not land, another request already has it
     # (or the row changed) and we must not send: at most one email leaves per created draft.
-    if not _set_status(api, lead_id, expect="CREATED", cells={"Draft status": "SENDING"}, sheet_id=sheet_id):
+    if not _set_status(api, lead_id, expect="CREATED", cells={"Draft status": "SENDING"},
+                       sheet_id=sheet_id, lead_tabs=lead_tabs):
         raise SendBlocked("the draft could not be reserved for sending; nothing was sent")
 
     gmail = gmail or gmail_drafts.client()
@@ -79,7 +81,8 @@ def send_created_draft(lead_id, *, sent_by, api=None, gmail=None, now=None, shee
 
     stamp = (now or datetime.now(timezone.utc)).isoformat()
     recorded = _set_status(api, lead_id, expect="SENDING",
-                           cells={"Draft status": "SENT", "Sent at": stamp}, sheet_id=sheet_id)
+                           cells={"Draft status": "SENT", "Sent at": stamp},
+                           sheet_id=sheet_id, lead_tabs=lead_tabs)
     # The email is out either way. If the record did not land, say so rather than claim a clean
     # state; the reservation (SENDING) still blocks a second send until it is reconciled.
     return {"lead_id": lead_id, "sent": True, "message_id": message_id,

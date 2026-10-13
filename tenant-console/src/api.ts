@@ -77,6 +77,21 @@ export const linkSheet = (sheetId?: string) =>
 
 export const unlinkSheet = () => call<{ ok: true }>("/api/account/sheet", { method: "DELETE" });
 
+export interface LeadTabsResult {
+  lead_tabs: Record<string, string>;
+  is_custom: boolean;
+}
+
+export const getLeadTabs = () => call<LeadTabsResult>("/api/account/lead-tabs");
+
+export const setLeadTabs = (leadTabs: Record<string, string>) =>
+  call<LeadTabsResult>("/api/account/lead-tabs", {
+    method: "PUT",
+    body: JSON.stringify({ lead_tabs: leadTabs }),
+  });
+
+export const clearLeadTabs = () => call<LeadTabsResult>("/api/account/lead-tabs", { method: "DELETE" });
+
 export const runAuto = () => call<AutoRunResult>("/api/jobs/auto", { method: "POST" });
 
 export const previewDrafts = (ids: string[]) =>

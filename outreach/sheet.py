@@ -257,12 +257,13 @@ class Store:
     """The Sheet as the stage 4 jobs see it: the lead tabs, Events, Suppression and Runs, read
     once at the start of a run. Tests use an in-memory double with the same methods."""
 
-    def __init__(self, api=None, sheet_id=SHEET_ID):
+    def __init__(self, api=None, sheet_id=SHEET_ID, lead_tabs=None):
         self.api = api or _api()
         self.sheet_id = sheet_id
+        self.lead_tabs = lead_tabs if lead_tabs is not None else LEAD_TABS
         self.titles = {s["properties"]["title"]
                        for s in self.api.get(spreadsheetId=sheet_id).execute()["sheets"]}
-        self.tabs = [Tab(self.api, name, SYSTEM_COLUMNS, sheet_id) for name in LEAD_TABS]
+        self.tabs = [Tab(self.api, name, SYSTEM_COLUMNS, sheet_id) for name in self.lead_tabs]
 
     def leads(self):
         return {row["Lead ID"]: row for tab in self.tabs for _, row in tab.rows if row.get("Lead ID")}
@@ -387,7 +388,7 @@ class Store:
     def lead_columns(self, prefix):
         """The header of the lead tab for `prefix` (e.g. "A"), so an import can show which fields the
         destination can store before anything is written."""
-        name = next((tab for tab, pref in LEAD_TABS.items() if pref == str(prefix).strip().upper()),
+        name = next((tab for tab, pref in self.lead_tabs.items() if pref == str(prefix).strip().upper()),
                     None)
         if name is None:
             raise RuntimeError(f"{prefix} is not a lead tab prefix")
@@ -403,7 +404,7 @@ class Store:
         rather than silently drop a field the tab has no column for. Returns the Lead IDs, in row order."""
         if not rows:
             return []
-        name = next((tab for tab, pref in LEAD_TABS.items() if pref == str(prefix).strip().upper()),
+        name = next((tab for tab, pref in self.lead_tabs.items() if pref == str(prefix).strip().upper()),
                     None)
         if name is None:
             raise RuntimeError(f"{prefix} is not a lead tab prefix")
@@ -564,7 +565,7 @@ class Store:
 
     def fresh_lead(self, lead_id):
         """(tab, sheet row, values) for one lead, read again now."""
-        name = {prefix: tab for tab, prefix in LEAD_TABS.items()}.get(lead_id.split("-", 1)[0])
+        name = {prefix: tab for tab, prefix in self.lead_tabs.items()}.get(lead_id.split("-", 1)[0])
         if not name:
             raise RuntimeError(f"{lead_id} is not a lead ID")
         tab = Tab(self.api, name, SYSTEM_COLUMNS, self.sheet_id)

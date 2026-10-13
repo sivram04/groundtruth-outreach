@@ -42,6 +42,14 @@ class FakeCursor:
             if account_id in s["accounts"]:
                 s.setdefault("sheet_ids", {})[account_id] = sheet_id
                 self.rowcount = 1
+        elif sql.startswith("SELECT lead_tabs FROM tenant.accounts"):
+            (account_id,) = params
+            self._last = [(s.get("lead_tabs", {}).get(account_id),)] if account_id in s["accounts"] else []
+        elif sql.startswith("UPDATE tenant.accounts SET lead_tabs"):
+            lead_tabs, account_id = params
+            if account_id in s["accounts"]:
+                s.setdefault("lead_tabs", {})[account_id] = lead_tabs
+                self.rowcount = 1
         elif sql.startswith("INSERT INTO tenant.google_connections"):
             (account_id, connection_id, kind, google_subject, email, scopes,
              ciphertext, kms_key_name) = params
@@ -393,6 +401,68 @@ def test_disconnect_requires_signing_in_first(client_and_fakes):
     client, connector, store = client_and_fakes
     r = client.delete("/api/connections/gmail")
     assert r.status_code == 401
+
+
+def test_lead_tabs_defaults_to_the_system_layout(client_and_fakes):
+    client, connector, store = client_and_fakes
+    client.post("/api/session/google", json={"credential": "good-credential"})
+    r = client.get("/api/account/lead-tabs")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["is_custom"] is False
+    assert body["lead_tabs"] == {"A_Contact_Now": "A", "B_Contact_Now": "B"}
+
+
+def test_setting_lead_tabs_is_then_read_back(client_and_fakes):
+    client, connector, store = client_and_fakes
+    client.post("/api/session/google", json={"credential": "good-credential"})
+    custom = {"Leads": "L", "Referrals": "R"}
+    r = client.put("/api/account/lead-tabs", json={"lead_tabs": custom})
+    assert r.status_code == 200
+    assert r.get_json() == {"lead_tabs": custom, "is_custom": True}
+    r2 = client.get("/api/account/lead-tabs")
+    assert r2.get_json() == {"lead_tabs": custom, "is_custom": True}
+
+
+def test_setting_lead_tabs_refuses_an_empty_mapping(client_and_fakes):
+    client, connector, store = client_and_fakes
+    client.post("/api/session/google", json={"credential": "good-credential"})
+    r = client.put("/api/account/lead-tabs", json={"lead_tabs": {}})
+    assert r.status_code == 400
+
+
+def test_clearing_lead_tabs_resets_to_the_system_default(client_and_fakes):
+    client, connector, store = client_and_fakes
+    client.post("/api/session/google", json={"credential": "good-credential"})
+    client.put("/api/account/lead-tabs", json={"lead_tabs": {"Leads": "L"}})
+    r = client.delete("/api/account/lead-tabs")
+    assert r.status_code == 200
+    assert r.get_json() == {"lead_tabs": {"A_Contact_Now": "A", "B_Contact_Now": "B"}, "is_custom": False}
+    assert client.get("/api/account/lead-tabs").get_json()["is_custom"] is False
+
+
+def test_lead_tabs_route_requires_signing_in_first(client_and_fakes):
+    client, connector, store = client_and_fakes
+    assert client.get("/api/account/lead-tabs").status_code == 401
+    assert client.put("/api/account/lead-tabs", json={"lead_tabs": {"Leads": "L"}}).status_code == 401
+    assert client.delete("/api/account/lead-tabs").status_code == 401
+
+
+def test_jobs_auto_uses_the_accounts_own_lead_tabs(client_and_fakes, monkeypatch):
+    client, connector, store = client_and_fakes
+    account = client.post("/api/session/google", json={"credential": "good-credential"}).get_json()
+    _connect_drive(store, account["account_id"])
+    _fake_build(monkeypatch, spreadsheets=FakeSpreadsheets())
+    client.post("/api/account/sheet")
+    custom = {"Leads": "L"}
+    client.put("/api/account/lead-tabs", json={"lead_tabs": custom})
+
+    captured = {}
+    monkeypatch.setattr(job_auto, "run",
+                       lambda where, **kw: captured.update(kw) or {"checked": {}, "researched": {}, "profiled": {}})
+    r = client.post("/api/jobs/auto")
+    assert r.status_code == 200
+    assert captured["lead_tabs"] == custom
 
 
 def test_link_sheet_requires_a_drive_connection_first(client_and_fakes):

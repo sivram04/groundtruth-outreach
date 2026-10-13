@@ -38,6 +38,7 @@ from urllib.parse import quote
 from flask import Flask, jsonify, redirect, request, send_from_directory, session
 
 from outreach import google_connect, job_auto, job_draft, tenancy, tenant_google, tenant_sheet
+from outreach.sheet import LEAD_TABS
 
 log = logging.getLogger("outreach.tenant_console")
 
@@ -313,29 +314,64 @@ def create_app(*, conn_factory, verify_credential, connector=None, secret_key=No
         return jsonify(ok=True)
 
     def _sheet_context(conn, account_id):
-        """(sheet_id, api) for this account's own Sheet, or None with a (message, status) pair -
-        every /api/jobs/* route below needs both, and neither is ever the founder's."""
+        """(sheet_id, api, lead_tabs) for this account's own Sheet, or None with a (message,
+        status) pair - every /api/jobs/* route below needs all three, and none is ever the
+        founder's. `lead_tabs` falls back to the system default (outreach.sheet.LEAD_TABS) until
+        the account configures its own via PUT /api/account/lead-tabs."""
         sheet_id = tenancy.get_sheet_id(conn, account_id)
         if not sheet_id:
             return None, ("This account has no Sheet yet; call POST /api/account/sheet first.", 400)
         api, failure = _sheets_api(conn, account_id)
         if failure:
             return None, failure
-        return (sheet_id, api), None
+        lead_tabs = tenancy.get_lead_tabs(conn, account_id) or LEAD_TABS
+        return (sheet_id, api, lead_tabs), None
+
+    @app.get("/api/account/lead-tabs")
+    @_signed_in
+    @_with_conn
+    def get_lead_tabs_route(conn):
+        """This account's lead-tab layout - its own if configured, else the system default -
+        and whether it's a custom one (so the frontend can offer "reset to default")."""
+        active = session[ACTIVE_KEY]
+        custom = tenancy.get_lead_tabs(conn, active)
+        return jsonify(lead_tabs=custom or LEAD_TABS, is_custom=custom is not None)
+
+    @app.put("/api/account/lead-tabs")
+    @_signed_in
+    @_with_conn
+    def set_lead_tabs_route(conn):
+        """Set this account's own lead-tab layout ({tab name: Lead ID prefix}) - lets different
+        accounts organize their Sheet differently instead of all sharing one hardcoded layout."""
+        active = session[ACTIVE_KEY]
+        lead_tabs = (request.get_json(silent=True) or {}).get("lead_tabs")
+        try:
+            tenancy.set_lead_tabs(conn, active, lead_tabs)
+        except tenancy.TenancyError as exc:
+            return jsonify(error=str(exc)), 400
+        return jsonify(lead_tabs=lead_tabs, is_custom=True)
+
+    @app.delete("/api/account/lead-tabs")
+    @_signed_in
+    @_with_conn
+    def clear_lead_tabs_route(conn):
+        """Reset this account back to the system default lead-tab layout."""
+        tenancy.clear_lead_tabs(conn, session[ACTIVE_KEY])
+        return jsonify(lead_tabs=LEAD_TABS, is_custom=False)
 
     @app.post("/api/jobs/auto")
     @_signed_in
     @_with_conn
     def jobs_auto(conn):
         """Run check, research and profile for the active account's own leads - the same three
-        stages `job_auto.run` always chains, just against this account's own Sheet instead of
-        the founder's."""
+        stages `job_auto.run` always chains, just against this account's own Sheet (and its own
+        lead-tab layout) instead of the founder's."""
         active = session[ACTIVE_KEY]
         context, failure = _sheet_context(conn, active)
         if failure:
             return jsonify(error=failure[0]), failure[1]
-        sheet_id, api = context
-        return jsonify(job_auto.run("tenant-console", api=api, sheet_id=sheet_id))
+        sheet_id, api, lead_tabs = context
+        return jsonify(job_auto.run("tenant-console", api=api, sheet_id=sheet_id, lead_tabs=lead_tabs))
 
     @app.post("/api/jobs/draft/preview")
     @_signed_in
@@ -345,12 +381,12 @@ def create_app(*, conn_factory, verify_credential, connector=None, secret_key=No
         context, failure = _sheet_context(conn, active)
         if failure:
             return jsonify(error=failure[0]), failure[1]
-        sheet_id, api = context
+        sheet_id, api, lead_tabs = context
         body = request.get_json(silent=True) or {}
         ids = body.get("ids") or []
         try:
-            result = job_draft.previews(ids, api=api, sheet_id=sheet_id, write=bool(body.get("write")),
-                                        quote_choices=body.get("quote_choices"))
+            result = job_draft.previews(ids, api=api, sheet_id=sheet_id, lead_tabs=lead_tabs,
+                                        write=bool(body.get("write")), quote_choices=body.get("quote_choices"))
         except job_draft.DraftBlocked as exc:
             return jsonify(error=str(exc)), 400
         return jsonify(previews=result)
@@ -363,7 +399,7 @@ def create_app(*, conn_factory, verify_credential, connector=None, secret_key=No
         context, failure = _sheet_context(conn, active)
         if failure:
             return jsonify(error=failure[0]), failure[1]
-        sheet_id, api = context
+        sheet_id, api, lead_tabs = context
         gmail, failure = _gmail_api(conn, active)
         if failure:
             return jsonify(error=failure[0]), failure[1]
@@ -371,7 +407,7 @@ def create_app(*, conn_factory, verify_credential, connector=None, secret_key=No
         try:
             result = job_draft.create(body.get("lead_id"), body.get("approved_hash"),
                                       written=body.get("written"), api=api, gmail=gmail,
-                                      sheet_id=sheet_id)
+                                      sheet_id=sheet_id, lead_tabs=lead_tabs)
         except job_draft.DraftBlocked as exc:
             return jsonify(error=str(exc)), 400
         return jsonify(result)

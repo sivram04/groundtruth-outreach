@@ -34,9 +34,10 @@ def select(tabs, limit, ids=None):
     return chosen if ids is not None else chosen[:limit]
 
 
-def run(where, limit=DEFAULT_LIMIT, ids=None, model=gemini.generate_json, *, api=None, sheet_id=SHEET_ID):
+def run(where, limit=DEFAULT_LIMIT, ids=None, model=gemini.generate_json, *, api=None, sheet_id=SHEET_ID,
+        lead_tabs=LEAD_TABS):
     api = api or _api()
-    tabs = [Tab(api, name, SYSTEM_COLUMNS, sheet_id) for name in LEAD_TABS]
+    tabs = [Tab(api, name, SYSTEM_COLUMNS, sheet_id) for name in lead_tabs]
     for tab in tabs:
         tab.ensure_columns(RESEARCH_COLUMNS)
     chosen = select(tabs, limit, ids)

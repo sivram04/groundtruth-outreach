@@ -334,7 +334,7 @@ def ready(monkeypatch):
     monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
     row = lead()
     tab = FakeTab(row)
-    monkeypatch.setattr(job_draft, "_read", lambda api, ids, sheet_id=None: ([tab], [(tab, 3, row)], facts()))
+    monkeypatch.setattr(job_draft, "_read", lambda api, ids, sheet_id=None, lead_tabs=None: ([tab], [(tab, 3, row)], facts()))
     monkeypatch.setattr(job_draft, "_suppressed", lambda api, email, sheet_id=None: False)
     # By default no call decision restricts this lead; the call-gate tests restore the real reader.
     monkeypatch.setattr(job_draft, "_call_effect", lambda api, lead_id, sheet_id=None: calls.CONTINUE)
@@ -543,7 +543,7 @@ def test_the_default_review_store_is_fail_closed(monkeypatch):
     monkeypatch.setenv("ENABLE_GMAIL_DRAFTS", "true")
     row = lead()
     tab = FakeTab(row)
-    monkeypatch.setattr(job_draft, "_read", lambda api, ids, sheet_id=None: ([tab], [(tab, 3, row)], facts()))
+    monkeypatch.setattr(job_draft, "_read", lambda api, ids, sheet_id=None, lead_tabs=None: ([tab], [(tab, 3, row)], facts()))
     monkeypatch.setattr(job_draft, "_suppressed", lambda api, email, sheet_id=None: False)
     # By default no call decision restricts this lead; the call-gate tests restore the real reader.
     monkeypatch.setattr(job_draft, "_call_effect", lambda api, lead_id, sheet_id=None: calls.CONTINUE)
